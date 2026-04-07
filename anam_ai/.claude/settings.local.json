@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Claude_Preview__preview_start",
+      "Bash(lsof -ti:5001 -ti:3001)",
+      "Bash(xargs kill:*)",
+      "WebFetch(domain:anam.ai)",
+      "WebFetch(domain:api.anam.ai)",
+      "Bash(curl -s -H \"Authorization: Bearer MzMwZDk1OTEtMTgxZi00MTU2LWJlMDItYjQ1MWZmZWRmZTg1OlNHbnUrUk43M2NlSm1EdER1cFhIcVdhdDNjSytKbjZpeU1zQ29URFlqd2c9\" \"https://api.anam.ai/v1/avatars\")",
+      "Bash(curl -s -H \"Authorization: Bearer MzMwZDk1OTEtMTgxZi00MTU2LWJlMDItYjQ1MWZmZWRmZTg1OlNHbnUrUk43M2NlSm1EdER1cFhIcVdhdDNjSytKbjZpeU1zQ29URFlqd2c9\" \"https://api.anam.ai/v1/voices\")",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\)[''''data'''']; [print\\(f{v[''''id'''']} | {v[''''displayName'''']} | {v[''''gender'''']} | {v.get\\(''''country'''',''''''''\\)}\\) for v in data if v[''''gender'''']==''''FEMALE'''']\")",
+      "Bash(npm uninstall:*)",
+      "WebFetch(domain:docs.anam.ai)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s -X POST https://api.anam.ai/v1/auth/session-token -H 'Authorization: Bearer MzMwZDk1OTEtMTgxZi00MTU2LWJlMDItYjQ1MWZmZWRmZTg1OlNHbnUrUk43M2NlSm1EdER1cFhIcVdhdDNjSytKbjZpeU1zQ29URFlqd2c9' -H 'Content-Type: application/json' -d '{:*)",
+      "Bash(curl -s -H 'Authorization: Bearer MzMwZDk1OTEtMTgxZi00MTU2LWJlMDItYjQ1MWZmZWRmZTg1OlNHbnUrUk43M2NlSm1EdER1cFhIcVdhdDNjSytKbjZpeU1zQ29URFlqd2c9' https://api.anam.ai/v1/llms)",
+      "Bash(python3 -c \"import sys,json,base64; t=json.load\\(sys.stdin\\)[''''sessionToken'''']; payload=t.split\\(''''.''''\\)[1]; payload+=''''=''''*\\(4-len\\(payload\\)%4\\); d=json.loads\\(base64.b64decode\\(payload\\)\\); print\\(json.dumps\\(d,indent=2\\)\\)\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5001)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3001/api/session -X POST)",
+      "Bash(lsof -ti:3001)",
+      "Bash(lsof -ti:5001)",
+      "Bash(curl -s http://localhost:5001)"
+    ]
+  }
+}

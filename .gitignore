@@ -1,0 +1,68 @@
+# --- Secrets & environment (never commit real values) ---
+.env
+.env.*
+!**/.env.example
+!**/.env.*.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.envrc
+*.egg-info/
+.eggs/
+build/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+# --- Node ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.vite/
+
+# TypeScript incremental
+*.tsbuildinfo
+
+# --- Build outputs ---
+dist/
+
+# --- OS & editors ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+
+# --- Keys & credentials ---
+*.pem
+*.p12
+*.key
+id_rsa
+id_rsa.pub
+*.keystore
+
+# --- Local databases (if used) ---
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Agent / IDE local config ---
+.claude/settings.local.json
