@@ -931,3 +931,11 @@ def apply_runtime_migrations() -> None:
         conn.execute(text(
             "UPDATE network_designs SET managed_services = '{}'::jsonb WHERE managed_services IS NULL"
         ))
+
+        # ── OTP attempt counter (brute-force protection) ──
+        # New column; existing active OTPs are seeded with the default quota so
+        # ongoing verification flows don't break mid-migration.
+        conn.execute(text(
+            "ALTER TABLE otps ADD COLUMN IF NOT EXISTS attempts_remaining INTEGER NOT NULL DEFAULT 5"
+        ))
+        conn.execute(text("UPDATE otps SET attempts_remaining = 5 WHERE attempts_remaining IS NULL"))

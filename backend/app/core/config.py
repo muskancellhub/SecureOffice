@@ -20,9 +20,20 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
 
     refresh_cookie_name: str = 'refresh_token'
-    cookie_secure: bool = False
+    # Secure defaults: HTTPS-only cookies, SameSite=lax (compatible with OAuth redirects
+    # and same-site frontend). Override via COOKIE_SECURE=false for local HTTP dev only.
+    cookie_secure: bool = True
     cookie_samesite: str = 'lax'
     cookie_domain: str | None = None
+
+    # Number of trusted reverse proxies in front of the app. When > 0, the rate limiter
+    # resolves the real client IP from X-Forwarded-For instead of the socket peer.
+    # Set to 1 if behind a single LB / nginx; 2 if LB -> nginx; etc. 0 means no proxy.
+    trusted_proxy_count: int = 0
+
+    # OTP brute-force protection: number of verification attempts per issued OTP
+    # before the OTP is invalidated and the user must request a new one.
+    otp_max_attempts: int = 5
 
     otp_expire_minutes: int = 5
 

@@ -36,6 +36,30 @@ settings = get_settings()
 app = FastAPI(title=settings.app_name, debug=settings.app_debug)
 
 
+def _assert_production_hardening(settings) -> None:
+    """Refuse to start in production with insecure defaults.
+
+    Catches common "forgot to set the env var in prod" mistakes before
+    the app accepts any traffic.
+    """
+    if settings.app_env != 'production':
+        return
+    errors = []
+    if not settings.cookie_secure:
+        errors.append('COOKIE_SECURE must be true in production (refresh cookie leaks over HTTP otherwise)')
+    if not settings.oauth_session_secret:
+        errors.append('OAUTH_SESSION_SECRET must be set in production (do not share with JWT_SECRET_KEY)')
+    if settings.oauth_session_secret and settings.oauth_session_secret == settings.jwt_secret_key:
+        errors.append('OAUTH_SESSION_SECRET must differ from JWT_SECRET_KEY (avoid cross-purpose key reuse)')
+    if settings.app_debug:
+        errors.append('APP_DEBUG must be false in production (leaks stack traces)')
+    if errors:
+        raise RuntimeError('Refusing to start — production security preconditions failed:\n  - ' + '\n  - '.join(errors))
+
+
+_assert_production_hardening(settings)
+
+
 @app.on_event('startup')
 def startup() -> None:
     import logging
@@ -81,45 +105,48 @@ def startup() -> None:
                 bootstrap_user.is_verified = True
                 db.commit()
 
-    with SessionLocal() as db:
-        vendor_email = 'vendor@gmail.com'
-        existing_vendor_user = db.scalar(select(User).where(User.email == vendor_email))
-        if not existing_vendor_user:
-            from app.core.security import hash_value
-            vendor_tenant = Tenant(name='Demo Vendor Inc.', tenant_type=TenantType.VENDOR)
-            db.add(vendor_tenant)
-            db.flush()
-            vendor_profile = Vendor(
-                tenant_id=vendor_tenant.id,
-                company_name='Demo Vendor Inc.',
-                address_street='123 Commerce St',
-                address_city='Austin',
-                address_state='TX',
-                address_zip='73301',
-                company_website='https://demovendor.com',
-                company_email='info@demovendor.com',
-                federal_tax_id='12-3456789',
-                bbb_good_standing=True,
-                sos_good_standing=True,
-                corporate_liable_sales=True,
-                is_approved=True,
-            )
-            db.add(vendor_profile)
-            db.flush()
-            vendor_user = User(
-                email=vendor_email,
-                name='Demo Vendor',
-                password_hash=hash_value('vendor123'),
-                provider='LOCAL',
-                is_verified=True,
-                role=UserRole.ADMIN,
-                user_type=UserType.VENDOR,
-                permissions=default_permissions_for_role(UserRole.ADMIN),
-                tenant_id=vendor_tenant.id,
-            )
-            db.add(vendor_user)
-            db.commit()
-            logger.info('Seeded demo vendor: vendor@gmail.com / vendor123')
+    # Demo vendor seed: DEV ONLY. Never run in production — this creates a
+    # well-known admin account with a publicly-documented password.
+    if settings.app_env != 'production':
+        with SessionLocal() as db:
+            vendor_email = 'vendor@gmail.com'
+            existing_vendor_user = db.scalar(select(User).where(User.email == vendor_email))
+            if not existing_vendor_user:
+                from app.core.security import hash_value
+                vendor_tenant = Tenant(name='Demo Vendor Inc.', tenant_type=TenantType.VENDOR)
+                db.add(vendor_tenant)
+                db.flush()
+                vendor_profile = Vendor(
+                    tenant_id=vendor_tenant.id,
+                    company_name='Demo Vendor Inc.',
+                    address_street='123 Commerce St',
+                    address_city='Austin',
+                    address_state='TX',
+                    address_zip='73301',
+                    company_website='https://demovendor.com',
+                    company_email='info@demovendor.com',
+                    federal_tax_id='12-3456789',
+                    bbb_good_standing=True,
+                    sos_good_standing=True,
+                    corporate_liable_sales=True,
+                    is_approved=True,
+                )
+                db.add(vendor_profile)
+                db.flush()
+                vendor_user = User(
+                    email=vendor_email,
+                    name='Demo Vendor',
+                    password_hash=hash_value('vendor123'),
+                    provider='LOCAL',
+                    is_verified=True,
+                    role=UserRole.ADMIN,
+                    user_type=UserType.VENDOR,
+                    permissions=default_permissions_for_role(UserRole.ADMIN),
+                    tenant_id=vendor_tenant.id,
+                )
+                db.add(vendor_user)
+                db.commit()
+                logger.info('[dev] seeded demo vendor: vendor@gmail.com / vendor123 (APP_ENV=%s)', settings.app_env)
 
     register_oauth_clients()
 
@@ -135,7 +162,7 @@ app.add_middleware(
     same_site=settings.cookie_samesite,
     https_only=settings.cookie_secure,
 )
-app.add_middleware(RateLimitMiddleware)
+app.add_middleware(RateLimitMiddleware, trusted_proxy_count=settings.trusted_proxy_count)
 app.add_middleware(AuthContextMiddleware)
 app.add_middleware(
     CORSMiddleware,

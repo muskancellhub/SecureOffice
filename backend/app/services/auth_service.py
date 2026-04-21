@@ -76,7 +76,11 @@ class AuthService:
         if existing:
             raise AppError('Email already in use', 409)
 
-        is_bootstrap_super_admin = self._is_bootstrap_super_admin(email)
+        # Every signup starts unverified as a regular USER. We do NOT trust the
+        # claimed email at this point — the OTP flow is what proves control of
+        # the inbox. If the bootstrap super admin email is used, the role
+        # promotion happens in `_ensure_bootstrap_super_admin` AFTER OTP
+        # verification (called from verify_otp / login).
         resolved_tenant_id = self._resolve_tenant_id(tenant_id)
         user = self.user_repo.create(
             email=email.lower().strip(),
@@ -85,20 +89,15 @@ class AuthService:
             password_hash=hash_value(password),
             provider=AuthProvider.LOCAL,
             provider_id=None,
-            is_verified=is_bootstrap_super_admin,
-            role=UserRole.SUPER_ADMIN if is_bootstrap_super_admin else UserRole.USER,
+            is_verified=False,
+            role=UserRole.USER,
             user_type=UserType.CELLHUB,
-            permissions=default_permissions_for_role(UserRole.SUPER_ADMIN if is_bootstrap_super_admin else UserRole.USER),
+            permissions=default_permissions_for_role(UserRole.USER),
             tenant_id=resolved_tenant_id,
         )
 
-        if not is_bootstrap_super_admin:
-            self._issue_otp_for_user(user=user, purpose='signup verification')
-
+        self._issue_otp_for_user(user=user, purpose='signup verification')
         self.db.commit()
-
-        if is_bootstrap_super_admin:
-            print(f"[BOOTSTRAP SUPER ADMIN] email={email} created and auto-verified")
 
     def vendor_signup(
         self,
@@ -146,6 +145,8 @@ class AuthService:
         self.db.add(vendor_profile)
         self.db.flush()
 
+        # Vendor admin must prove control of the email before login works —
+        # same rule as regular signup. Prevents spammy/abusive vendor tenants.
         from app.core.permissions import default_permissions_for_role as _default_perms
         user = self.user_repo.create(
             email=contact_email.lower().strip(),
@@ -154,13 +155,14 @@ class AuthService:
             password_hash=hash_value(password),
             provider=AuthProvider.LOCAL,
             provider_id=None,
-            is_verified=True,
+            is_verified=False,
             role=UserRole.ADMIN,
             user_type=UserType.VENDOR,
             permissions=_default_perms(UserRole.ADMIN),
             tenant_id=vendor_tenant.id,
         )
 
+        self._issue_otp_for_user(user=user, purpose='vendor signup verification')
         self.db.commit()
         return user
 
@@ -174,7 +176,11 @@ class AuthService:
             raise AppError('OTP expired or not found', 400)
 
         if not OTPService.verify_otp(otp, latest_otp.code_hash):
-            raise AppError('Invalid OTP', 400)
+            remaining = self.otp_repo.decrement_attempts(latest_otp)
+            self.db.commit()
+            if remaining <= 0:
+                raise AppError('Too many invalid attempts. Request a new code.', 400)
+            raise AppError(f'Invalid OTP. {remaining} attempt(s) remaining.', 400)
 
         user.is_verified = True
         self.otp_repo.mark_used(latest_otp)
@@ -218,7 +224,11 @@ class AuthService:
         if not latest_otp:
             raise AppError('OTP expired or not found', 400)
         if not OTPService.verify_otp(otp, latest_otp.code_hash):
-            raise AppError('Invalid OTP', 400)
+            remaining = self.otp_repo.decrement_attempts(latest_otp)
+            self.db.commit()
+            if remaining <= 0:
+                raise AppError('Too many invalid attempts. Request a new code.', 400)
+            raise AppError(f'Invalid OTP. {remaining} attempt(s) remaining.', 400)
 
         self.otp_repo.mark_used(latest_otp)
         self._ensure_bootstrap_super_admin(user)

@@ -74,7 +74,7 @@ def vendor_signup(payload: VendorSignupRequest, db: Session = Depends(get_db)):
         sos_good_standing=payload.sos_good_standing,
         corporate_liable_sales=payload.corporate_liable_sales,
     )
-    return MessageResponse(message='Vendor application submitted successfully. You can now log in.')
+    return MessageResponse(message='Vendor application submitted. Check your email for a verification code, then sign in.')
 
 
 @router.post('/verify-otp', response_model=TokenResponse)
