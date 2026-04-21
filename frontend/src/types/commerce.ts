@@ -14,6 +14,7 @@ export interface CatalogItem {
   billing_cycle: BillingCycle;
   availability: string | null;
   attributes: Record<string, any>;
+  managed_service_price?: number | null;
   is_active?: boolean;
   created_at: string;
 }
@@ -481,6 +482,40 @@ export interface NetworkDesignSummary {
   lead?: DesignLead | null;
 }
 
+// ── Managed Services (per-SKU pricing model) ──────────────────────
+
+export interface ManagedServiceDeviceEntry {
+  itemId: string;
+  name: string;
+  sku: string;
+  category: string | null;
+  quantity: number;
+  managedServicePrice: number;
+  excluded: boolean;
+}
+
+export interface ManagedServiceCategorySummary {
+  group: string;
+  groupLabel: string;
+  enabled: boolean;
+  deviceCount: number;
+  excludedCount: number;
+  appliedCount: number;
+  monthlyTotal: number;
+  devices: ManagedServiceDeviceEntry[];
+}
+
+export interface ManagedServicesConfig {
+  enabledCategories: string[];
+  excludedItemIds: string[];
+}
+
+export interface ManagedServicesDesignSummary {
+  config: ManagedServicesConfig | Record<string, any>;
+  categories: ManagedServiceCategorySummary[];
+  grandTotalMonthly: number;
+}
+
 export interface NetworkDesignDetail extends NetworkDesignSummary {
   calculatorInput: Record<string, any>;
   calculatorResult: Record<string, any>;
@@ -492,5 +527,6 @@ export interface NetworkDesignDetail extends NetworkDesignSummary {
   updates: DesignUpdate[];
   installAssistance: DesignInstallAssistance;
   decomposition: DesignDecomposition;
+  managedServices?: ManagedServicesDesignSummary;
   metadata: Record<string, any>;
 }

@@ -1,7 +1,9 @@
-from app.models.tenant import Tenant
-from app.models.user import User, AuthProvider, UserRole
+from app.models.tenant import Tenant, TenantType
+from app.models.user import User, AuthProvider, UserRole, UserType
 from app.models.otp import OTP
 from app.models.refresh_session import RefreshSession
+from app.models.vendor import Vendor
+from app.models.company import Company
 from app.models.catalog import CatalogItem, CatalogItemType, BillingCycle
 from app.models.cart import Cart, CartLine, CartStatus
 from app.models.integration_log import IntegrationSyncLog, SyncStatus
@@ -31,9 +33,13 @@ from app.models.network_design import DesignLead, NetworkDesign, NetworkDesignSt
 
 __all__ = [
     'Tenant',
+    'TenantType',
     'User',
     'AuthProvider',
     'UserRole',
+    'UserType',
+    'Vendor',
+    'Company',
     'OTP',
     'RefreshSession',
     'CatalogItem',

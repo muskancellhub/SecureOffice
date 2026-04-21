@@ -6,6 +6,7 @@ import type {
   MeResponse,
   SignupPayload,
   TokenResponse,
+  VendorSignupPayload,
   VerifyOtpPayload,
 } from '../types/auth';
 
@@ -14,7 +15,12 @@ export const signup = async (payload: SignupPayload) => {
   return data;
 };
 
-export const verifyOtp = async (payload: VerifyOtpPayload) => {
+export const vendorSignup = async (payload: VendorSignupPayload) => {
+  const { data } = await api.post('/auth/vendor/signup', payload);
+  return data;
+};
+
+export const verifyOtp = async (payload: VerifyOtpPayload): Promise<TokenResponse> => {
   const { data } = await api.post('/auth/verify-otp', payload);
   return data;
 };

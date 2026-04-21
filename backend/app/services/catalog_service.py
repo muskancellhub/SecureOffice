@@ -16,6 +16,24 @@ from app.services.network_vendor_catalog_loader import (
 )
 
 
+MANAGED_SERVICE_CATEGORIES: dict[str, set[str]] = {
+    'network': {'router', 'wifi_ap', 'switch', 'firewall', 'cellular_gateway'},
+    'security': {'security_appliance', 'camera', 'sensor'},
+    'end_user_devices': {'laptop', 'phone', 'tablet', 'hotspot'},
+}
+
+MANAGED_SERVICE_GROUP_LABELS: dict[str, str] = {
+    'network': 'Network',
+    'security': 'Security',
+    'end_user_devices': 'End User Devices',
+}
+
+CATEGORY_TO_MS_GROUP: dict[str, str] = {}
+for _group, _cats in MANAGED_SERVICE_CATEGORIES.items():
+    for _cat in _cats:
+        CATEGORY_TO_MS_GROUP[_cat] = _group
+
+
 class CatalogService:
     NETWORK_CATEGORIES = {
         'wifi_ap',
@@ -627,6 +645,7 @@ class CatalogService:
             'product_type': product_type,
             'source_type': source_type,
             'source_name': source_name,
+            'managed_service_price': float(item.managed_service_price) if item.managed_service_price is not None else None,
             'pricing_basis': attrs.get('pricing_basis'),
             'model': attrs.get('model'),
             'notes': attrs.get('notes'),
@@ -793,3 +812,43 @@ class CatalogService:
         if not item or not item.is_active:
             raise NotFoundError('Catalog item not found')
         return item
+
+    def update_device_managed_service_price(
+        self,
+        current_user: dict,
+        item_id: str,
+        managed_service_price: float | None,
+    ):
+        if current_user.get('role') not in {UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value}:
+            raise ForbiddenError('Only ADMIN or SUPER_ADMIN can update managed service pricing')
+
+        item = self.repo.get_by_id(item_id)
+        if not item:
+            raise NotFoundError('Catalog item not found')
+        if item.type != CatalogItemType.DEVICE:
+            raise AppError('Managed service pricing can only be set on DEVICE items', 400)
+
+        item.managed_service_price = float(managed_service_price) if managed_service_price is not None else None
+        self.db.commit()
+        self.db.refresh(item)
+        return item
+
+    def bulk_update_managed_service_prices(
+        self,
+        current_user: dict,
+        updates: list[dict],
+    ) -> int:
+        if current_user.get('role') not in {UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value}:
+            raise ForbiddenError('Only ADMIN or SUPER_ADMIN can update managed service pricing')
+
+        count = 0
+        for entry in updates:
+            item_id = entry.get('item_id')
+            price = entry.get('managed_service_price')
+            item = self.repo.get_by_id(item_id)
+            if not item or item.type != CatalogItemType.DEVICE:
+                continue
+            item.managed_service_price = float(price) if price is not None else None
+            count += 1
+        self.db.commit()
+        return count

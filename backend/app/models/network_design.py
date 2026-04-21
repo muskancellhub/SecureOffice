@@ -95,6 +95,7 @@ class NetworkDesign(Base):
     updates_json: Mapped[list] = mapped_column('updates', JSONB, nullable=False, default=list)
     install_assistance_json: Mapped[dict] = mapped_column('install_assistance', JSONB, nullable=False, default=dict)
     decomposition_json: Mapped[dict] = mapped_column('decomposition', JSONB, nullable=False, default=dict)
+    managed_services_json: Mapped[dict] = mapped_column('managed_services', JSONB, nullable=False, default=dict)
     metadata_json: Mapped[dict] = mapped_column('metadata', JSONB, nullable=False, default=dict)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[DateTime] = mapped_column(

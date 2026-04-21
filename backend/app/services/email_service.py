@@ -105,34 +105,77 @@ class EmailService:
         logger.warning('[SENDGRID SUCCESS] status_code=%s message_id=%s', response.status_code, message_id)
 
     @staticmethod
+    def _compose_otp_text(*, otp: str, purpose: str) -> str:
+        return '\n'.join(
+            [
+                'Your SecureOffice2 one-time password is:',
+                '',
+                f'  {otp}',
+                '',
+                f'It expires in {settings.otp_expire_minutes} minutes.',
+                'If you did not request this code, please ignore this email.',
+            ]
+        )
+
+    @staticmethod
+    def _compose_otp_html(*, otp: str, purpose: str) -> str:
+        return (
+            '<html><body style="font-family:Arial, sans-serif; background:#f3eef4; padding:40px 0;">'
+            '<div style="max-width:480px; margin:0 auto; background:#ffffff; border-radius:8px; padding:40px; text-align:center;">'
+            '<h2 style="margin:0 0 8px; color:#152844;">SecureOffice2</h2>'
+            f'<p style="color:#617089; margin:0 0 24px;">Your one-time password for <strong>{purpose}</strong></p>'
+            f'<div style="font-size:32px; font-weight:700; letter-spacing:6px; color:#e1067d; '
+            f'background:#f3dce8; border-radius:8px; padding:16px; margin:0 auto 24px; display:inline-block;">{otp}</div>'
+            f'<p style="color:#617089; font-size:14px; margin:0;">Expires in {settings.otp_expire_minutes} minutes.</p>'
+            '<p style="color:#617089; font-size:13px; margin:16px 0 0;">If you did not request this code, please ignore this email.</p>'
+            '</div></body></html>'
+        )
+
+    @staticmethod
     def _compose_otp_message(*, to_email: str, otp: str, purpose: str) -> EmailMessage:
         msg = EmailMessage()
         from_name = settings.smtp_from_name.strip() or 'SecureOffice2'
         msg['From'] = f'{from_name} <{settings.smtp_from_email}>'
         msg['To'] = to_email
         msg['Subject'] = f'SecureOffice2 OTP for {purpose}'
-        msg.set_content(
-            '\n'.join(
-                [
-                    'Your SecureOffice2 one-time password is:',
-                    '',
-                    f'  {otp}',
-                    '',
-                    f'It expires in {settings.otp_expire_minutes} minutes.',
-                    'If you did not request this code, please ignore this email.',
-                ]
-            )
-        )
+        msg.set_content(EmailService._compose_otp_text(otp=otp, purpose=purpose))
         return msg
 
     @staticmethod
     def send_otp_email(*, to_email: str, otp: str, purpose: str) -> None:
-        if not EmailService._smtp_enabled():
+        sendgrid_configured = bool((settings.sendgrid_api_key or '').strip())
+        smtp_configured = EmailService._smtp_enabled()
+
+        if not sendgrid_configured and not smtp_configured:
             print(f'[MOCK OTP DELIVERY] email={to_email} otp={otp} purpose={purpose}')
             return
 
+        subject = f'SecureOffice2 OTP for {purpose}'
+        text_body = EmailService._compose_otp_text(otp=otp, purpose=purpose)
+        html_body = EmailService._compose_otp_html(otp=otp, purpose=purpose)
+
+        # SendGrid first, fall back to SMTP (same pattern as order emails)
+        if sendgrid_configured:
+            try:
+                EmailService._send_via_sendgrid(
+                    to_emails=[to_email],
+                    subject=subject,
+                    text_content=text_body,
+                    html_content=html_body,
+                )
+                logger.warning('[OTP EMAIL COMPLETED] to=%s channel=sendgrid purpose=%s', to_email, purpose)
+                return
+            except Exception as exc:
+                logger.exception('[SENDGRID OTP ERROR] to=%s purpose=%s error=%s', to_email, purpose, exc)
+
+        if not smtp_configured:
+            logger.warning('[MOCK OTP DELIVERY] to=%s reason=sendgrid_failed_no_smtp_fallback purpose=%s', to_email, purpose)
+            return
+
+        logger.warning('[OTP EMAIL FALLBACK] to=%s channel=smtp reason=sendgrid_unavailable_or_failed purpose=%s', to_email, purpose)
         message = EmailService._compose_otp_message(to_email=to_email, otp=otp, purpose=purpose)
         EmailService._send_smtp_message(message)
+        logger.warning('[OTP EMAIL COMPLETED] to=%s channel=smtp purpose=%s', to_email, purpose)
 
     @staticmethod
     def _compose_design_submission_message(*, to_email: str, payload: dict) -> EmailMessage:

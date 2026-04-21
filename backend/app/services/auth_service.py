@@ -5,7 +5,9 @@ from app.core.config import get_settings
 from app.core.exceptions import AppError, NotFoundError, UnauthorizedError
 from app.core.permissions import default_permissions_for_role
 from app.core.security import hash_value, verify_value
-from app.models import AuthProvider, UserRole
+from app.models import AuthProvider, UserRole, UserType
+from app.models.tenant import TenantType
+from app.models.vendor import Vendor
 from app.repositories.otp_repository import OTPRepository
 from app.repositories.refresh_session_repository import RefreshSessionRepository
 from app.repositories.tenant_repository import TenantRepository
@@ -85,6 +87,7 @@ class AuthService:
             provider_id=None,
             is_verified=is_bootstrap_super_admin,
             role=UserRole.SUPER_ADMIN if is_bootstrap_super_admin else UserRole.USER,
+            user_type=UserType.CELLHUB,
             permissions=default_permissions_for_role(UserRole.SUPER_ADMIN if is_bootstrap_super_admin else UserRole.USER),
             tenant_id=resolved_tenant_id,
         )
@@ -96,6 +99,70 @@ class AuthService:
 
         if is_bootstrap_super_admin:
             print(f"[BOOTSTRAP SUPER ADMIN] email={email} created and auto-verified")
+
+    def vendor_signup(
+        self,
+        *,
+        contact_name: str,
+        contact_email: str,
+        contact_phone: str | None,
+        password: str,
+        company_name: str,
+        address_street: str,
+        address_city: str,
+        address_state: str,
+        address_zip: str,
+        company_website: str,
+        company_email: str,
+        federal_tax_id: str,
+        bbb_good_standing: bool,
+        sos_good_standing: bool,
+        corporate_liable_sales: bool,
+    ):
+        existing = self.user_repo.get_by_email(contact_email)
+        if existing:
+            raise AppError('Email already in use', 409)
+
+        from app.models.tenant import Tenant
+        vendor_tenant = Tenant(name=company_name, tenant_type=TenantType.VENDOR)
+        self.db.add(vendor_tenant)
+        self.db.flush()
+
+        vendor_profile = Vendor(
+            tenant_id=vendor_tenant.id,
+            company_name=company_name,
+            address_street=address_street,
+            address_city=address_city,
+            address_state=address_state,
+            address_zip=address_zip,
+            company_website=company_website,
+            company_email=company_email,
+            federal_tax_id=federal_tax_id,
+            bbb_good_standing=bbb_good_standing,
+            sos_good_standing=sos_good_standing,
+            corporate_liable_sales=corporate_liable_sales,
+            is_approved=False,
+        )
+        self.db.add(vendor_profile)
+        self.db.flush()
+
+        from app.core.permissions import default_permissions_for_role as _default_perms
+        user = self.user_repo.create(
+            email=contact_email.lower().strip(),
+            mobile=contact_phone,
+            name=contact_name,
+            password_hash=hash_value(password),
+            provider=AuthProvider.LOCAL,
+            provider_id=None,
+            is_verified=True,
+            role=UserRole.ADMIN,
+            user_type=UserType.VENDOR,
+            permissions=_default_perms(UserRole.ADMIN),
+            tenant_id=vendor_tenant.id,
+        )
+
+        self.db.commit()
+        return user
 
     def verify_otp(self, *, email: str, otp: str):
         user = self.user_repo.get_by_email(email)
@@ -111,7 +178,9 @@ class AuthService:
 
         user.is_verified = True
         self.otp_repo.mark_used(latest_otp)
+        self._ensure_bootstrap_super_admin(user)
         self.db.commit()
+        return self._issue_tokens_for_user(user)
 
     def login(self, *, email: str, password: str):
         user = self.user_repo.get_by_email(email)
@@ -164,11 +233,19 @@ class AuthService:
         refresh_token = TokenService.create_refresh_token(user_id=str(user.id), session_id=session.id)
         session.refresh_token_hash = hash_value(refresh_token)
 
+        user_type_val = user.user_type.value if hasattr(user.user_type, 'value') else str(user.user_type)
+        tenant_type_val = 'CELLHUB'
+        if user.tenant:
+            tt = user.tenant.tenant_type
+            tenant_type_val = tt.value if hasattr(tt, 'value') else str(tt)
+
         access_token = TokenService.create_access_token(
             user_id=str(user.id),
             email=user.email,
             role=user.role.value,
+            user_type=user_type_val,
             tenant_id=str(user.tenant_id),
+            tenant_type=tenant_type_val,
         )
 
         self.db.commit()
@@ -227,6 +304,7 @@ class AuthService:
                 provider_id=provider_id,
                 is_verified=True,
                 role=UserRole.SUPER_ADMIN if self._is_bootstrap_super_admin(email) else UserRole.USER,
+                user_type=UserType.CELLHUB,
                 permissions=default_permissions_for_role(
                     UserRole.SUPER_ADMIN if self._is_bootstrap_super_admin(email) else UserRole.USER
                 ),

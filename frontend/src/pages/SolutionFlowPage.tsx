@@ -1,4 +1,4 @@
-import { ChevronRight, Layers2, ListTodo, ShoppingBasket, Workflow } from 'lucide-react';
+import { ChevronRight, Layers2, ListTodo, Minus, Plus, ShoppingBasket, Trash2, Workflow } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
@@ -15,7 +15,7 @@ const steps = [
 
 export const SolutionFlowPage = () => {
   const { accessToken, user } = useAuth();
-  const { cart, refreshCart } = useShop();
+  const { cart, refreshCart, updateLineQuantity, removeLine } = useShop();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const path = (searchParams.get('path') || 'ai').toLowerCase();
@@ -32,6 +32,27 @@ export const SolutionFlowPage = () => {
   const [processing, setProcessing] = useState(false);
   const [actionError, setActionError] = useState('');
   const [actionNotice, setActionNotice] = useState('');
+
+  const cartLineMap = useMemo(() => {
+    const map = new Map<string, { lineId: string; quantity: number }>();
+    if (!cart?.lines) return map;
+    for (const line of cart.lines) {
+      map.set(line.catalog_item_id, { lineId: line.id, quantity: line.quantity });
+    }
+    return map;
+  }, [cart]);
+
+  const handleSuggestionQty = async (catalogItemId: string, lineId: string, newQty: number) => {
+    setProcessing(true);
+    try {
+      if (newQty <= 0) await removeLine(lineId);
+      else await updateLineQuantity(lineId, newQty);
+    } catch (err: any) {
+      setActionError(err?.response?.data?.detail || 'Failed to update quantity');
+    } finally {
+      setProcessing(false);
+    }
+  };
 
   const cartLineCount = cart?.lines?.length || 0;
   const standaloneServicesCount = useMemo(
@@ -175,8 +196,8 @@ export const SolutionFlowPage = () => {
             <strong>Step {activeStepMeta.id}: {activeStepMeta.title}</strong>
             <small>{activeStepMeta.subtitle}</small>
           </div>
-          <button className="ghost-btn" type="button" onClick={() => navigate('/shop/flow-options')}>
-            Back to path selection
+          <button className="ghost-btn" type="button" onClick={() => navigate('/shop/designs')}>
+            Back to designs
           </button>
         </div>
       </div>
@@ -258,9 +279,34 @@ export const SolutionFlowPage = () => {
                     </div>
                     <p>{line.reason}</p>
                     <p className="flow-suggestion-meta">Qty {line.quantity} · ${line.unit_price.toFixed(2)} · {line.billing_cycle}</p>
-                    <button className="secondary-btn" onClick={() => addSuggestionToCart(line)} disabled={processing}>
-                      Add to cart
-                    </button>
+                    {(() => {
+                      const cl = cartLineMap.get(line.catalog_item_id);
+                      if (cl) {
+                        return (
+                          <div className="qty-stepper">
+                            <button className="qty-stepper-btn" disabled={processing}
+                              onClick={() => cl.quantity <= 1
+                                ? handleSuggestionQty(line.catalog_item_id, cl.lineId, 0)
+                                : handleSuggestionQty(line.catalog_item_id, cl.lineId, cl.quantity - 1)
+                              }
+                            >
+                              {cl.quantity <= 1 ? <Trash2 size={13} /> : <Minus size={13} />}
+                            </button>
+                            <span className="qty-stepper-value">{cl.quantity}</span>
+                            <button className="qty-stepper-btn" disabled={processing}
+                              onClick={() => handleSuggestionQty(line.catalog_item_id, cl.lineId, cl.quantity + 1)}
+                            >
+                              <Plus size={13} />
+                            </button>
+                          </div>
+                        );
+                      }
+                      return (
+                        <button className="secondary-btn" onClick={() => addSuggestionToCart(line)} disabled={processing}>
+                          Add to cart
+                        </button>
+                      );
+                    })()}
                   </div>
                 ))}
               </div>

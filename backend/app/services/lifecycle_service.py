@@ -267,17 +267,23 @@ class LifecycleService:
     def list_contracts(self, current_user: dict) -> list[Contract]:
         self._assert_user_exists(current_user)
         tenant_id = self._parse_uuid(current_user['tenant_id'], field_name='tenant_id')
+        user_id = self._parse_uuid(current_user['user_id'], field_name='user_id')
         stmt = (
             select(Contract)
             .where(Contract.tenant_id == tenant_id)
             .order_by(desc(Contract.created_at))
         )
+        if not self._is_admin(current_user.get('role')):
+            stmt = stmt.where(Contract.created_by == user_id)
         return list(self.db.scalars(stmt).all())
 
     def list_subscriptions(self, current_user: dict, status: SubscriptionStatus | None = None) -> list[Subscription]:
         self._assert_user_exists(current_user)
         tenant_id = self._parse_uuid(current_user['tenant_id'], field_name='tenant_id')
+        user_id = self._parse_uuid(current_user['user_id'], field_name='user_id')
         stmt = select(Subscription).where(Subscription.tenant_id == tenant_id)
+        if not self._is_admin(current_user.get('role')):
+            stmt = stmt.join(Contract, Subscription.contract_id == Contract.id).where(Contract.created_by == user_id)
         if status:
             stmt = stmt.where(Subscription.status == status)
         stmt = stmt.order_by(desc(Subscription.created_at))
@@ -315,11 +321,14 @@ class LifecycleService:
     def list_assets(self, current_user: dict) -> list[Asset]:
         self._assert_user_exists(current_user)
         tenant_id = self._parse_uuid(current_user['tenant_id'], field_name='tenant_id')
+        user_id = self._parse_uuid(current_user['user_id'], field_name='user_id')
         stmt = (
             select(Asset)
             .where(Asset.tenant_id == tenant_id)
             .order_by(desc(Asset.created_at))
         )
+        if not self._is_admin(current_user.get('role')):
+            stmt = stmt.join(Contract, Asset.contract_id == Contract.id).where(Contract.created_by == user_id)
         return list(self.db.scalars(stmt).all())
 
     def get_order_workflow(self, current_user: dict, order_id: str) -> WorkflowInstance:

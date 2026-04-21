@@ -13,7 +13,6 @@ import { RouterDetailsPage } from '../pages/RouterDetailsPage';
 import { OrdersPage } from '../pages/OrdersPage';
 import { QuoteDetailsPage } from '../pages/QuoteDetailsPage';
 import { OrderDetailsPage } from '../pages/OrderDetailsPage';
-import { SupportPage } from '../pages/SupportPage';
 import { CartPage } from '../pages/CartPage';
 import { AdminCatalogSyncPage } from '../pages/AdminCatalogSyncPage';
 import { AdminManagedServicesPage } from '../pages/AdminManagedServicesPage';
@@ -24,7 +23,6 @@ import { LifecyclePage } from '../pages/LifecyclePage';
 import { CustomerDashboardPage } from '../pages/CustomerDashboardPage';
 import { SolutionFlowPage } from '../pages/SolutionFlowPage';
 import { IntroHomePage } from '../pages/IntroHomePage';
-import { FlowOptionsPage } from '../pages/FlowOptionsPage';
 import { OnboardingPage } from '../pages/OnboardingPage';
 import { ManagedServicesCatalogPage } from '../pages/ManagedServicesCatalogPage';
 import { BusinessIntakePage } from '../pages/BusinessIntakePage';
@@ -34,6 +32,9 @@ import { DesignHistoryPage } from '../pages/DesignHistoryPage';
 import { DesignDetailPage } from '../pages/DesignDetailPage';
 import { AdminDesignSubmissionsPage } from '../pages/AdminDesignSubmissionsPage';
 import { PublicHomePage } from '../pages/PublicHomePage';
+import { VendorRegisterPage } from '../pages/VendorRegisterPage';
+import { VendorLoginPage } from '../pages/VendorLoginPage';
+import { ZabbixPage } from '../pages/ZabbixPage';
 
 const LegacyQuoteRedirect = () => {
   const { quoteId } = useParams();
@@ -50,6 +51,8 @@ export const AppRouter = () => (
     <Route path="/signup" element={<SignupPage />} />
     <Route path="/verify-otp" element={<VerifyOtpPage />} />
     <Route path="/oauth/success" element={<OAuthSuccessPage />} />
+    <Route path="/vendor/register" element={<VendorRegisterPage />} />
+    <Route path="/vendor/login" element={<VendorLoginPage />} />
 
     <Route
       element={
@@ -63,7 +66,6 @@ export const AppRouter = () => (
       <Route path="/shop" element={<ShopLandingPage />} />
       <Route path="/shop/onboarding" element={<OnboardingPage />} />
       <Route path="/shop/home" element={<IntroHomePage />} />
-      <Route path="/shop/flow-options" element={<FlowOptionsPage />} />
       <Route path="/shop/dashboard" element={<CustomerDashboardPage />} />
       <Route path="/shop/designs" element={<DesignHistoryPage />} />
       <Route path="/shop/designs/new" element={<NetworkDesignBuilderPage />} />
@@ -72,10 +74,10 @@ export const AppRouter = () => (
       <Route path="/shop/routers" element={<RoutersCatalogPage />} />
       <Route path="/shop/routers/:itemId" element={<RouterDetailsPage />} />
       <Route path="/shop/services" element={<ManagedServicesCatalogPage />} />
+      <Route path="/shop/zabbix" element={<ZabbixPage />} />
       <Route path="/shop/orders" element={<OrdersPage />} />
       <Route path="/shop/quotes/:quoteId" element={<QuoteDetailsPage />} />
       <Route path="/shop/quote/:quoteId" element={<LegacyQuoteRedirect />} />
-      <Route path="/shop/support" element={<SupportPage />} />
       <Route path="/shop/lifecycle" element={<LifecyclePage />} />
       <Route path="/shop/billing" element={<BillingPage />} />
       <Route path="/shop/cart" element={<CartPage />} />

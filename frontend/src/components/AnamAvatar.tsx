@@ -1,19 +1,31 @@
 /**
- * AnamAvatar — bottom-left floating avatar widget for the Business Intake form.
+ * AnamAvatar — AI avatar widget for the Business Intake form.
  *
  * Architecture:
  * - Anam AI handles VOICE conversation only (no structured output)
  * - Backend /anam/parse-intent (GPT-4.1-mini) handles ALL form filling
  * - Every user message is sent to the backend agent to extract field updates
+ *
+ * Supports two modes:
+ * - Floating widget (default) — bottom-left on BusinessIntakePage
+ * - Embedded mode (embedded=true) — inline panel inside BusinessIntakeModal
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 interface AnamAvatarProps {
   formState: Record<string, string>;
   onFormUpdate: (updates: Record<string, string>) => void;
+  /** Render inline (no floating wrapper, no minimize, no header) */
+  embedded?: boolean;
+  /** Custom video element ID to avoid conflicts when multiple instances exist */
+  videoId?: string;
+}
+
+export interface AnamAvatarHandle {
+  disconnect: () => void;
 }
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
@@ -23,7 +35,7 @@ interface ChatMessage {
   content: string;
 }
 
-export const AnamAvatar = ({ formState, onFormUpdate }: AnamAvatarProps) => {
+export const AnamAvatar = forwardRef<AnamAvatarHandle, AnamAvatarProps>(({ formState, onFormUpdate, embedded = false, videoId }, ref) => {
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [isListening, setIsListening] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -199,8 +211,9 @@ export const AnamAvatar = ({ formState, onFormUpdate }: AnamAvatarProps) => {
         setStatusText(`Error: ${error?.message || 'Unknown'}`);
       });
 
-      if (videoRef.current) {
-        await client.streamToVideoElement(videoRef.current.id);
+      const vid = videoRef.current;
+      if (vid) {
+        await client.streamToVideoElement(vid.id);
       }
     } catch (err: any) {
       console.error('[AnamAvatar] Connection failed:', err);
@@ -216,6 +229,9 @@ export const AnamAvatar = ({ formState, onFormUpdate }: AnamAvatarProps) => {
     }
     cleanup();
   }, []);
+
+  // Expose disconnect for parent components (used by modal on close)
+  useImperativeHandle(ref, () => ({ disconnect }), [disconnect]);
 
   const cleanup = () => {
     anamClientRef.current = null;
@@ -260,43 +276,15 @@ export const AnamAvatar = ({ formState, onFormUpdate }: AnamAvatarProps) => {
     };
   }, []);
 
-  // ── Minimized bubble ──
-  if (isMinimized) {
-    return (
-      <button
-        className="anam-avatar-minimized"
-        onClick={() => setIsMinimized(false)}
-        title="Open AI Assistant"
-      >
-        <div className="anam-avatar-mini-icon">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-          </svg>
-        </div>
-        {status === 'connected' && <span className="anam-avatar-mini-dot" />}
-      </button>
-    );
-  }
+  const actualVideoId = videoId || 'anam-persona-video';
 
-  return (
-    <div className="anam-avatar-widget">
-      {/* Header */}
-      <div className="anam-avatar-header">
-        <div className="anam-avatar-header-left">
-          <span className={`anam-status-dot ${status}`} />
-          <span className="anam-avatar-title">AI Assistant</span>
-        </div>
-        <div className="anam-avatar-header-actions">
-          <button className="anam-header-btn" onClick={() => setIsMinimized(true)} title="Minimize">
-            &mdash;
-          </button>
-        </div>
-      </div>
-
+  /* ── Shared inner markup (video + chat + input) ── */
+  const innerContent = (
+    <>
       {/* Video */}
       <div className="anam-avatar-video-container">
         <video
-          id="anam-persona-video"
+          id={actualVideoId}
           ref={videoRef}
           autoPlay
           playsInline
@@ -398,6 +386,49 @@ export const AnamAvatar = ({ formState, onFormUpdate }: AnamAvatarProps) => {
           </button>
         )}
       </div>
+    </>
+  );
+
+  /* ── Embedded mode: no floating wrapper, no minimize, no header ── */
+  if (embedded) {
+    return <div className="anam-avatar-embedded">{innerContent}</div>;
+  }
+
+  /* ── Floating widget mode (original) ── */
+
+  // Minimized bubble
+  if (isMinimized) {
+    return (
+      <button
+        className="anam-avatar-minimized"
+        onClick={() => setIsMinimized(false)}
+        title="Open AI Assistant"
+      >
+        <div className="anam-avatar-mini-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+        </div>
+        {status === 'connected' && <span className="anam-avatar-mini-dot" />}
+      </button>
+    );
+  }
+
+  return (
+    <div className="anam-avatar-widget">
+      {/* Header */}
+      <div className="anam-avatar-header">
+        <div className="anam-avatar-header-left">
+          <span className={`anam-status-dot ${status}`} />
+          <span className="anam-avatar-title">AI Assistant</span>
+        </div>
+        <div className="anam-avatar-header-actions">
+          <button className="anam-header-btn" onClick={() => setIsMinimized(true)} title="Minimize">
+            &mdash;
+          </button>
+        </div>
+      </div>
+      {innerContent}
     </div>
   );
-};
+});

@@ -12,7 +12,9 @@ from app.core.permissions import default_permissions_for_role
 from app.core.runtime_migrations import apply_runtime_migrations
 from app.middleware.auth_middleware import AuthContextMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
-from app.models import User, UserRole
+from app.models import User, UserRole, UserType
+from app.models.tenant import Tenant, TenantType
+from app.models.vendor import Vendor
 from app.routes.auth import router as auth_router
 from app.routes.billing import router as billing_router
 from app.routes.chatbot import router as chatbot_router
@@ -78,16 +80,55 @@ def startup() -> None:
                 bootstrap_user.permissions = default_permissions_for_role(UserRole.SUPER_ADMIN)
                 bootstrap_user.is_verified = True
                 db.commit()
+
+    with SessionLocal() as db:
+        vendor_email = 'vendor@gmail.com'
+        existing_vendor_user = db.scalar(select(User).where(User.email == vendor_email))
+        if not existing_vendor_user:
+            from app.core.security import hash_value
+            vendor_tenant = Tenant(name='Demo Vendor Inc.', tenant_type=TenantType.VENDOR)
+            db.add(vendor_tenant)
+            db.flush()
+            vendor_profile = Vendor(
+                tenant_id=vendor_tenant.id,
+                company_name='Demo Vendor Inc.',
+                address_street='123 Commerce St',
+                address_city='Austin',
+                address_state='TX',
+                address_zip='73301',
+                company_website='https://demovendor.com',
+                company_email='info@demovendor.com',
+                federal_tax_id='12-3456789',
+                bbb_good_standing=True,
+                sos_good_standing=True,
+                corporate_liable_sales=True,
+                is_approved=True,
+            )
+            db.add(vendor_profile)
+            db.flush()
+            vendor_user = User(
+                email=vendor_email,
+                name='Demo Vendor',
+                password_hash=hash_value('vendor123'),
+                provider='LOCAL',
+                is_verified=True,
+                role=UserRole.ADMIN,
+                user_type=UserType.VENDOR,
+                permissions=default_permissions_for_role(UserRole.ADMIN),
+                tenant_id=vendor_tenant.id,
+            )
+            db.add(vendor_user)
+            db.commit()
+            logger.info('Seeded demo vendor: vendor@gmail.com / vendor123')
+
     register_oauth_clients()
 
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[origin.strip() for origin in settings.backend_cors_origins.split(',') if origin.strip()],
-    allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*'],
-)
+# NOTE: Middleware order matters. Starlette's `add_middleware` inserts at
+# position 0, so the LAST middleware added becomes the OUTERMOST wrapper.
+# CORSMiddleware must be outermost so that responses generated directly by
+# inner middleware (e.g. 429 from RateLimitMiddleware, 401 from auth failures)
+# still get `Access-Control-Allow-Origin` headers attached on the way out.
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.oauth_session_secret or settings.jwt_secret_key,
@@ -96,6 +137,13 @@ app.add_middleware(
 )
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(AuthContextMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[origin.strip() for origin in settings.backend_cors_origins.split(',') if origin.strip()],
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
 
 
 @app.exception_handler(AppError)
@@ -141,3 +189,9 @@ app.include_router(chatbot_router)
 
 from app.routes.anam import router as anam_router
 app.include_router(anam_router)
+
+from app.routes.zabbix import router as zabbix_router
+app.include_router(zabbix_router)
+
+from app.routes.intake_chat import router as intake_chat_router
+app.include_router(intake_chat_router)

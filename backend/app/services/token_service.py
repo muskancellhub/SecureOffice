@@ -8,13 +8,18 @@ settings = get_settings()
 
 class TokenService:
     @staticmethod
-    def create_access_token(*, user_id: str, email: str, role: str, tenant_id: str) -> str:
+    def create_access_token(
+        *, user_id: str, email: str, role: str, user_type: str = 'CELLHUB',
+        tenant_id: str, tenant_type: str = 'CELLHUB',
+    ) -> str:
         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
         payload = {
             'user_id': user_id,
             'email': email,
             'role': role,
+            'user_type': user_type,
             'tenant_id': tenant_id,
+            'tenant_type': tenant_type,
             'type': 'access',
             'exp': expire,
         }

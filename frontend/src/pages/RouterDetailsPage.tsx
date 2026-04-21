@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { Minus, Plus, Trash2 } from 'lucide-react';
 import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
 import { useShop } from '../context/ShopContext';
@@ -9,11 +10,12 @@ import { getRouterImage } from '../utils/productImages';
 export const RouterDetailsPage = () => {
   const { itemId } = useParams();
   const { accessToken } = useAuth();
-  const { addRouterToCart } = useShop();
+  const { cart, addRouterToCart, updateLineQuantity, removeLine } = useShop();
   const [router, setRouter] = useState<CatalogItem | null>(null);
   const [qty, setQty] = useState(1);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [addedNotice, setAddedNotice] = useState('');
 
   useEffect(() => {
@@ -31,6 +33,28 @@ export const RouterDetailsPage = () => {
     const timer = window.setTimeout(() => setAddedNotice(''), 1500);
     return () => window.clearTimeout(timer);
   }, [addedNotice]);
+
+  const cartLine = useMemo(() => {
+    if (!cart?.lines || !router) return null;
+    return cart.lines.find((l) => l.catalog_item_id === router.id) || null;
+  }, [cart, router]);
+
+  const handleQtyChange = async (newQty: number) => {
+    if (!cartLine) return;
+    setBusy(true);
+    try {
+      if (newQty <= 0) {
+        await removeLine(cartLine.id);
+        setAddedNotice('Removed from cart.');
+      } else {
+        await updateLineQuantity(cartLine.id, newQty);
+      }
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Failed to update quantity');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const specs = router?.attributes?.specs || {};
 
@@ -80,26 +104,46 @@ export const RouterDetailsPage = () => {
               {Object.entries(specs).slice(0, 6).map(([k, v]) => <li key={k}>{k}: {String(v)}</li>)}
             </ul>
 
-            <div className="inline-fields compact">
-              <label>Quantity</label>
-              <select value={qty} onChange={(e) => setQty(Number(e.target.value))}>
-                {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
-            </div>
-
-            <button
-              className="primary-btn"
-              onClick={async () => {
-                try {
-                  await addRouterToCart(router.id, qty);
-                  setAddedNotice('Added to cart');
-                } catch (err: any) {
-                  setError(err?.response?.data?.detail || 'Failed to add item to cart');
-                }
-              }}
-            >
-              Add to cart
-            </button>
+            {cartLine ? (
+              <div className="qty-stepper" style={{ marginTop: 16 }}>
+                <button className="qty-stepper-btn" disabled={busy}
+                  onClick={() => cartLine.quantity <= 1
+                    ? handleQtyChange(0)
+                    : handleQtyChange(cartLine.quantity - 1)
+                  }
+                >
+                  {cartLine.quantity <= 1 ? <Trash2 size={13} /> : <Minus size={13} />}
+                </button>
+                <span className="qty-stepper-value">{cartLine.quantity}</span>
+                <button className="qty-stepper-btn" disabled={busy}
+                  onClick={() => handleQtyChange(cartLine.quantity + 1)}
+                >
+                  <Plus size={13} />
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="inline-fields compact">
+                  <label>Quantity</label>
+                  <select value={qty} onChange={(e) => setQty(Number(e.target.value))}>
+                    {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </div>
+                <button
+                  className="primary-btn"
+                  onClick={async () => {
+                    try {
+                      await addRouterToCart(router.id, qty);
+                      setAddedNotice('Added to cart');
+                    } catch (err: any) {
+                      setError(err?.response?.data?.detail || 'Failed to add item to cart');
+                    }
+                  }}
+                >
+                  Add to cart
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}

@@ -1,0 +1,129 @@
+{
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Active Problems",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "alexanderzobnin-zabbix-datasource" },
+      "targets": [
+        {
+          "datasource": { "type": "alexanderzobnin-zabbix-datasource" },
+          "queryType": 5,
+          "group": { "filter": "/.*/" },
+          "host": { "filter": "/.*/" },
+          "trigger": { "filter": "/.*/" },
+          "showProblems": "problems"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Zabbix Agent Availability",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "alexanderzobnin-zabbix-datasource" },
+      "targets": [
+        {
+          "datasource": { "type": "alexanderzobnin-zabbix-datasource" },
+          "queryType": 0,
+          "group": { "filter": "Zabbix servers" },
+          "host": { "filter": "Zabbix server" },
+          "application": { "filter": "" },
+          "item": { "filter": "/Zabbix agent/" },
+          "mode": 0
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 15, "lineWidth": 2 } } }
+    },
+    {
+      "id": 3,
+      "title": "System Uptime",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 8 },
+      "datasource": { "type": "alexanderzobnin-zabbix-datasource" },
+      "targets": [
+        {
+          "datasource": { "type": "alexanderzobnin-zabbix-datasource" },
+          "queryType": 0,
+          "group": { "filter": "Zabbix servers" },
+          "host": { "filter": "Zabbix server" },
+          "application": { "filter": "" },
+          "item": { "filter": "/uptime/" },
+          "mode": 0
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "dtdurations" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 4,
+      "title": "Zabbix Server Performance",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "alexanderzobnin-zabbix-datasource" },
+      "targets": [
+        {
+          "datasource": { "type": "alexanderzobnin-zabbix-datasource" },
+          "queryType": 0,
+          "group": { "filter": "Zabbix servers" },
+          "host": { "filter": "Zabbix server" },
+          "application": { "filter": "" },
+          "item": { "filter": "/Values processed/" },
+          "mode": 0
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 10, "lineWidth": 2 } } },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    },
+    {
+      "id": 5,
+      "title": "Zabbix Queue",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "alexanderzobnin-zabbix-datasource" },
+      "targets": [
+        {
+          "datasource": { "type": "alexanderzobnin-zabbix-datasource" },
+          "queryType": 0,
+          "group": { "filter": "Zabbix servers" },
+          "host": { "filter": "Zabbix server" },
+          "application": { "filter": "" },
+          "item": { "filter": "/queue/" },
+          "mode": 0
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 10, "lineWidth": 2 } } },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 6,
+      "title": "All Items (Zabbix Server)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "alexanderzobnin-zabbix-datasource" },
+      "targets": [
+        {
+          "datasource": { "type": "alexanderzobnin-zabbix-datasource" },
+          "queryType": 0,
+          "group": { "filter": "Zabbix servers" },
+          "host": { "filter": "Zabbix server" },
+          "application": { "filter": "" },
+          "item": { "filter": "/.*/" },
+          "mode": 0
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 10, "lineWidth": 2 } } },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    }
+  ],
+  "schemaVersion": 38,
+  "tags": ["zabbix", "secureoffice"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "title": "SecureOffice Network Overview",
+  "uid": "secureoffice-overview",
+  "version": 1
+}

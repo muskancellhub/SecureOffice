@@ -1,11 +1,13 @@
 import { FormEvent, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AuthShell } from '../components/AuthShell';
 import { useAuth } from '../context/AuthContext';
 
 export const SignupPage = () => {
   const { signup } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const nextParam = new URLSearchParams(location.search).get('next') || '';
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [mobile, setMobile] = useState('');
@@ -19,7 +21,7 @@ export const SignupPage = () => {
     setLoading(true);
     try {
       await signup({ name, email, mobile, password });
-      navigate('/verify-otp', { state: { email } });
+      navigate('/verify-otp', { state: { email, next: nextParam || localStorage.getItem('secureOfficePostAuthRedirect') || '' } });
     } catch (err: any) {
       setError(err?.response?.data?.detail || 'Signup failed');
     } finally {
@@ -38,7 +40,7 @@ export const SignupPage = () => {
         <button className="primary-btn" type="submit" disabled={loading}>{loading ? 'Creating...' : 'Continue'}</button>
       </form>
 
-      <div className="alt-link">Already have an account? <Link to="/login">Sign in</Link></div>
+      <div className="alt-link">Already have an account? <Link to={nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : '/login'}>Sign in</Link></div>
     </AuthShell>
   );
 };

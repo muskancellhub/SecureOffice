@@ -809,3 +809,125 @@ def apply_runtime_migrations() -> None:
                 """
             )
         )
+
+        # --- Multi-tenant type support (CELLHUB / VENDOR / COMPANY) ---
+        conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tenant_type') THEN
+                        CREATE TYPE tenant_type AS ENUM ('CELLHUB', 'VENDOR', 'COMPANY');
+                    END IF;
+                END
+                $$;
+                """
+            )
+        )
+        conn.execute(text("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS tenant_type VARCHAR(32) NOT NULL DEFAULT 'CELLHUB'"))
+        conn.execute(text("UPDATE tenants SET tenant_type = 'CELLHUB' WHERE tenant_type IS NULL"))
+
+        conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_type_enum') THEN
+                        CREATE TYPE user_type_enum AS ENUM ('CELLHUB', 'VENDOR', 'COMPANY');
+                    END IF;
+                END
+                $$;
+                """
+            )
+        )
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS user_type VARCHAR(32) NOT NULL DEFAULT 'CELLHUB'"))
+        conn.execute(text("UPDATE users SET user_type = 'CELLHUB' WHERE user_type IS NULL"))
+
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS vendors (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    tenant_id UUID NOT NULL UNIQUE REFERENCES tenants(id) ON DELETE CASCADE,
+                    company_name VARCHAR(255) NOT NULL,
+                    address_street VARCHAR(500) NOT NULL DEFAULT '',
+                    address_city VARCHAR(255) NOT NULL DEFAULT '',
+                    address_state VARCHAR(100) NOT NULL DEFAULT '',
+                    address_zip VARCHAR(20) NOT NULL DEFAULT '',
+                    company_website VARCHAR(500) NOT NULL DEFAULT '',
+                    company_email VARCHAR(320) NOT NULL DEFAULT '',
+                    federal_tax_id VARCHAR(64) NOT NULL DEFAULT '',
+                    bbb_good_standing BOOLEAN NOT NULL DEFAULT FALSE,
+                    sos_good_standing BOOLEAN NOT NULL DEFAULT FALSE,
+                    corporate_liable_sales BOOLEAN NOT NULL DEFAULT FALSE,
+                    is_approved BOOLEAN NOT NULL DEFAULT FALSE,
+                    notes TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+        )
+
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS companies (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    tenant_id UUID NOT NULL UNIQUE REFERENCES tenants(id) ON DELETE CASCADE,
+                    company_name VARCHAR(255) NOT NULL,
+                    industry VARCHAR(255),
+                    billing_email VARCHAR(320),
+                    subscription_tier VARCHAR(32) NOT NULL DEFAULT 'free',
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+        )
+
+        # ── Managed-service per-SKU pricing column on catalog_items ──
+        conn.execute(text(
+            "ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS managed_service_price NUMERIC(12, 2)"
+        ))
+
+        # Seed default managed-service prices by device category
+        conn.execute(text("""
+            UPDATE catalog_items SET managed_service_price = 10.00
+            WHERE managed_service_price IS NULL AND type = 'DEVICE'
+              AND attributes->>'category' IN ('router','wifi_ap','switch','firewall','cellular_gateway')
+        """))
+        conn.execute(text("""
+            UPDATE catalog_items SET managed_service_price = 5.00
+            WHERE managed_service_price IS NULL AND type = 'DEVICE'
+              AND attributes->>'category' IN ('security_appliance','camera','sensor')
+        """))
+        conn.execute(text("""
+            UPDATE catalog_items SET managed_service_price = 2.00
+            WHERE managed_service_price IS NULL AND type = 'DEVICE'
+              AND attributes->>'category' = 'laptop'
+        """))
+        conn.execute(text("""
+            UPDATE catalog_items SET managed_service_price = 0.25
+            WHERE managed_service_price IS NULL AND type = 'DEVICE'
+              AND attributes->>'category' = 'phone'
+        """))
+        conn.execute(text("""
+            UPDATE catalog_items SET managed_service_price = 1.50
+            WHERE managed_service_price IS NULL AND type = 'DEVICE'
+              AND attributes->>'category' = 'tablet'
+        """))
+        conn.execute(text("""
+            UPDATE catalog_items SET managed_service_price = 1.00
+            WHERE managed_service_price IS NULL AND type = 'DEVICE'
+              AND attributes->>'category' = 'hotspot'
+        """))
+
+        # ── Managed-services selection on network_designs ──
+        conn.execute(text(
+            "ALTER TABLE network_designs ADD COLUMN IF NOT EXISTS managed_services JSONB NOT NULL DEFAULT '{}'::jsonb"
+        ))
+        conn.execute(text(
+            "UPDATE network_designs SET managed_services = '{}'::jsonb WHERE managed_services IS NULL"
+        ))

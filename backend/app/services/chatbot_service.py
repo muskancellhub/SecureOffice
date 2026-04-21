@@ -30,7 +30,11 @@ INTENT_KEYWORDS: dict[str, list[str]] = {
     'catalog': ['device', 'router', 'catalog', 'product', 'equipment', 'hardware',
                 'switch', 'access point', 'firewall', 'sku', 'brand', 'vendor',
                 'price', 'cost', 'cheap', 'expensive', 'available', 'buy', 'browse',
-                'network', 'wifi', 'wireless', 'port', 'service', 'managed service'],
+                'network', 'wifi', 'wireless', 'port', 'service', 'managed service',
+                't-mobile', 'tmobile', 't mobile', 'papi', 'phone', 'phones',
+                'tablet', 'tablets', 'laptop', 'laptops', 'hotspot', 'hotspots',
+                'mobile', 'cellular', 'smartphone', 'iphone', 'samsung', 'galaxy',
+                'android', 'sim', '5g', 'lte'],
     'cabling': ['cable', 'cabling', 'cat5', 'cat6', 'cat6e', 'wiring', 'wire',
                 'ethernet', 'drop', 'patch', 'structured cabling', 'cable run',
                 'cable length', 'cable cost', 'cable type'],
@@ -139,37 +143,69 @@ def _fmt_currency(val: float | None) -> str:
     return f'${val:,.2f}'
 
 
+_TMOBILE_KEYWORDS = {'t-mobile', 'tmobile', 't mobile', 'papi'}
+_CATEGORY_KEYWORDS = {
+    'phone': ['phone', 'phones', 'smartphone', 'iphone', 'samsung', 'galaxy', 'android'],
+    'tablet': ['tablet', 'tablets', 'ipad'],
+    'laptop': ['laptop', 'laptops', 'notebook'],
+    'hotspot': ['hotspot', 'hotspots', 'mifi', 'jetpack'],
+}
+
+
+def _is_tmobile_intent(msg_lower: str) -> bool:
+    return any(kw in msg_lower for kw in _TMOBILE_KEYWORDS)
+
+
+def _infer_device_category(msg_lower: str) -> str | None:
+    for cat, keywords in _CATEGORY_KEYWORDS.items():
+        if any(kw in msg_lower for kw in keywords):
+            return cat
+    return None
+
+
 def _retrieve_catalog(db: Session, tenant_id: str, message: str) -> str:
     """Search catalog items relevant to the query."""
     msg_lower = message.lower()
     q = db.query(CatalogItem).filter(CatalogItem.is_active.is_(True))
 
+    # Detect T-Mobile / PAPI intent — filter by source
+    tmobile = _is_tmobile_intent(msg_lower)
+    if tmobile:
+        q = q.filter(CatalogItem.attributes['source_type'].astext == 'paapi')
+
+    # Narrow by device category if mentioned
+    cat_filter = _infer_device_category(msg_lower)
+    if cat_filter:
+        q = q.filter(CatalogItem.attributes['category'].astext == cat_filter)
+
     # Narrow by type if message suggests it
-    if any(kw in msg_lower for kw in ['service', 'managed service', 'monitoring', 'backup']):
-        q = q.filter(CatalogItem.type == CatalogItemType.SERVICE)
-    elif any(kw in msg_lower for kw in ['device', 'router', 'switch', 'firewall', 'access point', 'hardware']):
-        q = q.filter(CatalogItem.type == CatalogItemType.DEVICE)
+    if not tmobile and not cat_filter:
+        if any(kw in msg_lower for kw in ['service', 'managed service', 'monitoring', 'backup']):
+            q = q.filter(CatalogItem.type == CatalogItemType.SERVICE)
+        elif any(kw in msg_lower for kw in ['device', 'router', 'switch', 'firewall', 'access point', 'hardware']):
+            q = q.filter(CatalogItem.type == CatalogItemType.DEVICE)
 
-    # Text search across name, vendor, sku, description
-    search_terms = [w for w in msg_lower.split() if len(w) > 2 and w not in (
-        'the', 'and', 'for', 'how', 'much', 'does', 'what', 'are', 'can', 'you',
-        'show', 'list', 'all', 'any', 'tell', 'about', 'with', 'which', 'have',
-        'available', 'price', 'cost', 'device', 'devices', 'router', 'routers',
-        'service', 'services', 'product', 'products',
-    )]
-    if search_terms:
-        filters = []
-        for term in search_terms[:5]:
-            pattern = f'%{term}%'
-            filters.append(CatalogItem.name.ilike(pattern))
-            filters.append(CatalogItem.vendor.ilike(pattern))
-            filters.append(CatalogItem.sku.ilike(pattern))
-            filters.append(CatalogItem.description.ilike(pattern))
-        q = q.filter(or_(*filters))
+    # Text search across name, vendor, sku, description (skip if already filtered by source/category)
+    if not tmobile and not cat_filter:
+        search_terms = [w for w in msg_lower.split() if len(w) > 2 and w not in (
+            'the', 'and', 'for', 'how', 'much', 'does', 'what', 'are', 'can', 'you',
+            'show', 'list', 'all', 'any', 'tell', 'about', 'with', 'which', 'have',
+            'available', 'price', 'cost', 'device', 'devices', 'router', 'routers',
+            'service', 'services', 'product', 'products',
+        )]
+        if search_terms:
+            filters = []
+            for term in search_terms[:5]:
+                pattern = f'%{term}%'
+                filters.append(CatalogItem.name.ilike(pattern))
+                filters.append(CatalogItem.vendor.ilike(pattern))
+                filters.append(CatalogItem.sku.ilike(pattern))
+                filters.append(CatalogItem.description.ilike(pattern))
+            q = q.filter(or_(*filters))
 
-    items = q.order_by(CatalogItem.name).limit(15).all()
+    items = q.order_by(CatalogItem.name).limit(25).all()
 
-    if not items:
+    if not items and not tmobile:
         # Fallback: return top items
         items = (
             db.query(CatalogItem)
@@ -179,15 +215,23 @@ def _retrieve_catalog(db: Session, tenant_id: str, message: str) -> str:
             .all()
         )
 
-    lines = [f'[CATALOG — {len(items)} items found]']
+    source_label = 'T-Mobile Device Catalog' if tmobile else 'CATALOG'
+    lines = [f'[{source_label} — {len(items)} items found]']
     for it in items:
         attrs = it.attributes or {}
-        attr_str = ', '.join(f'{k}: {v}' for k, v in list(attrs.items())[:6])
+        ms_price = f' | MS: {_fmt_currency(float(it.managed_service_price))}/mo' if it.managed_service_price else ''
+        detail_parts = []
+        for key in ('brand', 'model', 'color', 'memory', 'os'):
+            val = attrs.get(key)
+            if val:
+                detail_parts.append(f'{key}: {val}')
+        detail_str = ', '.join(detail_parts[:5])
         lines.append(
             f'• {it.name} | SKU: {it.sku} | Vendor: {it.vendor or "N/A"} '
             f'| Type: {it.type.value} | Price: {_fmt_currency(float(it.price))} '
             f'| Billing: {it.billing_cycle.value} | Availability: {it.availability or "N/A"}'
-            + (f' | {attr_str}' if attr_str else '')
+            f'{ms_price}'
+            + (f' | {detail_str}' if detail_str else '')
         )
     return '\n'.join(lines)
 

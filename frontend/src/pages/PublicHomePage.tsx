@@ -1,7 +1,48 @@
-import { ArrowRight, BadgeCheck, Boxes, ClipboardList, ShieldCheck, Truck } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowRight, BadgeCheck, Boxes, Building2, ClipboardList, LogIn, ShieldCheck, Truck } from 'lucide-react';
+import { Suspense, useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import NetworkScene3D from '../components/NetworkScene3D';
+import { BusinessIntakeModal } from '../components/BusinessIntakeModal';
+
+function Typewriter({ text, speed = 50, delay = 400, pauseMs = 2000 }: { text: string; speed?: number; delay?: number; pauseMs?: number }) {
+  const [displayed, setDisplayed] = useState('');
+  const [phase, setPhase] = useState<'wait' | 'typing' | 'pause' | 'deleting'>('wait');
+
+  useEffect(() => {
+    const timer = setTimeout(() => setPhase('typing'), delay);
+    return () => clearTimeout(timer);
+  }, [delay]);
+
+  useEffect(() => {
+    if (phase === 'wait') return;
+
+    if (phase === 'typing') {
+      if (displayed.length >= text.length) {
+        const timer = setTimeout(() => setPhase('deleting'), pauseMs);
+        return () => clearTimeout(timer);
+      }
+      const timer = setTimeout(() => setDisplayed(text.slice(0, displayed.length + 1)), speed);
+      return () => clearTimeout(timer);
+    }
+
+    if (phase === 'deleting') {
+      if (displayed.length === 0) {
+        const timer = setTimeout(() => setPhase('typing'), 400);
+        return () => clearTimeout(timer);
+      }
+      const timer = setTimeout(() => setDisplayed(displayed.slice(0, -1)), speed / 2);
+      return () => clearTimeout(timer);
+    }
+  }, [phase, displayed, text, speed, pauseMs]);
+
+  return (
+    <>
+      {displayed}
+      <span className="typewriter-cursor">|</span>
+    </>
+  );
+}
 
 const offerCards = [
   {
@@ -28,15 +69,37 @@ const capabilities = [
   'Quote/history workflow and lifecycle progress tracking',
 ];
 
+function useScrollReveal() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          el.classList.add('revealed');
+          observer.unobserve(el);
+        }
+      },
+      { threshold: 0.15 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return ref;
+}
+
 export const PublicHomePage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [imageMissing, setImageMissing] = useState(false);
+  const offersRef = useScrollReveal();
+  const capabilityRef = useScrollReveal();
+  const [intakeModalOpen, setIntakeModalOpen] = useState(false);
 
   return (
     <section className="content-wrap fade-in intro-home-page marketing-home public-home-page">
       <header className="public-home-nav">
-        <div className="left-brand">SecureOffice</div>
+        <div className="left-brand">Secure AI Office</div>
         <div className="public-home-nav-actions">
           {!user ? (
             <>
@@ -58,20 +121,15 @@ export const PublicHomePage = () => {
             <span>SMB Network Solution Builder</span>
           </div>
           <h1>
-            Plan your network
-            <br />
-            and build the full design
+            <Typewriter text="Plan your network and build the full design" speed={45} delay={500} />
           </h1>
           <p>
             Start with a business intake, get a concrete bill of materials, and preview a customer-friendly
             network diagram before ordering.
           </p>
           <div className="marketing-cta-row">
-            <button className="primary-btn" onClick={() => navigate('/business-intake')}>
+            <button className="primary-btn" onClick={() => setIntakeModalOpen(true)}>
               Build Your Design <ArrowRight size={14} />
-            </button>
-            <button className="ghost-btn" onClick={() => navigate('/business-intake')}>
-              Start Intake Form
             </button>
           </div>
           <div className="marketing-proof-row">
@@ -82,24 +140,21 @@ export const PublicHomePage = () => {
         </div>
 
         <div className="marketing-hero-visual" aria-hidden="true">
-          {!imageMissing ? (
-            <img
-              className="marketing-office-image"
-              src="/office-hero-pink.png"
-              alt="Business network planning visual"
-              onError={() => setImageMissing(true)}
-            />
-          ) : (
-            <div className="marketing-image-placeholder">Add `office-hero-pink.png` to `frontend/public` for the hero visual.</div>
-          )}
+          <Suspense fallback={
+            <div className="marketing-image-placeholder" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 340 }}>
+              Loading 3D scene...
+            </div>
+          }>
+            <NetworkScene3D />
+          </Suspense>
         </div>
       </div>
 
-      <div className="intro-card-grid marketing-offers-grid">
-        {offerCards.map((card) => {
+      <div ref={offersRef} className="intro-card-grid marketing-offers-grid scroll-reveal">
+        {offerCards.map((card, i) => {
           const Icon = card.icon;
           return (
-            <article key={card.title} className="intro-card marketing-offer-card">
+            <article key={card.title} className="intro-card marketing-offer-card" style={{ animationDelay: `${i * 0.12}s` }}>
               <span className="intro-card-icon"><Icon size={16} /></span>
               <h3>{card.title}</h3>
               <p>{card.body}</p>
@@ -108,22 +163,50 @@ export const PublicHomePage = () => {
         })}
       </div>
 
-      <section className="marketing-capability-section">
+      <section ref={capabilityRef} className="marketing-capability-section scroll-reveal">
         <div className="row-between">
           <h2>What You Get</h2>
-          <button className="ghost-btn" onClick={() => navigate('/business-intake')}>
+          <button className="ghost-btn" onClick={() => setIntakeModalOpen(true)}>
             Build
           </button>
         </div>
         <div className="capability-grid">
-          {capabilities.map((item) => (
-            <div key={item} className="capability-item">
+          {capabilities.map((item, i) => (
+            <div key={item} className="capability-item" style={{ animationDelay: `${0.1 + i * 0.1}s` }}>
               <BadgeCheck size={14} />
               <span>{item}</span>
             </div>
           ))}
         </div>
       </section>
+
+      <section className="vendor-cta-section scroll-reveal">
+        <div className="vendor-cta-card">
+          <div className="vendor-cta-content">
+            <div className="vendor-cta-icon">
+              <Building2 size={28} />
+            </div>
+            <h2>Want to become a vendor?</h2>
+            <p>
+              Join the CellHub Marketplace and sell your networking products to businesses across the U.S.
+              Apply as a vendor to get started.
+            </p>
+            <div className="vendor-cta-buttons">
+              <button className="primary-btn" onClick={() => navigate('/vendor/register')}>
+                Apply as Vendor <ArrowRight size={14} />
+              </button>
+              <button className="ghost-btn" onClick={() => navigate('/vendor/login')}>
+                <LogIn size={14} /> Vendor Login
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <BusinessIntakeModal
+        open={intakeModalOpen}
+        onClose={() => setIntakeModalOpen(false)}
+      />
     </section>
   );
 };

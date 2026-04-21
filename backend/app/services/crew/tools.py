@@ -54,7 +54,9 @@ class CatalogSearchTool(BaseTool):
     name: str = "catalog_search"
     description: str = (
         "Search the product catalog for network devices (routers, switches, "
-        "access points, firewalls) and managed services. Pass the user's "
+        "access points, firewalls), T-Mobile/PAPI devices (phones, tablets, "
+        "laptops, hotspots), and managed services. Understands T-Mobile, "
+        "PAPI, phone, tablet, laptop, and hotspot queries. Pass the user's "
         "question as input to get matching products with prices and specs."
     )
 

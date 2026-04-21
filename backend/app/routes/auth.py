@@ -12,6 +12,7 @@ from app.schemas.auth import (
     MessageResponse,
     SignupRequest,
     TokenResponse,
+    VendorSignupRequest,
     VerifyOtpRequest,
 )
 from app.services.auth_service import AuthService
@@ -54,10 +55,33 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)):
     return MessageResponse(message='Signup successful. OTP sent.')
 
 
-@router.post('/verify-otp', response_model=MessageResponse)
-def verify_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
-    AuthService(db).verify_otp(email=payload.email, otp=payload.otp)
-    return MessageResponse(message='OTP verified successfully')
+@router.post('/vendor/signup', response_model=MessageResponse)
+def vendor_signup(payload: VendorSignupRequest, db: Session = Depends(get_db)):
+    AuthService(db).vendor_signup(
+        contact_name=payload.contact_name,
+        contact_email=payload.contact_email,
+        contact_phone=payload.contact_phone,
+        password=payload.password,
+        company_name=payload.company_name,
+        address_street=payload.address_street,
+        address_city=payload.address_city,
+        address_state=payload.address_state,
+        address_zip=payload.address_zip,
+        company_website=payload.company_website,
+        company_email=payload.company_email,
+        federal_tax_id=payload.federal_tax_id,
+        bbb_good_standing=payload.bbb_good_standing,
+        sos_good_standing=payload.sos_good_standing,
+        corporate_liable_sales=payload.corporate_liable_sales,
+    )
+    return MessageResponse(message='Vendor application submitted successfully. You can now log in.')
+
+
+@router.post('/verify-otp', response_model=TokenResponse)
+def verify_otp(payload: VerifyOtpRequest, response: Response, db: Session = Depends(get_db)):
+    tokens = AuthService(db).verify_otp(email=payload.email, otp=payload.otp)
+    set_refresh_cookie(response, tokens['refresh_token'])
+    return TokenResponse(access_token=tokens['access_token'], expires_in=tokens['expires_in'])
 
 
 @router.post('/login', response_model=TokenResponse)

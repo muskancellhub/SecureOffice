@@ -66,7 +66,7 @@ export const OrdersPage = () => {
           <h1>Order Tracker</h1>
           <p className="lead">Track supplier, QC, shipping, and delivery milestones from one enterprise view.</p>
         </div>
-        <button className="primary-btn" onClick={() => navigate('/shop/flow-options')}>
+        <button className="primary-btn" onClick={() => navigate('/shop/designs/new')}>
           New Request
         </button>
       </div>
@@ -174,7 +174,7 @@ export const OrdersPage = () => {
                   <td colSpan={5} className="mini-note">
                     No orders yet. Convert an accepted quote to create one.
                     {' '}
-                    <button className="secondary-btn" onClick={() => navigate('/shop/flow-options')}>
+                    <button className="secondary-btn" onClick={() => navigate('/shop/designs/new')}>
                       Start new request
                     </button>
                   </td>

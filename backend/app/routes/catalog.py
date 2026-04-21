@@ -5,7 +5,12 @@ from app.core.database import get_db
 from app.core.permissions import PERM_MANAGE_MANAGED_SERVICES
 from app.middleware.dependencies import get_current_user
 from app.models.catalog import CatalogItemType
-from app.schemas.catalog import CatalogItemResponse, UpdateManagedServiceRequest
+from app.schemas.catalog import (
+    BulkUpdateManagedServicePricesRequest,
+    CatalogItemResponse,
+    UpdateDeviceManagedServicePriceRequest,
+    UpdateManagedServiceRequest,
+)
 from app.services.authorization_service import AuthorizationService
 from app.services.catalog_service import CatalogService
 
@@ -62,6 +67,33 @@ def get_catalog_item(item_id: str, _: dict = Depends(get_current_user), db: Sess
     service = CatalogService(db)
     item = service.get_item_by_id(item_id)
     return CatalogItemResponse(**service.to_catalog_response_dict(item))
+
+
+@router.patch('/catalog/devices/{item_id}/managed-service-price', response_model=CatalogItemResponse)
+def update_device_managed_service_price(
+    item_id: str,
+    payload: UpdateDeviceManagedServicePriceRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    AuthorizationService(db).require(current_user, PERM_MANAGE_MANAGED_SERVICES)
+    service = CatalogService(db)
+    item = service.update_device_managed_service_price(
+        current_user, item_id, payload.managed_service_price
+    )
+    return CatalogItemResponse(**service.to_catalog_response_dict(item))
+
+
+@router.put('/catalog/devices/managed-service-prices')
+def bulk_update_managed_service_prices(
+    payload: BulkUpdateManagedServicePricesRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    AuthorizationService(db).require(current_user, PERM_MANAGE_MANAGED_SERVICES)
+    service = CatalogService(db)
+    count = service.bulk_update_managed_service_prices(current_user, payload.updates)
+    return {'updated_count': count}
 
 
 @router.patch('/catalog/services/{item_id}', response_model=CatalogItemResponse)

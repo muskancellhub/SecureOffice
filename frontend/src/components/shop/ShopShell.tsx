@@ -1,4 +1,4 @@
-import { ActivitySquare, CircleHelp, Headphones, LayoutGrid, LogOut, Mail, Package, PanelLeft, PanelRight, ReceiptText, RefreshCcw, Router, Search, ShieldCheck, ShoppingCart, UserCircle2, Users, Workflow, House, Rows3 } from 'lucide-react';
+import { ActivitySquare, CircleHelp, LayoutGrid, LogOut, Mail, MonitorCheck, Package, PanelLeft, PanelRight, ReceiptText, RefreshCcw, Router, ShieldCheck, ShoppingCart, UserCircle2, Users, Workflow, House, Rows3 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -11,7 +11,7 @@ export const ShopShell = () => {
   const { cart } = useShop();
   const navigate = useNavigate();
   const location = useLocation();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [solutionBuilderCollapsed, setSolutionBuilderCollapsed] = useState(false);
   const permissionSet = new Set(user?.effective_permissions ?? []);
   const canManageCatalogSync = permissionSet.has('manage_catalog_sync');
@@ -22,7 +22,7 @@ export const ShopShell = () => {
   const canViewBilling = permissionSet.has('view_billing');
   const onboardingCompleted = Boolean(user?.onboarding_completed);
   const onboardingSkipped = window.localStorage.getItem('so2_onboarding_skip') === '1';
-  const profileName = user?.email ? user.email.split('@')[0] : 'Secure Office User';
+  const profileName = user?.email ? user.email.split('@')[0] : 'Secure AI Office User';
   const showSolutionBuilder = useMemo(() => {
     const path = location.pathname;
     return (
@@ -60,7 +60,7 @@ export const ShopShell = () => {
             <span className="brand-mark streamly-mark" aria-hidden="true">
               <ShieldCheck size={15} />
             </span>
-            <span className="sidebar-fade-target">Secure Office</span>
+            <span className="sidebar-fade-target">Secure AI Office</span>
             <button
               type="button"
               className="brand-toggle-btn"
@@ -72,28 +72,15 @@ export const ShopShell = () => {
             </button>
           </div>
 
-          <label className="sidebar-search" aria-label="Search">
-            <Search size={14} />
-            <input className="sidebar-fade-target" placeholder="Search" />
-          </label>
-
           <div className="nav-section-label sidebar-fade-target">Menu</div>
           <nav className="main-nav streamly-nav">
             <NavLink to="/shop/dashboard">
               <Rows3 size={15} />
               <span className="sidebar-fade-target">Dashboard</span>
             </NavLink>
-            <NavLink to="/shop/flow-options">
-              <Workflow size={15} />
-              <span className="sidebar-fade-target">New Request</span>
-            </NavLink>
             <NavLink to="/shop/designs">
               <LayoutGrid size={15} />
-              <span className="sidebar-fade-target">Design History</span>
-            </NavLink>
-            <NavLink to="/shop/home">
-              <House size={15} />
-              <span className="sidebar-fade-target">Home</span>
+              <span className="sidebar-fade-target">Design</span>
             </NavLink>
             <NavLink to="/shop/onboarding">
               <LayoutGrid size={15} />
@@ -127,13 +114,13 @@ export const ShopShell = () => {
                 <span className="sidebar-fade-target">Billing</span>
               </NavLink>
             )}
-            <NavLink to="/shop/support">
-              <Headphones size={15} />
-              <span className="sidebar-fade-target">Support</span>
+            <NavLink to="/shop/zabbix">
+              <MonitorCheck size={15} />
+              <span className="sidebar-fade-target">Zabbix</span>
             </NavLink>
           </nav>
 
-          <div className="nav-section-label sidebar-fade-target">General</div>
+          <div className="nav-section-label sidebar-fade-target">Admin Access</div>
           <nav className="main-nav streamly-nav">
             {canManageCatalogSync && (
               <NavLink to="/shop/admin/catalog-sync">
@@ -165,17 +152,18 @@ export const ShopShell = () => {
                 <span className="sidebar-fade-target">Order Emails</span>
               </NavLink>
             )}
-            <button
-              className="sidebar-action-btn"
-              onClick={async () => {
-                await logout();
-                navigate('/login', { replace: true });
-              }}
-            >
-              <LogOut size={15} />
-              <span className="sidebar-fade-target">Logout</span>
-            </button>
           </nav>
+
+          <button
+            className="sidebar-action-btn"
+            onClick={async () => {
+              await logout();
+              navigate('/login', { replace: true });
+            }}
+          >
+            <LogOut size={15} />
+            <span className="sidebar-fade-target">Logout</span>
+          </button>
 
           <div className="sidebar-profile">
             <span className="avatar-wrap">

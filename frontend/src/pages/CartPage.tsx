@@ -1,14 +1,25 @@
-import { ArrowLeft, Minus, Plus, ShoppingCart, Trash2, Ticket, ArrowRight } from 'lucide-react';
+import { ArrowLeft, Minus, Plus, ShoppingCart, Trash2, Ticket, ArrowRight, Shield, ChevronDown, Check, Lock, RefreshCw } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
 import { useShop } from '../context/ShopContext';
-import type { CartLine } from '../types/commerce';
+import type { CartLine, CatalogItem } from '../types/commerce';
 import { getRouterImage } from '../utils/productImages';
 
 const formatCurrency = (value: number): string =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value || 0);
+
+const servicesForCategory = (services: CatalogItem[], category: string | null | undefined): CatalogItem[] => {
+  if (!services || services.length === 0) return [];
+  if (!category) return services;
+  const normalized = category.toLowerCase();
+  return services.filter((svc) => {
+    const allowed = (svc.attributes?.applies_to_categories || []) as string[];
+    if (!Array.isArray(allowed) || allowed.length === 0) return true;
+    return allowed.map((c) => c.toLowerCase()).includes(normalized);
+  });
+};
 
 export const CartPage = () => {
   const { accessToken } = useAuth();
@@ -25,7 +36,7 @@ export const CartPage = () => {
     removeLine,
   } = useShop();
 
-  const [selectedRouterForModal, setSelectedRouterForModal] = useState<string | null>(null);
+  const [expandedServicePicker, setExpandedServicePicker] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
   const [generatingQuote, setGeneratingQuote] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -46,7 +57,6 @@ export const CartPage = () => {
     return map;
   }, [cart?.lines]);
 
-  const selectedRouter = deviceLines.find((r) => r.id === selectedRouterForModal) || null;
   const standaloneServiceLines = useMemo(
     () => (cart?.lines || []).filter((line) => line.item_type === 'SERVICE' && !line.applies_to_line_id),
     [cart?.lines],
@@ -80,6 +90,15 @@ export const CartPage = () => {
       setActionError(err?.response?.data?.detail || 'Failed to clear cart');
     } finally {
       setClearing(false);
+    }
+  };
+
+  const onAttach = async (routerLineId: string, serviceId: string) => {
+    try {
+      await attachManagedService(serviceId, routerLineId);
+      setExpandedServicePicker(null);
+    } catch (err: any) {
+      setActionError(err?.response?.data?.detail || 'Failed to attach service');
     }
   };
 
@@ -130,10 +149,15 @@ export const CartPage = () => {
             )}
             {deviceLines.map((router) => {
               const attached = serviceLinesByRouter.get(router.id) || [];
+              const compatibleServices = servicesForCategory(managedServices, router.category);
+              const isPickerOpen = expandedServicePicker === router.id;
+              const attachedServiceIds = new Set(attached.map((a) => a.catalog_item_id));
+              const hasService = attached.length > 0;
+
               return (
                 <article className="cp-item" key={router.id}>
                   <div className="cp-item-main">
-                    <div className="cp-thumb">
+                    <div className="cp-thumb cp-thumb-lg">
                       <img
                         src={getRouterImage({ id: router.catalog_item_id, name: router.item_name })}
                         alt={router.item_name}
@@ -143,12 +167,14 @@ export const CartPage = () => {
                     <div className="cp-item-info">
                       <strong className="cp-item-name">{router.item_name}</strong>
                       <span className="cp-item-cat">{router.category ? router.category.toUpperCase() : 'Device'}</span>
+                      <span className="cp-item-unit-price">{formatCurrency(router.unit_price)} each</span>
                     </div>
                     <div className="cp-qty-controls">
                       <button
                         className="cp-qty-btn"
                         onClick={() => updateLineQuantity(router.id, Math.max(1, router.quantity - 1))}
                         disabled={router.quantity <= 1}
+                        aria-label="Decrease quantity"
                       >
                         <Minus size={12} />
                       </button>
@@ -157,40 +183,125 @@ export const CartPage = () => {
                         className="cp-qty-btn"
                         onClick={() => updateLineQuantity(router.id, Math.min(5, router.quantity + 1))}
                         disabled={router.quantity >= 5}
+                        aria-label="Increase quantity"
                       >
                         <Plus size={12} />
                       </button>
                     </div>
                     <strong className="cp-item-price">{formatCurrency(router.unit_price * router.quantity)}</strong>
-                    <button className="cp-remove-btn" onClick={() => removeLine(router.id)}>
+                    <button className="cp-remove-btn" onClick={() => removeLine(router.id)} aria-label="Remove item">
                       <Trash2 size={14} />
                     </button>
                   </div>
 
                   <div className="cp-item-service-area">
-                    <button className="cp-add-service-btn" onClick={() => setSelectedRouterForModal(router.id)}>
-                      + Add managed service
-                    </button>
-                    {attached.length > 0 && (
+                    {!hasService && !isPickerOpen && (
+                      <button
+                        className="cp-add-service-btn"
+                        onClick={() => setExpandedServicePicker(router.id)}
+                        disabled={compatibleServices.length === 0}
+                      >
+                        <Shield size={13} />
+                        <span>Add managed service for this {router.category || 'device'}</span>
+                        <ChevronDown size={13} />
+                      </button>
+                    )}
+
+                    {hasService && (
                       <div className="cp-attached-services">
-                        {attached.map((service) => (
-                          <div key={service.id} className="cp-service-row">
-                            <div className="cp-service-info">
-                              <span className="cp-service-name">{service.item_name}</span>
-                              <span className="cp-service-price">{formatCurrency(service.unit_price)}/mo</span>
+                        {attached.map((service) => {
+                          const compatibleForSwap = servicesForCategory(managedServices, router.category);
+                          return (
+                            <div key={service.id} className="cp-service-row">
+                              <div className="cp-service-badge">
+                                <Shield size={13} />
+                              </div>
+                              <div className="cp-service-info">
+                                <span className="cp-service-name">{service.item_name}</span>
+                                <span className="cp-service-price">
+                                  {formatCurrency(service.unit_price)}/mo × {service.quantity}
+                                </span>
+                              </div>
+                              <div className="cp-service-controls">
+                                <select
+                                  value={service.catalog_item_id}
+                                  onChange={(e) => changeServiceTier(service.id, e.target.value)}
+                                  aria-label="Change managed service tier"
+                                >
+                                  {compatibleForSwap.map((svc) => (
+                                    <option key={svc.id} value={svc.id}>
+                                      {svc.name} — ${svc.price.toFixed(2)}/mo
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  className="cp-remove-btn cp-remove-btn-sm"
+                                  onClick={() => removeLine(service.id)}
+                                  aria-label="Remove service"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
                             </div>
-                            <div className="cp-service-controls">
-                              <select value={service.catalog_item_id} onChange={(e) => changeServiceTier(service.id, e.target.value)}>
-                                {managedServices.map((svc) => (
-                                  <option key={svc.id} value={svc.id}>{svc.name}</option>
-                                ))}
-                              </select>
-                              <button className="cp-remove-btn" onClick={() => removeLine(service.id)}>
-                                <Trash2 size={13} />
-                              </button>
-                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {isPickerOpen && (
+                      <div className="cp-service-picker">
+                        <div className="cp-service-picker-head">
+                          <div>
+                            <strong>Pick a managed service for {router.item_name}</strong>
+                            <span className="mini-note">
+                              Tailored to {router.category || 'this device'} — monitored 24/7, per-unit pricing
+                            </span>
                           </div>
-                        ))}
+                          <button
+                            className="cp-picker-close"
+                            onClick={() => setExpandedServicePicker(null)}
+                            aria-label="Close picker"
+                          >
+                            <ChevronDown size={14} style={{ transform: 'rotate(180deg)' }} />
+                          </button>
+                        </div>
+                        {compatibleServices.length === 0 ? (
+                          <p className="mini-note" style={{ padding: '8px 0' }}>
+                            No managed services available for this device category.
+                          </p>
+                        ) : (
+                          <div className="cp-service-options">
+                            {compatibleServices.map((service) => {
+                              const selected = attachedServiceIds.has(service.id);
+                              const features = Array.isArray(service.attributes?.features)
+                                ? (service.attributes.features as string[]).slice(0, 2)
+                                : [];
+                              return (
+                                <button
+                                  key={service.id}
+                                  className={`cp-service-option ${selected ? 'selected' : ''}`}
+                                  onClick={() => onAttach(router.id, service.id)}
+                                >
+                                  <div className="cp-service-option-head">
+                                    <strong>{service.name}</strong>
+                                    <span className="cp-service-option-price">
+                                      ${service.price.toFixed(2)}<small>/mo</small>
+                                    </span>
+                                  </div>
+                                  {features.length > 0 && (
+                                    <ul className="cp-service-option-features">
+                                      {features.map((f) => (
+                                        <li key={f}>
+                                          <Check size={10} /> {f}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -204,15 +315,20 @@ export const CartPage = () => {
                 {standaloneServiceLines.map((service) => (
                   <article className="cp-item" key={service.id}>
                     <div className="cp-item-main">
+                      <div className="cp-thumb cp-thumb-lg cp-thumb-service">
+                        <Shield size={22} />
+                      </div>
                       <div className="cp-item-info">
                         <strong className="cp-item-name">{service.item_name}</strong>
                         <span className="cp-item-cat">Managed Service</span>
+                        <span className="cp-item-unit-price">{formatCurrency(service.unit_price)}/mo each</span>
                       </div>
                       <div className="cp-qty-controls">
                         <button
                           className="cp-qty-btn"
                           onClick={() => updateLineQuantity(service.id, Math.max(1, service.quantity - 1))}
                           disabled={service.quantity <= 1}
+                          aria-label="Decrease quantity"
                         >
                           <Minus size={12} />
                         </button>
@@ -220,12 +336,13 @@ export const CartPage = () => {
                         <button
                           className="cp-qty-btn"
                           onClick={() => updateLineQuantity(service.id, service.quantity + 1)}
+                          aria-label="Increase quantity"
                         >
                           <Plus size={12} />
                         </button>
                       </div>
                       <strong className="cp-item-price">{formatCurrency(service.unit_price * service.quantity)}</strong>
-                      <button className="cp-remove-btn" onClick={() => removeLine(service.id)}>
+                      <button className="cp-remove-btn" onClick={() => removeLine(service.id)} aria-label="Remove service">
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -238,88 +355,76 @@ export const CartPage = () => {
           {/* Summary */}
           <aside className="cp-summary">
             <h3>Order Summary</h3>
+            <div className="cp-summary-body">
+              <button
+                className="cp-add-standalone-btn"
+                onClick={async () => {
+                  const firstService = managedServices[0];
+                  if (!firstService) return;
+                  try {
+                    await addServiceToCart(firstService.id, 1);
+                  } catch (err: any) {
+                    setActionError(err?.response?.data?.detail || 'Failed to add standalone service');
+                  }
+                }}
+                disabled={managedServices.length === 0}
+              >
+                + Add standalone service
+              </button>
 
-            <button
-              className="cp-add-standalone-btn"
-              onClick={async () => {
-                const firstService = managedServices[0];
-                if (!firstService) return;
-                try {
-                  await addServiceToCart(firstService.id, 1);
-                } catch (err: any) {
-                  setActionError(err?.response?.data?.detail || 'Failed to add standalone service');
-                }
-              }}
-              disabled={managedServices.length === 0}
-            >
-              + Add standalone service
-            </button>
+              <div className="cp-promo">
+                <Ticket size={14} />
+                <input placeholder="Enter promo code" />
+                <button className="cp-promo-apply">Apply</button>
+              </div>
 
-            <div className="cp-promo">
-              <Ticket size={14} />
-              <input placeholder="Promo code" />
-              <button className="cp-promo-apply">Apply</button>
+              <div className="cp-totals">
+                <div className="cp-total-row">
+                  <span>One-time hardware</span>
+                  <strong>{formatCurrency(cart?.one_time_subtotal || 0)}</strong>
+                </div>
+                <div className="cp-total-row">
+                  <span>Managed services</span>
+                  <strong>{formatCurrency(cart?.monthly_subtotal || 0)}/mo</strong>
+                </div>
+                <div className="cp-total-row">
+                  <span>Setup &amp; deployment</span>
+                  <strong>Included</strong>
+                </div>
+                <div className="cp-total-row cp-total-grand">
+                  <span>12-month total</span>
+                  <strong>{formatCurrency(cart?.estimated_12_month_total || 0)}</strong>
+                </div>
+              </div>
+
+              <button
+                className="primary-btn cp-checkout-btn"
+                onClick={onGenerateQuote}
+                disabled={generatingQuote || totalLineCount === 0}
+              >
+                {generatingQuote ? 'Generating proposal...' : 'Generate Proposal'}
+                <ArrowRight size={16} />
+              </button>
             </div>
-
-            <div className="cp-totals">
-              <div className="cp-total-row">
-                <span>Subtotal</span>
-                <strong>{formatCurrency(cart?.one_time_subtotal || 0)}</strong>
+            <div className="cp-trust-row">
+              <div className="cp-trust-item">
+                <Lock size={12} />
+                <span>Secure checkout</span>
               </div>
-              <div className="cp-total-row">
-                <span>Discount</span>
-                <span>-$0.00</span>
+              <div className="cp-trust-item">
+                <RefreshCw size={12} />
+                <span>Cancel anytime</span>
               </div>
-              <div className="cp-total-row cp-total-grand">
-                <span>Total</span>
-                <strong>{formatCurrency(cart?.estimated_12_month_total || 0)}</strong>
+              <div className="cp-trust-item">
+                <Shield size={12} />
+                <span>SOC 2 compliant</span>
+              </div>
+              <div className="cp-trust-item">
+                <Check size={12} />
+                <span>No hidden fees</span>
               </div>
             </div>
-
-            <button className="primary-btn cp-checkout-btn" onClick={onGenerateQuote} disabled={generatingQuote || totalLineCount === 0}>
-              {generatingQuote ? 'Generating...' : 'Generate Proposal'}
-              <ArrowRight size={14} />
-            </button>
           </aside>
-        </div>
-      )}
-
-      {/* Service Modal */}
-      {selectedRouter && (
-        <div className="modal-overlay" onClick={() => setSelectedRouterForModal(null)}>
-          <div className="tier-modal" onClick={(e) => e.stopPropagation()}>
-            <h4>Attach Managed Service</h4>
-            <p className="mini-note">Attach to: {selectedRouter.item_name}</p>
-            <div className="tier-grid">
-              {managedServices.map((service) => (
-                <button
-                  key={service.id}
-                  className="tier-card"
-                  onClick={async () => {
-                    try {
-                      await attachManagedService(service.id, selectedRouter.id);
-                      setSelectedRouterForModal(null);
-                    } catch (err: any) {
-                      setActionError(err?.response?.data?.detail || 'Failed to attach service');
-                    }
-                  }}
-                >
-                  <h5>{service.name}</h5>
-                  <p className="price">${service.price.toFixed(2)}/mo</p>
-                  <ul>
-                    {Array.isArray(service.attributes?.features) ? (
-                      service.attributes.features.slice(0, 3).map((f: string) => <li key={f}>{f}</li>)
-                    ) : (
-                      <li>Managed operations</li>
-                    )}
-                  </ul>
-                </button>
-              ))}
-            </div>
-            <button className="ghost-btn" onClick={() => setSelectedRouterForModal(null)}>
-              Close
-            </button>
-          </div>
         </div>
       )}
     </section>

@@ -1,5 +1,8 @@
+import logging
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.core.database import get_db
 from app.core.permissions import PERM_MANAGE_LIFECYCLE
@@ -11,6 +14,8 @@ from app.schemas.designs import (
     DesignUpdateResponse,
     DesignInstallAssistanceResponse,
     DesignStatusHistoryEntryResponse,
+    ManagedServicesConfigRequest,
+    ManagedServicesDesignResponse,
     NetworkDesignDetailResponse,
     NetworkDesignSummaryResponse,
     SaveNetworkDesignRequest,
@@ -20,6 +25,7 @@ from app.schemas.designs import (
     UpdateNetworkDesignStatusRequest,
 )
 from app.services.authorization_service import AuthorizationService
+from app.services.managed_service_pricing_service import ManagedServicePricingService
 from app.services.network_design_service import NetworkDesignService
 
 router = APIRouter(prefix='/designs', tags=['Designs'])
@@ -122,8 +128,17 @@ def _serialize_summary(row, *, include_internal: bool) -> NetworkDesignSummaryRe
     )
 
 
-def _serialize_detail(row, *, include_internal: bool) -> NetworkDesignDetailResponse:
+def _serialize_detail(row, *, include_internal: bool, db=None) -> NetworkDesignDetailResponse:
     summary = _serialize_summary(row, include_internal=include_internal)
+
+    managed_services = {}
+    if db is not None:
+        try:
+            managed_services = ManagedServicePricingService(db).calculate_for_design(str(row.id))
+        except Exception:
+            logger.exception('Failed to compute managed services for design %s', row.id)
+            managed_services = {'config': {}, 'categories': [], 'grand_total_monthly': 0}
+
     return NetworkDesignDetailResponse(
         **summary.model_dump(by_alias=True),
         calculatorInput=row.calculator_input_json or {},
@@ -136,6 +151,7 @@ def _serialize_detail(row, *, include_internal: bool) -> NetworkDesignDetailResp
         updates=_serialize_updates(row, include_internal=include_internal),
         installAssistance=DesignInstallAssistanceResponse(**(row.install_assistance_json or {})),
         decomposition=row.decomposition_json or {},
+        managedServices=managed_services,
         metadata=row.metadata_json or {},
     )
 
@@ -152,7 +168,7 @@ def save_design(
         current_user=current_user,
         payload=payload.model_dump(by_alias=False, exclude_none=True),
     )
-    return _serialize_detail(design, include_internal=include_internal)
+    return _serialize_detail(design, include_internal=include_internal, db=db)
 
 
 @router.get('', response_model=list[NetworkDesignSummaryResponse])
@@ -176,7 +192,7 @@ def list_ops_submissions(current_user: dict = Depends(get_current_user), db: Ses
 @router.get('/{design_id}', response_model=NetworkDesignDetailResponse)
 def get_design(design_id: str, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row = NetworkDesignService(db).get_design(current_user, design_id)
-    return _serialize_detail(row, include_internal=_is_admin_actor(current_user))
+    return _serialize_detail(row, include_internal=_is_admin_actor(current_user), db=db)
 
 
 @router.post('/{design_id}/submit', response_model=NetworkDesignDetailResponse)
@@ -191,7 +207,7 @@ def submit_design(
         design_id=design_id,
         payload=payload.model_dump(by_alias=False, exclude_none=True),
     )
-    return _serialize_detail(row, include_internal=_is_admin_actor(current_user))
+    return _serialize_detail(row, include_internal=_is_admin_actor(current_user), db=db)
 
 
 @router.patch('/{design_id}/status', response_model=NetworkDesignDetailResponse)
@@ -209,7 +225,7 @@ def update_design_status(
         note=payload.note,
         note_visibility=payload.note_visibility,
     )
-    return _serialize_detail(row, include_internal=True)
+    return _serialize_detail(row, include_internal=True, db=db)
 
 
 @router.patch('/{design_id}/milestones', response_model=NetworkDesignDetailResponse)
@@ -225,7 +241,7 @@ def update_design_milestones(
         design_id,
         payload.milestones.model_dump(by_alias=False, exclude_none=True),
     )
-    return _serialize_detail(row, include_internal=True)
+    return _serialize_detail(row, include_internal=True, db=db)
 
 
 @router.patch('/{design_id}/install-assistance', response_model=NetworkDesignDetailResponse)
@@ -240,7 +256,7 @@ def update_design_install_assistance(
         design_id,
         payload.install_assistance.model_dump(by_alias=False, exclude_none=True),
     )
-    return _serialize_detail(row, include_internal=_is_admin_actor(current_user))
+    return _serialize_detail(row, include_internal=_is_admin_actor(current_user), db=db)
 
 
 @router.post('/{design_id}/updates', response_model=NetworkDesignDetailResponse)
@@ -256,4 +272,33 @@ def add_design_update(
         design_id=design_id,
         payload=payload.update.model_dump(by_alias=False, exclude_none=True),
     )
-    return _serialize_detail(row, include_internal=True)
+    return _serialize_detail(row, include_internal=True, db=db)
+
+
+# ── Managed Services per design ──────────────────────────────────────
+
+@router.get('/{design_id}/managed-services', response_model=ManagedServicesDesignResponse)
+def get_design_managed_services(
+    design_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    NetworkDesignService(db).get_design(current_user, design_id)
+    result = ManagedServicePricingService(db).calculate_for_design(design_id)
+    return ManagedServicesDesignResponse(**result)
+
+
+@router.put('/{design_id}/managed-services', response_model=ManagedServicesDesignResponse)
+def update_design_managed_services(
+    design_id: str,
+    payload: ManagedServicesConfigRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    NetworkDesignService(db).get_design(current_user, design_id)
+    result = ManagedServicePricingService(db).update_design_managed_services(
+        design_id,
+        enabled_categories=payload.enabled_categories,
+        excluded_item_ids=payload.excluded_item_ids,
+    )
+    return ManagedServicesDesignResponse(**result)

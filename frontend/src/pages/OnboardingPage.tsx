@@ -159,7 +159,7 @@ export const OnboardingPage = () => {
             <div className="onboarding-input-grid">
               <label className="field-label">
                 Organization Name
-                <input value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} placeholder="SecureOffice LLC" required />
+                <input value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} placeholder="Secure AI Office LLC" required />
               </label>
               <label className="field-label">
                 Admin Name

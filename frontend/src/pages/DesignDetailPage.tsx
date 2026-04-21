@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
 import { DrawioDiagramViewer } from '../components/DrawioDiagramViewer';
@@ -8,6 +8,8 @@ import type {
   DesignStatus,
   DesignStatusHistoryEntry,
   DesignUpdate,
+  ManagedServicesDesignSummary,
+  ManagedServiceDeviceEntry,
   NetworkBomLine,
   NetworkDesignDetail,
 } from '../types/commerce';
@@ -98,6 +100,8 @@ export const DesignDetailPage = () => {
   const [savingInstall, setSavingInstall] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [msData, setMsData] = useState<ManagedServicesDesignSummary | null>(null);
+  const [msSaving, setMsSaving] = useState(false);
 
   const loadDesign = async () => {
     if (!accessToken || !designId) return;
@@ -106,6 +110,8 @@ export const DesignDetailPage = () => {
     try {
       const data = await commerceApi.getNetworkDesign(accessToken, designId);
       setDesign(data);
+      // Always fetch managed services via dedicated endpoint for freshest data
+      loadManagedServices(data.id);
       setLead({
         fullName: data.lead?.fullName || '',
         email: data.lead?.email || '',
@@ -124,6 +130,17 @@ export const DesignDetailPage = () => {
       setLoading(false);
     }
   };
+
+  const loadManagedServices = useCallback(async (id?: string) => {
+    const did = id || designId;
+    if (!accessToken || !did) return;
+    try {
+      const data = await commerceApi.getDesignManagedServices(accessToken, did);
+      setMsData(data);
+    } catch (err) {
+      console.warn('[ManagedServices] Failed to load:', err);
+    }
+  }, [accessToken, designId]);
 
   useEffect(() => {
     loadDesign();
@@ -146,6 +163,93 @@ export const DesignDetailPage = () => {
   );
 
   const canSubmit = design?.status === 'draft' || design?.status === 'reviewed';
+
+  // Build per-item lookup from managed services data
+  // Handle both camelCase (from dedicated API) and snake_case (from inline detail)
+  const msDeviceMap = useMemo(() => {
+    const map = new Map<string, ManagedServiceDeviceEntry & { group: string; groupEnabled: boolean }>();
+    if (!msData?.categories) return map;
+    for (const cat of msData.categories) {
+      for (const raw of (cat.devices || []) as any[]) {
+        const device: ManagedServiceDeviceEntry = {
+          itemId: raw.itemId || raw.item_id,
+          name: raw.name,
+          sku: raw.sku,
+          category: raw.category,
+          quantity: raw.quantity,
+          managedServicePrice: raw.managedServicePrice ?? raw.managed_service_price ?? 0,
+          excluded: raw.excluded ?? false,
+        };
+        if (device.itemId) {
+          map.set(device.itemId, { ...device, group: cat.group, groupEnabled: cat.enabled !== false });
+        }
+      }
+    }
+    return map;
+  }, [msData]);
+
+  const msTotalMonthly = msData?.grandTotalMonthly ?? 0;
+
+  const toggleMsForDevice = async (itemId: string, currentlyExcluded: boolean) => {
+    if (!accessToken || !designId || !msData) return;
+    const config = msData.config || {};
+    const enabledSet = new Set<string>((config as any).enabled_categories || (config as any).enabledCategories || []);
+    const excludedSet = new Set<string>((config as any).excluded_item_ids || (config as any).excludedItemIds || []);
+
+    // Auto-enable the device's category group if not already enabled
+    const deviceInfo = msDeviceMap.get(itemId);
+    if (deviceInfo && !enabledSet.has(deviceInfo.group)) {
+      enabledSet.add(deviceInfo.group);
+    }
+
+    if (currentlyExcluded) {
+      excludedSet.delete(itemId);
+    } else {
+      excludedSet.add(itemId);
+    }
+
+    // Optimistic update — flip the device locally so only the toggled row changes
+    setMsData((prev) => {
+      if (!prev) return prev;
+      const newExcluded = !currentlyExcluded;
+      return {
+        ...prev,
+        categories: prev.categories.map((cat) => ({
+          ...cat,
+          enabled: enabledSet.has(cat.group),
+          devices: cat.devices.map((d) =>
+            d.itemId === itemId ? { ...d, excluded: newExcluded } : d
+          ),
+          appliedCount: cat.devices.reduce((sum, d) => {
+            const exc = d.itemId === itemId ? newExcluded : d.excluded;
+            return sum + (exc ? 0 : d.quantity);
+          }, 0),
+          excludedCount: cat.devices.reduce((sum, d) => {
+            const exc = d.itemId === itemId ? newExcluded : d.excluded;
+            return sum + (exc ? d.quantity : 0);
+          }, 0),
+          monthlyTotal: cat.devices.reduce((sum, d) => {
+            const exc = d.itemId === itemId ? newExcluded : d.excluded;
+            return sum + (exc ? 0 : d.managedServicePrice * d.quantity);
+          }, 0),
+        })),
+      };
+    });
+
+    // Sync with backend in the background (no msSaving spinner to avoid blink)
+    try {
+      const result = await commerceApi.updateDesignManagedServices(accessToken, designId, {
+        enabledCategories: [...enabledSet],
+        excludedItemIds: [...excludedSet],
+      });
+      // Reconcile server truth for the grand total
+      setMsData(result);
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Failed to update managed service');
+      // Revert on error
+      loadManagedServices();
+    }
+  };
 
   const activeStepIndex = useMemo(() => {
     if (!design) return 0;
@@ -397,51 +501,6 @@ export const DesignDetailPage = () => {
             </button>
           </article>
 
-          <article className="dashboard-panel full-width" id="design-bom">
-            <h3>Equipment / BOM Snapshot</h3>
-            {quoteRequiredCount > 0 && (
-              <p className="mini-note">
-                {quoteRequiredCount} line{quoteRequiredCount > 1 ? 's are' : ' is'} price-on-request pending final quote.
-              </p>
-            )}
-            <table className="cart-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Category</th>
-                  <th>Qty</th>
-                  <th>Unit Price</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bomLines.map((line) => (
-                  <tr key={line.line_id}>
-                    <td>
-                      <div>{line.name}</div>
-                      {(line.connectivity || line.cable_type) && (
-                        <div className="mini-note">
-                          {line.cable_type && line.cable_length_meters
-                            ? `${line.cable_type} • ${Math.round(line.cable_length_meters)}m estimated • $${Number(line.price_per_meter || 0).toFixed(2)}/m`
-                            : connectivityLabel(line.connectivity)}
-                        </div>
-                      )}
-                    </td>
-                    <td>{line.category || '-'}</td>
-                    <td>{line.quantity}</td>
-                    <td>{formatBomMoney(line, 'unit')}</td>
-                    <td>{formatBomMoney(line, 'total')}</td>
-                  </tr>
-                ))}
-                {bomLines.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="mini-note">No BOM lines found for this design.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </article>
-
           <article className="dashboard-panel full-width" id="design-diagram">
             <h3>Diagram / Topology Reference</h3>
             <p className="mini-note">
@@ -477,6 +536,87 @@ export const DesignDetailPage = () => {
               />
             )}
           </article>
+
+          <article className="dashboard-panel full-width" id="design-bom">
+            <h3>Equipment / BOM Snapshot</h3>
+            {quoteRequiredCount > 0 && (
+              <p className="mini-note">
+                {quoteRequiredCount} line{quoteRequiredCount > 1 ? 's are' : ' is'} price-on-request pending final quote.
+              </p>
+            )}
+            <table className="cart-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Category</th>
+                  <th>Qty</th>
+                  <th>Unit Price</th>
+                  <th>Total</th>
+                  <th>Managed Service</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bomLines.map((line) => {
+                  const msDevice = line.item_id ? msDeviceMap.get(line.item_id) : undefined;
+                  const hasMsPrice = msDevice && msDevice.managedServicePrice > 0;
+                  const msIncluded = hasMsPrice && msDevice.groupEnabled && !msDevice.excluded;
+                  return (
+                    <tr key={line.line_id}>
+                      <td>
+                        <div>{line.name}</div>
+                        {(line.connectivity || line.cable_type) && (
+                          <div className="mini-note">
+                            {line.cable_type && line.cable_length_meters
+                              ? `${line.cable_type} • ${Math.round(line.cable_length_meters)}m estimated • $${Number(line.price_per_meter || 0).toFixed(2)}/m`
+                              : connectivityLabel(line.connectivity)}
+                          </div>
+                        )}
+                      </td>
+                      <td>{line.category || '-'}</td>
+                      <td>{line.quantity}</td>
+                      <td>{formatBomMoney(line, 'unit')}</td>
+                      <td>{formatBomMoney(line, 'total')}</td>
+                      <td>
+                        {hasMsPrice ? (
+                          <label className="ms-inline-check">
+                            <input
+                              type="checkbox"
+                              checked={msIncluded}
+                              disabled={design.status !== 'draft' && design.status !== 'reviewed'}
+                              onChange={() => toggleMsForDevice(msDevice.itemId, !msDevice.excluded ? false : true)}
+                            />
+                            <span className={msIncluded ? 'ms-inline-price' : 'ms-inline-price ms-inline-excluded'}>
+                              ${msDevice.managedServicePrice.toFixed(2)}/mo
+                            </span>
+                          </label>
+                        ) : (
+                          <span className="mini-note">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {bomLines.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="mini-note">No BOM lines found for this design.</td>
+                  </tr>
+                )}
+              </tbody>
+              {msTotalMonthly > 0 && (
+                <tfoot>
+                  <tr className="ms-total-row">
+                    <td colSpan={5} style={{ textAlign: 'right', fontWeight: 600 }}>
+                      Total Managed Services
+                    </td>
+                    <td className="ms-inline-total">
+                      {formatCurrency(msTotalMonthly)}/mo
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </article>
+
         </section>
       )}
     </section>

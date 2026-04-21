@@ -19,6 +19,12 @@ class UserRole(str, enum.Enum):
     USER = 'USER'
 
 
+class UserType(str, enum.Enum):
+    CELLHUB = 'CELLHUB'
+    VENDOR = 'VENDOR'
+    COMPANY = 'COMPANY'
+
+
 class User(Base):
     __tablename__ = 'users'
 
@@ -31,6 +37,9 @@ class User(Base):
     provider_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole, name='user_role'), nullable=False, default=UserRole.USER)
+    user_type: Mapped[UserType] = mapped_column(
+        Enum(UserType, name='user_type_enum'), nullable=False, default=UserType.CELLHUB,
+    )
     permissions: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('tenants.id', ondelete='RESTRICT'), nullable=False)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

@@ -15,6 +15,7 @@ from app.repositories.user_repository import UserRepository
 from app.services.lifecycle_service import LifecycleService
 from app.services.onboarding_service import OnboardingService
 from app.services.order_notification_service import OrderNotificationService
+from app.services.managed_service_pricing_service import ManagedServicePricingService
 from app.services.pricing_service import PricingService
 
 logger = logging.getLogger(__name__)
@@ -343,6 +344,39 @@ class QuoteService:
                 parent_line_id=parent_line_id,
             )
             quote_line_id_by_temp_id[candidate['temp_id']] = str(created_line.id)
+
+        # ── Inject managed-service per-SKU lines if design_id is provided ──
+        design_id = (payload or {}).get('design_id')
+        if design_id:
+            try:
+                from app.models.network_design import NetworkDesign
+                design = self.db.get(NetworkDesign, design_id)
+                if design:
+                    ms_lines = ManagedServicePricingService(self.db).get_managed_service_lines_for_quote(design)
+                    for ms_line in ms_lines:
+                        self.quote_repo.add_line(
+                            quote_id=quote.id,
+                            line_type=QuoteLineType.SERVICE,
+                            catalog_item_id=None,
+                            name_snapshot=ms_line['name'],
+                            sku_snapshot=ms_line['sku'],
+                            vendor_snapshot=ms_line['vendor'],
+                            qty=ms_line['qty'],
+                            list_price_snapshot=ms_line['unit_price'],
+                            final_unit_price_snapshot=ms_line['unit_price'],
+                            billing_type=BillingType.RECURRING,
+                            interval=BillingInterval.MONTH,
+                            metadata_json=ms_line['metadata'],
+                            parent_line_id=None,
+                        )
+                        monthly_total += Decimal(str(ms_line['unit_price'])) * Decimal(str(ms_line['qty']))
+
+                    # Recalculate totals
+                    projected_12_month_cost = one_time_total + (monthly_total * Decimal('12'))
+                    quote.monthly_total = float(self.pricing_service._quantize_money(monthly_total))
+                    quote.projected_12_month_cost = float(self.pricing_service._quantize_money(projected_12_month_cost))
+            except Exception:
+                logger.exception('Failed to add managed service lines from design %s', design_id)
 
         self.db.commit()
         return self.quote_repo.get_by_id(str(quote.id))

@@ -18,6 +18,16 @@ PERM_MANAGE_LIFECYCLE = 'manage_lifecycle'
 PERM_MANAGE_BILLING = 'manage_billing'
 PERM_MANAGE_PRICING = 'manage_pricing'
 
+PERM_MANAGE_PRODUCTS = 'manage_products'
+PERM_VIEW_VENDOR_ORDERS = 'view_vendor_orders'
+PERM_MANAGE_VENDOR_TEAM = 'manage_vendor_team'
+PERM_VIEW_VENDOR_ANALYTICS = 'view_vendor_analytics'
+
+PERM_PLACE_ORDERS = 'place_orders'
+PERM_VIEW_COMPANY_ORDERS = 'view_company_orders'
+PERM_MANAGE_COMPANY_USERS = 'manage_company_users'
+PERM_VIEW_COMPANY_BILLING = 'view_company_billing'
+
 PERMISSION_CATALOG: dict[str, str] = {
     PERM_VIEW_CATALOG: 'Browse catalog and product details',
     PERM_MANAGE_CART: 'Manage cart and solution builder',
@@ -36,6 +46,14 @@ PERMISSION_CATALOG: dict[str, str] = {
     PERM_MANAGE_LIFECYCLE: 'Advance lifecycle workflow and update subscription lifecycle states',
     PERM_MANAGE_BILLING: 'Run invoicing and record invoice payments',
     PERM_MANAGE_PRICING: 'Manage customer and deal-level discount rules',
+    PERM_MANAGE_PRODUCTS: 'Manage vendor product listings',
+    PERM_VIEW_VENDOR_ORDERS: 'View orders for vendor products',
+    PERM_MANAGE_VENDOR_TEAM: 'Manage vendor team members',
+    PERM_VIEW_VENDOR_ANALYTICS: 'View vendor analytics and reports',
+    PERM_PLACE_ORDERS: 'Place orders as a company buyer',
+    PERM_VIEW_COMPANY_ORDERS: 'View company order history',
+    PERM_MANAGE_COMPANY_USERS: 'Manage company team members',
+    PERM_VIEW_COMPANY_BILLING: 'View company billing and invoices',
 }
 
 USER_PERMISSION_SCOPE = {
@@ -61,6 +79,34 @@ ADMIN_PERMISSION_SCOPE = USER_PERMISSION_SCOPE | {
 }
 
 SUPER_ADMIN_PERMISSION_SCOPE = set(PERMISSION_CATALOG.keys())
+
+VENDOR_ADMIN_PERMISSION_SCOPE = {
+    PERM_MANAGE_PRODUCTS,
+    PERM_VIEW_VENDOR_ORDERS,
+    PERM_MANAGE_VENDOR_TEAM,
+    PERM_VIEW_VENDOR_ANALYTICS,
+    PERM_VIEW_CATALOG,
+}
+
+VENDOR_USER_PERMISSION_SCOPE = {
+    PERM_VIEW_VENDOR_ORDERS,
+    PERM_VIEW_CATALOG,
+    PERM_VIEW_VENDOR_ANALYTICS,
+}
+
+COMPANY_ADMIN_PERMISSION_SCOPE = {
+    PERM_PLACE_ORDERS,
+    PERM_VIEW_CATALOG,
+    PERM_VIEW_COMPANY_ORDERS,
+    PERM_MANAGE_COMPANY_USERS,
+    PERM_VIEW_COMPANY_BILLING,
+}
+
+COMPANY_USER_PERMISSION_SCOPE = {
+    PERM_VIEW_CATALOG,
+    PERM_VIEW_COMPANY_ORDERS,
+    PERM_PLACE_ORDERS,
+}
 
 ROLE_DEFAULT_PERMISSIONS: dict[UserRole, set[str]] = {
     UserRole.USER: USER_PERMISSION_SCOPE,

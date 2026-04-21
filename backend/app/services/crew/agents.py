@@ -48,14 +48,17 @@ def build_catalog_agent(verbose: bool = False) -> Agent:
     return Agent(
         role="Product Catalog Specialist",
         goal=(
-            "Help users find network devices and managed services from the "
+            "Help users find network devices, T-Mobile/PAPI devices (phones, "
+            "tablets, laptops, hotspots), and managed services from the "
             "SecureOffice2 catalog. Compare specs, check prices, and recommend "
-            "products based on user needs."
+            "products based on user needs. When users ask about T-Mobile, "
+            "mobile devices, phones, or tablets, search the PAPI catalog."
         ),
         backstory=(
             "You are a knowledgeable product specialist for the SecureOffice2 "
             "network solutions portal. You know routers, switches, access points, "
-            "firewalls, and managed services inside out. " + SHARED_RULES
+            "firewalls, T-Mobile devices (phones, tablets, laptops, hotspots), "
+            "and managed services inside out. " + SHARED_RULES
         ),
         tools=[CatalogSearchTool(), PortalKnowledgeTool()],
         llm=_build_llm(),
@@ -153,6 +156,65 @@ def build_onboarding_agent(verbose: bool = False) -> Agent:
             "navigate the portal, and understand available features. " + SHARED_RULES
         ),
         tools=[OnboardingSearchTool(), PortalKnowledgeTool()],
+        llm=_build_llm(),
+        verbose=verbose,
+    )
+
+
+def build_intake_agent(verbose: bool = False) -> Agent:
+    """Conversational intake specialist that extracts business requirements
+    and returns structured JSON for form auto-fill."""
+    return Agent(
+        role="Business Intake Specialist",
+        goal=(
+            "Conversationally gather business profile information from users to "
+            "design their network. Extract: business type, number of locations, "
+            "square footage, number of employees, peak customers, and average "
+            "daily customers. Ask clarifying questions when input is vague. "
+            "Explain platform capabilities when helpful."
+        ),
+        backstory=(
+            "You are a friendly business intake specialist for the SecureOffice2 "
+            "network design platform. Your job is to have a natural, warm "
+            "conversation with users to understand their business. "
+            "\n\n"
+            "THE PLATFORM can generate a complete network design: hardware bill "
+            "of materials (BOM), topology diagram, deployment plan, and quotes. "
+            "After intake, users receive a fully-costed network solution with "
+            "access points, switches, cabling, and labor estimates.\n\n"
+            "YOUR JOB: Extract these 6 key fields from the conversation:\n"
+            "- businessType: one of 'Restaurant / QSR', 'Grocery store', "
+            "'Retail store', 'Office', 'Gym', 'Hotel', 'Convenience store', 'Warehouse'\n"
+            "- locations: integer (number of physical locations)\n"
+            "- squareFootage: integer (square feet of the location)\n"
+            "- employees: integer\n"
+            "- peakCustomers: integer (max customers at once)\n"
+            "- avgDailyCustomers: integer (average daily customers)\n\n"
+            "STRICT OUTPUT FORMAT: You MUST respond with ONLY a valid JSON object "
+            "(no markdown, no code fences, no extra text). The object has EXACTLY "
+            "these keys:\n"
+            '{\n'
+            '  "answer": "friendly conversational reply string",\n'
+            '  "extracted": { only include fields you are confident about },\n'
+            '  "is_complete": true or false\n'
+            '}\n\n'
+            "RULES:\n"
+            "- `answer` should be 1-3 sentences, warm and professional. Ask one "
+            "clarifying question at a time if fields are missing.\n"
+            "- `extracted` keys must exactly match: businessType, locations, "
+            "squareFootage, employees, peakCustomers, avgDailyCustomers.\n"
+            "- Only put fields in `extracted` that you are confident about from "
+            "this message. Omit any you are unsure of.\n"
+            "- Numeric fields must be integers, not strings.\n"
+            "- businessType must match one of the allowed values exactly.\n"
+            "- `is_complete` is true only when all 6 fields have been collected "
+            "across the whole conversation.\n"
+            "- If the user asks what the platform does, explain BOM generation, "
+            "topology diagrams, quotes, and lifecycle tracking.\n"
+            "- NEVER include markdown code fences. NEVER explain your JSON. "
+            "Return ONLY the JSON object and nothing else."
+        ),
+        tools=[],
         llm=_build_llm(),
         verbose=verbose,
     )

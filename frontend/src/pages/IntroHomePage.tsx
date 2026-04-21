@@ -52,11 +52,11 @@ export const IntroHomePage = () => {
         <div className="ih-hero-copy">
           <div className="ih-eyebrow">
             <ShieldCheck size={13} />
-            <span>SecureOffice Platform</span>
+            <span>Secure AI Office Platform</span>
           </div>
           <h1>
             Build, price, and deliver<br />
-            your secure office stack
+            your secure AI office stack
           </h1>
           <p>
             Unify requirement discovery, BOM building, BAFO pricing, contract handoff,
@@ -75,9 +75,6 @@ export const IntroHomePage = () => {
           <div className="ih-cta-row">
             <button className="primary-btn ih-cta-primary" onClick={() => navigate('/shop/designs/new')}>
               Build Your Design <ArrowRight size={15} />
-            </button>
-            <button className="ghost-btn ih-cta-ghost" onClick={() => navigate('/business-intake')}>
-              Start Intake Form
             </button>
           </div>
 
@@ -141,7 +138,7 @@ export const IntroHomePage = () => {
       <section className="ih-capabilities">
         <div className="ih-cap-head">
           <h2>Everything We Offer</h2>
-          <button className="ghost-btn ih-cap-btn" onClick={() => navigate('/shop/flow-options')}>
+          <button className="ghost-btn ih-cap-btn" onClick={() => navigate('/shop/designs/new')}>
             Get started <ArrowRight size={13} />
           </button>
         </div>

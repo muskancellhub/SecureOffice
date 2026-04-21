@@ -43,24 +43,59 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [fetchMe]);
 
   useEffect(() => {
+    // Single-flight refresh: if several requests 401 at the same time, only
+    // one /auth/refresh goes out and all retries await the same promise.
+    // Without this the refresh call can fan out to 10+ parallel requests,
+    // blow the backend rate limit, and look like session loss.
+    let pendingRefresh: Promise<string | null> | null = null;
+
+    const runRefresh = (): Promise<string | null> => {
+      if (!pendingRefresh) {
+        pendingRefresh = authApi
+          .refresh()
+          .then((refreshed) => {
+            setAccessToken(refreshed.access_token);
+            return refreshed.access_token;
+          })
+          .catch(() => {
+            setAccessToken(null);
+            setUser(null);
+            return null;
+          })
+          .finally(() => {
+            pendingRefresh = null;
+          });
+      }
+      return pendingRefresh;
+    };
+
     const interceptor = api.interceptors.response.use(
       (response) => response,
       async (error) => {
         const originalRequest = error.config;
-        if (error?.response?.status === 401 && !originalRequest?._retry) {
+
+        // Network errors (CORS, server down, DNS) don't have a response.
+        // Treat them as transient and reject — don't clear the session,
+        // otherwise a single flake signs the user out.
+        if (!error?.response) {
+          return Promise.reject(error);
+        }
+
+        // Never retry /auth/refresh itself, or we'd loop.
+        const url = originalRequest?.url || '';
+        const isRefreshCall = url.includes('/auth/refresh');
+
+        if (error.response.status === 401 && !originalRequest?._retry && !isRefreshCall) {
           originalRequest._retry = true;
-          try {
-            const refreshed = await authApi.refresh();
-            setAccessToken(refreshed.access_token);
-            originalRequest.headers = {
-              ...(originalRequest.headers || {}),
-              Authorization: `Bearer ${refreshed.access_token}`,
-            };
-            return api(originalRequest);
-          } catch {
-            setAccessToken(null);
-            setUser(null);
+          const token = await runRefresh();
+          if (!token) {
+            return Promise.reject(error);
           }
+          originalRequest.headers = {
+            ...(originalRequest.headers || {}),
+            Authorization: `Bearer ${token}`,
+          };
+          return api(originalRequest);
         }
         return Promise.reject(error);
       },
@@ -80,7 +115,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const verifyOtp = async (payload: VerifyOtpPayload) => {
-    await authApi.verifyOtp(payload);
+    const token = await authApi.verifyOtp(payload);
+    setAccessToken(token.access_token);
+    await fetchMe(token.access_token);
   };
 
   const login = async (payload: LoginPayload) => {

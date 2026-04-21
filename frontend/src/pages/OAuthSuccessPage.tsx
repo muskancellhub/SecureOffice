@@ -8,7 +8,11 @@ export const OAuthSuccessPage = () => {
 
   useEffect(() => {
     ensureSession()
-      .then(() => navigate('/shop', { replace: true }))
+      .then(() => {
+        const redirect = localStorage.getItem('secureOfficePostAuthRedirect') || '/shop';
+        localStorage.removeItem('secureOfficePostAuthRedirect');
+        navigate(redirect.startsWith('/') ? redirect : '/shop', { replace: true });
+      })
       .catch(() => navigate('/login', { replace: true }));
   }, [ensureSession, navigate]);
 

@@ -4,6 +4,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import selectinload
 from app.core.exceptions import ForbiddenError, NotFoundError, UnauthorizedError
 from app.models.lifecycle import (
+    Contract,
     Invoice,
     InvoiceStatus,
     Payment,
@@ -95,7 +96,10 @@ class BillingService:
             for month in projected_months
         }
 
-        order_rows = self.db.execute(
+        user_id = self._parse_uuid(current_user['user_id'], field_name='user_id')
+        is_admin = self._is_admin(current_user.get('role'))
+
+        order_stmt = (
             select(Order.created_at, OrderLine.unit_price, OrderLine.qty)
             .join(OrderLine, OrderLine.order_id == Order.id)
             .where(
@@ -103,7 +107,10 @@ class BillingService:
                 OrderLine.billing == BillingType.ONE_TIME,
                 Order.created_at >= datetime.combine(past_start, datetime.min.time(), timezone.utc),
             )
-        ).all()
+        )
+        if not is_admin:
+            order_stmt = order_stmt.where(Order.created_by == user_id)
+        order_rows = self.db.execute(order_stmt).all()
 
         for created_at, unit_price, qty in order_rows:
             month_key = self._month_key(created_at.date().replace(day=1))
@@ -113,13 +120,14 @@ class BillingService:
             past_map[month_key]['one_time_total'] += amount
             past_map[month_key]['total'] += amount
 
-        subscriptions = list(
-            self.db.scalars(
-                select(Subscription)
-                .where(Subscription.tenant_id == tenant_id)
-                .order_by(desc(Subscription.created_at))
-            ).all()
+        sub_stmt = (
+            select(Subscription)
+            .where(Subscription.tenant_id == tenant_id)
+            .order_by(desc(Subscription.created_at))
         )
+        if not is_admin:
+            sub_stmt = sub_stmt.join(Contract, Subscription.contract_id == Contract.id).where(Contract.created_by == user_id)
+        subscriptions = list(self.db.scalars(sub_stmt).all())
 
         for month in past_months:
             month_key = self._month_key(month)

@@ -1,4 +1,4 @@
-import { ArrowUpDown, Heart, Search, ShoppingCart, SlidersHorizontal } from 'lucide-react';
+import { ArrowUpDown, Heart, Minus, Plus, Search, ShoppingCart, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
@@ -24,7 +24,7 @@ const categoryOptions = [
 
 export const RoutersCatalogPage = () => {
   const { accessToken } = useAuth();
-  const { addRouterToCart } = useShop();
+  const { cart, addRouterToCart, updateLineQuantity, removeLine } = useShop();
   const [searchParams] = useSearchParams();
   const initialCategory = (['router', 'laptop', 'phone', 'hotspot'].includes(searchParams.get('category') || '') ? searchParams.get('category') : '') as '' | 'router' | 'laptop' | 'phone' | 'hotspot';
   const [items, setItems] = useState<CatalogItem[]>([]);
@@ -40,6 +40,31 @@ export const RoutersCatalogPage = () => {
   const [availability, setAvailability] = useState('');
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
+  const [busyItemId, setBusyItemId] = useState<string | null>(null);
+
+  const cartLineMap = useMemo(() => {
+    const map = new Map<string, { lineId: string; quantity: number }>();
+    if (!cart?.lines) return map;
+    for (const line of cart.lines) {
+      map.set(line.catalog_item_id, { lineId: line.id, quantity: line.quantity });
+    }
+    return map;
+  }, [cart]);
+
+  const handleQtyChange = async (lineId: string, itemId: string, newQty: number) => {
+    try {
+      setBusyItemId(itemId);
+      if (newQty <= 0) {
+        await removeLine(lineId);
+      } else {
+        await updateLineQuantity(lineId, newQty);
+      }
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Failed to update quantity');
+    } finally {
+      setBusyItemId(null);
+    }
+  };
 
   const loadItems = async () => {
     if (!accessToken) return;
@@ -223,21 +248,47 @@ export const RoutersCatalogPage = () => {
                       <strong className="storefront-price">${item.price.toFixed(2)}</strong>
                     </div>
 
-                    <button
-                      className="item-cart-btn"
-                      aria-label="Add to cart"
-                      onClick={async () => {
-                        try {
-                          await addRouterToCart(item.id, 1);
-                          setAddedNotice('Added to cart');
-                        } catch (err: any) {
-                          setError(err?.response?.data?.detail || 'Failed to add item to cart');
-                        }
-                      }}
-                    >
-                      <ShoppingCart size={14} />
-                      <span>Add to cart</span>
-                    </button>
+                    {(() => {
+                      const cartLine = cartLineMap.get(item.id);
+                      const isBusy = busyItemId === item.id;
+                      if (cartLine) {
+                        return (
+                          <div className="qty-stepper">
+                            <button className="qty-stepper-btn" disabled={isBusy}
+                              onClick={() => cartLine.quantity <= 1
+                                ? handleQtyChange(cartLine.lineId, item.id, 0)
+                                : handleQtyChange(cartLine.lineId, item.id, cartLine.quantity - 1)
+                              }
+                            >
+                              {cartLine.quantity <= 1 ? <Trash2 size={13} /> : <Minus size={13} />}
+                            </button>
+                            <span className="qty-stepper-value">{cartLine.quantity}</span>
+                            <button className="qty-stepper-btn" disabled={isBusy}
+                              onClick={() => handleQtyChange(cartLine.lineId, item.id, cartLine.quantity + 1)}
+                            >
+                              <Plus size={13} />
+                            </button>
+                          </div>
+                        );
+                      }
+                      return (
+                        <button
+                          className="item-cart-btn"
+                          aria-label="Add to cart"
+                          onClick={async () => {
+                            try {
+                              await addRouterToCart(item.id, 1);
+                              setAddedNotice('Added to cart');
+                            } catch (err: any) {
+                              setError(err?.response?.data?.detail || 'Failed to add item to cart');
+                            }
+                          }}
+                        >
+                          <ShoppingCart size={14} />
+                          <span>Add to cart</span>
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
               </article>

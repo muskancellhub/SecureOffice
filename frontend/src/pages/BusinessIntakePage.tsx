@@ -361,6 +361,7 @@ export const BusinessIntakePage = () => {
     const estimate = calculateNetworkEstimate(calculatorInput);
     localStorage.setItem(CALCULATOR_INPUT_STORAGE_KEY, JSON.stringify(calculatorInput));
     localStorage.setItem(CALCULATOR_RESULT_STORAGE_KEY, JSON.stringify(estimate));
+    localStorage.setItem('secureOfficePostAuthRedirect', '/shop/designs/new');
     if (user) {
       navigate('/shop/designs/new', { replace: true });
       return;

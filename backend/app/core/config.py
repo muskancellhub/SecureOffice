@@ -66,6 +66,10 @@ class Settings(BaseSettings):
 
     anam_api_key: str = Field(default='', alias='ANAM_API_KEY')
 
+    zabbix_url: str = Field(default='', alias='ZABBIX_URL')
+    zabbix_username: str = Field(default='', alias='ZABBIX_USERNAME')
+    zabbix_password: str = Field(default='', alias='ZABBIX_PASSWORD')
+
 
 @lru_cache
 def get_settings() -> Settings:

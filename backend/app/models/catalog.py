@@ -35,5 +35,6 @@ class CatalogItem(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     availability: Mapped[str | None] = mapped_column(String(64), nullable=True)
     attributes: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    managed_service_price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

@@ -17,6 +17,7 @@ class CatalogItemResponse(BaseModel):
     is_active: bool
     availability: str | None
     attributes: dict
+    managed_service_price: float | None = None
     created_at: datetime
 
     # Unified catalog fields.
@@ -42,3 +43,11 @@ class UpdateManagedServiceRequest(BaseModel):
     price: float | None = None
     is_active: bool | None = None
     features: list[str] | None = None
+
+
+class UpdateDeviceManagedServicePriceRequest(BaseModel):
+    managed_service_price: float | None = None
+
+
+class BulkUpdateManagedServicePricesRequest(BaseModel):
+    updates: list[dict] = Field(default_factory=list)

@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "frontend",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["-c", "export PATH=/Users/muskan/.nvm/versions/node/v24.13.1/bin:$PATH && npm run dev"],
       "port": 5173,
       "cwd": "frontend"
     }

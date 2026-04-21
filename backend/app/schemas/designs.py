@@ -185,6 +185,46 @@ class NetworkDesignSummaryResponse(BaseModel):
     lead: DesignLeadResponse | None = None
 
 
+class ManagedServicesConfigRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    enabled_categories: list[str] = Field(default_factory=list, alias='enabledCategories')
+    excluded_item_ids: list[str] = Field(default_factory=list, alias='excludedItemIds')
+
+
+class ManagedServiceDeviceEntry(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    item_id: str = Field(alias='itemId')
+    name: str
+    sku: str
+    category: str | None = None
+    quantity: int
+    managed_service_price: float = Field(alias='managedServicePrice')
+    excluded: bool = False
+
+
+class ManagedServiceCategorySummary(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    group: str
+    group_label: str = Field(alias='groupLabel')
+    enabled: bool
+    device_count: int = Field(alias='deviceCount')
+    excluded_count: int = Field(alias='excludedCount')
+    applied_count: int = Field(alias='appliedCount')
+    monthly_total: float = Field(alias='monthlyTotal')
+    devices: list[ManagedServiceDeviceEntry] = Field(default_factory=list)
+
+
+class ManagedServicesDesignResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    config: dict[str, Any] = Field(default_factory=dict)
+    categories: list[ManagedServiceCategorySummary] = Field(default_factory=list)
+    grand_total_monthly: float = Field(alias='grandTotalMonthly')
+
+
 class NetworkDesignDetailResponse(NetworkDesignSummaryResponse):
     calculator_input: dict[str, Any] = Field(default_factory=dict, alias='calculatorInput')
     calculator_result: dict[str, Any] = Field(default_factory=dict, alias='calculatorResult')
@@ -198,4 +238,5 @@ class NetworkDesignDetailResponse(NetworkDesignSummaryResponse):
         default_factory=DesignInstallAssistanceResponse, alias='installAssistance'
     )
     decomposition: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    managed_services: dict[str, Any] = Field(default_factory=dict, alias='managedServices')
     metadata: dict[str, Any] = Field(default_factory=dict)

@@ -44,16 +44,19 @@ def me(current_user: dict = Depends(get_current_user), db: Session = Depends(get
             user_id=current_user['user_id'],
             email=current_user['email'],
             role=current_user['role'],
+            user_type=current_user.get('user_type', 'CELLHUB'),
             permissions=[],
             effective_permissions=[],
             tenant_id=current_user['tenant_id'],
             onboarding_completed=onboarding_completed,
         )
     serialized = UserManagementService.serialize_user(user)
+    user_type_val = user.user_type.value if hasattr(user.user_type, 'value') else str(user.user_type)
     return MeResponse(
         user_id=serialized['id'],
         email=serialized['email'],
         role=serialized['role'],
+        user_type=user_type_val,
         permissions=serialized['permissions'],
         effective_permissions=serialized['effective_permissions'],
         tenant_id=serialized['tenant_id'],

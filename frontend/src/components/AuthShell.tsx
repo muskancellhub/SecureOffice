@@ -17,7 +17,7 @@ export const AuthShell = ({ title, subtitle, children, showTabs = true }: AuthSh
         <div className="auth-left">
           <div className="logo-row">
             <span className="logo-mark">➤</span>
-            <span className="logo-text">Secure Office</span>
+            <span className="logo-text">Secure AI Office</span>
           </div>
 
           <div className="auth-content">

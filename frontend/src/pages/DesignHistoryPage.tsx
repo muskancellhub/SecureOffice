@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
+import { BusinessIntakeModal } from '../components/BusinessIntakeModal';
 import type { NetworkDesignSummary } from '../types/commerce';
 
 const formatCurrency = (value: number): string =>
@@ -32,6 +33,7 @@ export const DesignHistoryPage = () => {
   const [designs, setDesigns] = useState<NetworkDesignSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [intakeOpen, setIntakeOpen] = useState(false);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -69,7 +71,7 @@ export const DesignHistoryPage = () => {
           <div className="dh-empty-icon"><FileText size={40} strokeWidth={1.2} /></div>
           <h3>No designs yet</h3>
           <p>Create your first network design to get started with automated BOM generation and topology diagrams.</p>
-          <button className="primary-btn" onClick={() => navigate('/shop/designs/new')}>Create First Design</button>
+          <button className="primary-btn" onClick={() => setIntakeOpen(true)}>Create First Design</button>
         </article>
       )}
 
@@ -177,6 +179,7 @@ export const DesignHistoryPage = () => {
           </div>
         </div>
       )}
+      <BusinessIntakeModal open={intakeOpen} onClose={() => setIntakeOpen(false)} />
     </section>
   );
 };

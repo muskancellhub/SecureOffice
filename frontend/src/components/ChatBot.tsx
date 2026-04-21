@@ -93,7 +93,7 @@ export const ChatBot = () => {
   const [open, setOpen] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: 'assistant', content: 'Hi! I\'m the SecureOffice AI assistant. Ask me anything about devices, orders, quotes, designs, or portal navigation.' },
+    { role: 'assistant', content: 'Hi! I\'m the Secure AI Office assistant. Ask me anything about devices, orders, quotes, designs, or portal navigation.' },
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -114,6 +114,7 @@ export const ChatBot = () => {
       inputRef.current?.focus();
     }
   }, [open, minimized]);
+
 
   // Rotate thinking phrases while loading
   useEffect(() => {

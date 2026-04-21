@@ -8,6 +8,7 @@ import type {
   ContractSummary,
   CustomerPricing,
   DealPricing,
+  ManagedServicesDesignSummary,
   DesignInstallAssistance,
   DesignMilestones,
   DesignStatus,
@@ -456,4 +457,76 @@ export const addNetworkDesignUpdate = async (
     { headers: authHeaders(accessToken) },
   );
   return data as NetworkDesignDetail;
+};
+
+// ---------------------------------------------------------------------------
+// Zabbix monitoring
+// ---------------------------------------------------------------------------
+
+export const fetchZabbixDashboard = async (accessToken: string) => {
+  const { data } = await api.get('/zabbix/dashboard', { headers: authHeaders(accessToken) });
+  return data;
+};
+
+export const fetchZabbixHosts = async (accessToken: string) => {
+  const { data } = await api.get('/zabbix/hosts', { headers: authHeaders(accessToken) });
+  return data;
+};
+
+export const fetchZabbixProblems = async (accessToken: string, limit = 100) => {
+  const { data } = await api.get('/zabbix/problems', { headers: authHeaders(accessToken), params: { limit } });
+  return data;
+};
+
+export const fetchZabbixTriggers = async (accessToken: string, limit = 100) => {
+  const { data } = await api.get('/zabbix/triggers', { headers: authHeaders(accessToken), params: { limit } });
+  return data;
+};
+
+export const fetchZabbixHostMetrics = async (accessToken: string, hostId: string) => {
+  const { data } = await api.get(`/zabbix/hosts/${hostId}/metrics`, { headers: authHeaders(accessToken) });
+  return data;
+};
+
+// ---------------------------------------------------------------------------
+// Managed Services (per-SKU pricing)
+// ---------------------------------------------------------------------------
+
+export const getDesignManagedServices = async (accessToken: string, designId: string) => {
+  const { data } = await api.get(`/designs/${designId}/managed-services`, { headers: authHeaders(accessToken) });
+  return data as ManagedServicesDesignSummary;
+};
+
+export const updateDesignManagedServices = async (
+  accessToken: string,
+  designId: string,
+  config: { enabledCategories: string[]; excludedItemIds: string[] },
+) => {
+  const { data } = await api.put(`/designs/${designId}/managed-services`, config, {
+    headers: authHeaders(accessToken),
+  });
+  return data as ManagedServicesDesignSummary;
+};
+
+export const updateDeviceManagedServicePrice = async (
+  accessToken: string,
+  itemId: string,
+  managedServicePrice: number | null,
+) => {
+  const { data } = await api.patch(
+    `/catalog/devices/${itemId}/managed-service-price`,
+    { managed_service_price: managedServicePrice },
+    { headers: authHeaders(accessToken) },
+  );
+  return data as CatalogItem;
+};
+
+export const bulkUpdateManagedServicePrices = async (
+  accessToken: string,
+  updates: { item_id: string; managed_service_price: number | null }[],
+) => {
+  const { data } = await api.put('/catalog/devices/managed-service-prices', { updates }, {
+    headers: authHeaders(accessToken),
+  });
+  return data as { updated_count: number };
 };
