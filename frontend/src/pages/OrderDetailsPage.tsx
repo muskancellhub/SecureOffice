@@ -16,11 +16,9 @@ const statusStepIndex: Record<string, number> = {
 
 export const OrderDetailsPage = () => {
   const { orderId } = useParams();
-  const { accessToken, user } = useAuth();
-  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
+  const { accessToken } = useAuth();
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [workflow, setWorkflow] = useState<WorkflowInstance | null>(null);
-  const [advancingWorkflow, setAdvancingWorkflow] = useState(false);
   const [error, setError] = useState('');
 
   const load = async () => {
@@ -77,22 +75,6 @@ export const OrderDetailsPage = () => {
     return [...devices, ...services];
   }, [order?.lines]);
 
-  const onAdvanceWorkflow = async () => {
-    if (!accessToken || !orderId) return;
-    setAdvancingWorkflow(true);
-    setError('');
-    try {
-      const updatedWorkflow = await commerceApi.advanceOrderWorkflow(accessToken, orderId);
-      setWorkflow(updatedWorkflow);
-      const refreshedOrder = await commerceApi.getOrder(accessToken, orderId);
-      setOrder(refreshedOrder);
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to advance workflow');
-    } finally {
-      setAdvancingWorkflow(false);
-    }
-  };
-
   return (
     <section className="content-wrap fade-in">
       <div className="content-head row-between">
@@ -115,11 +97,6 @@ export const OrderDetailsPage = () => {
                 </p>
               </div>
               <div className="row-between">
-                {isAdmin && (
-                  <button className="secondary-btn" onClick={onAdvanceWorkflow} disabled={advancingWorkflow || workflow?.status === 'COMPLETED'}>
-                    {advancingWorkflow ? 'Advancing...' : 'Advance Workflow'}
-                  </button>
-                )}
                 <span className="order-status-pill">{order.status}</span>
               </div>
             </div>

@@ -1,16 +1,18 @@
 from datetime import datetime
+from uuid import UUID
 from pydantic import BaseModel, Field
 
 
 class AddCartLineRequest(BaseModel):
-    catalog_item_id: str
+    # UUID validation at the schema boundary — malformed ids fail as 422, not 500.
+    catalog_item_id: UUID
     quantity: int = Field(default=1, ge=1)
-    applies_to_line_id: str | None = None
+    applies_to_line_id: UUID | None = None
 
 
 class UpdateCartLineRequest(BaseModel):
     quantity: int | None = Field(default=None, ge=1)
-    catalog_item_id: str | None = None
+    catalog_item_id: UUID | None = None
 
 
 class CartLineResponse(BaseModel):

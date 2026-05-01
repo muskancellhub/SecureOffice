@@ -28,7 +28,37 @@ _cached_auth_token: str | None = None
 _token_obtained_at: float = 0
 _TOKEN_TTL_SECONDS = 25 * 60  # re-login every 25 min (Zabbix default session = 30 min)
 
+# Runtime credential overrides set by an admin via /zabbix/config.
+# When any of these are set, they take precedence over the env-based settings.
+_runtime_url: str | None = None
+_runtime_username: str | None = None
+_runtime_password: str | None = None
+
 _REQ_ID = 0
+
+
+def set_runtime_credentials(url: str, username: str, password: str) -> None:
+    """Override Zabbix credentials at runtime and clear the cached token."""
+    global _runtime_url, _runtime_username, _runtime_password
+    global _cached_auth_token, _token_obtained_at
+    _runtime_url = url.strip() or None
+    _runtime_username = username.strip() or None
+    _runtime_password = password or None
+    _cached_auth_token = None
+    _token_obtained_at = 0
+
+
+def get_runtime_credentials_status() -> dict:
+    """Return whether runtime credentials are configured (no secrets returned)."""
+    settings = get_settings()
+    effective_url = _runtime_url or settings.zabbix_url
+    effective_username = _runtime_username or settings.zabbix_username
+    return {
+        'configured': bool(_runtime_url and _runtime_username and _runtime_password),
+        'effective_url': effective_url or '',
+        'effective_username': effective_username or '',
+        'source': 'runtime' if _runtime_url else ('env' if settings.zabbix_url else 'unset'),
+    }
 
 
 def _next_id() -> int:
@@ -78,14 +108,18 @@ class ZabbixClient:
 
     def __init__(self) -> None:
         settings = get_settings()
-        if not settings.zabbix_url or not settings.zabbix_username or not settings.zabbix_password:
+        url = _runtime_url or settings.zabbix_url
+        username = _runtime_username or settings.zabbix_username
+        password = _runtime_password or settings.zabbix_password
+        if not url or not username or not password:
             raise AppError(
-                'Zabbix is not configured. Set ZABBIX_URL, ZABBIX_USERNAME, and ZABBIX_PASSWORD.',
+                'Zabbix is not configured. Set ZABBIX_URL, ZABBIX_USERNAME, and ZABBIX_PASSWORD '
+                'or configure credentials in the admin panel.',
                 503,
             )
-        self.api_url = settings.zabbix_url.rstrip('/') + '/api_jsonrpc.php'
-        self._username = settings.zabbix_username
-        self._password = settings.zabbix_password
+        self.api_url = url.rstrip('/') + '/api_jsonrpc.php'
+        self._username = username
+        self._password = password
         self._auth = self._ensure_token()
 
     # ------------------------------------------------------------------

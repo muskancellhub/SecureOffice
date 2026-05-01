@@ -13,7 +13,6 @@ export const QuoteDetailsPage = () => {
   const { accessToken, user } = useAuth();
   const navigate = useNavigate();
   const permissionSet = useMemo(() => new Set(user?.effective_permissions || []), [user?.effective_permissions]);
-  const canManagePricing = permissionSet.has('manage_pricing');
   const canSendQuote = permissionSet.has('send_quotes');
   const canConvertQuote = permissionSet.has('convert_quotes');
   const [quote, setQuote] = useState<QuoteDetail | null>(null);
@@ -23,10 +22,6 @@ export const QuoteDetailsPage = () => {
   const [submitting, setSubmitting] = useState(false);
   const [sending, setSending] = useState(false);
   const [accepting, setAccepting] = useState(false);
-  const [savingDefault, setSavingDefault] = useState(false);
-  const [savingDeal, setSavingDeal] = useState(false);
-  const [defaultDiscountInput, setDefaultDiscountInput] = useState('30');
-  const [incrementalDiscountInput, setIncrementalDiscountInput] = useState('0');
 
   const loadQuote = async () => {
     if (!accessToken || !quoteId) return;
@@ -40,8 +35,6 @@ export const QuoteDetailsPage = () => {
       } catch {
         setOnboarding(null);
       }
-      setDefaultDiscountInput(((data.default_discount_pct || 0) * 100).toFixed(2));
-      setIncrementalDiscountInput(((data.incremental_discount_pct || 0) * 100).toFixed(2));
     } catch (err: any) {
       setError(err?.response?.data?.detail || 'Failed to load quote');
     }
@@ -121,46 +114,6 @@ export const QuoteDetailsPage = () => {
       setError(err?.response?.data?.detail || 'Failed to accept quote');
     } finally {
       setAccepting(false);
-    }
-  };
-
-  const onApplyDefaultDiscount = async () => {
-    if (!accessToken || !quote || !canManagePricing) return;
-    const pct = Number(defaultDiscountInput);
-    if (!Number.isFinite(pct) || pct < 0 || pct > 95) {
-      setError('Default discount must be between 0 and 95');
-      return;
-    }
-    setSavingDefault(true);
-    setError('');
-    try {
-      await commerceApi.updateCustomerPricing(accessToken, { default_discount_pct: pct / 100 });
-      await loadQuote();
-      setNotice('Default customer discount updated.');
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to update default discount');
-    } finally {
-      setSavingDefault(false);
-    }
-  };
-
-  const onApplyDealDiscount = async () => {
-    if (!accessToken || !quote || !canManagePricing) return;
-    const pct = Number(incrementalDiscountInput);
-    if (!Number.isFinite(pct) || pct < 0 || pct > 95) {
-      setError('Incremental deal discount must be between 0 and 95');
-      return;
-    }
-    setSavingDeal(true);
-    setError('');
-    try {
-      await commerceApi.updateDealPricing(accessToken, quote.id, { incremental_discount_pct: pct / 100 });
-      await loadQuote();
-      setNotice('Deal-level discount updated.');
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to update deal discount');
-    } finally {
-      setSavingDeal(false);
     }
   };
 
@@ -308,40 +261,6 @@ export const QuoteDetailsPage = () => {
               <span>Payment validation</span>
               <strong>{onboarding?.payment_validation_status || 'PENDING'}</strong>
             </div>
-
-            {canManagePricing && (
-              <div className="discount-config-box">
-                <h4>Pricing Controls</h4>
-                <label>Default tenant discount (%)</label>
-                <div className="discount-action-row">
-                  <input
-                    type="number"
-                    min="0"
-                    max="95"
-                    step="0.01"
-                    value={defaultDiscountInput}
-                    onChange={(e) => setDefaultDiscountInput(e.target.value)}
-                  />
-                  <button className="secondary-btn" onClick={onApplyDefaultDiscount} disabled={savingDefault}>
-                    {savingDefault ? 'Saving...' : 'Apply'}
-                  </button>
-                </div>
-                <label>Deal incremental discount (%)</label>
-                <div className="discount-action-row">
-                  <input
-                    type="number"
-                    min="0"
-                    max="95"
-                    step="0.01"
-                    value={incrementalDiscountInput}
-                    onChange={(e) => setIncrementalDiscountInput(e.target.value)}
-                  />
-                  <button className="secondary-btn" onClick={onApplyDealDiscount} disabled={savingDeal}>
-                    {savingDeal ? 'Saving...' : 'Apply'}
-                  </button>
-                </div>
-              </div>
-            )}
 
             <button
               className="secondary-btn"

@@ -1,5 +1,20 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  CalendarClock,
+  CheckCircle2,
+  Cpu,
+  Layers,
+  MapPin,
+  MessageSquare,
+  Network,
+  Send,
+  Server,
+  Trash2,
+  Wifi,
+} from 'lucide-react';
 import * as commerceApi from '../api/commerceApi';
 import { DrawioDiagramViewer } from '../components/DrawioDiagramViewer';
 import { useAuth } from '../context/AuthContext';
@@ -12,15 +27,8 @@ import type {
   ManagedServiceDeviceEntry,
   NetworkBomLine,
   NetworkDesignDetail,
+  OnboardingProfile,
 } from '../types/commerce';
-
-type LeadState = {
-  fullName: string;
-  email: string;
-  companyName: string;
-  phone: string;
-  notes: string;
-};
 
 const STATUS_FLOW: DesignStatus[] = [
   'submitted',
@@ -82,6 +90,75 @@ const formatDate = (value?: string | null): string => {
 
 const formatStatus = (status: DesignStatus): string => STATUS_LABELS[status] || status;
 
+const STATUS_TONE: Record<DesignStatus, 'neutral' | 'progress' | 'success' | 'warning'> = {
+  draft: 'neutral',
+  reviewed: 'neutral',
+  submitted: 'progress',
+  in_review: 'progress',
+  bom_finalized: 'progress',
+  proposal_ready: 'progress',
+  approved: 'success',
+  order_decomposed: 'progress',
+  fulfillment_in_progress: 'progress',
+  installation_scheduled: 'progress',
+  installed: 'success',
+  completed: 'success',
+};
+
+type NextAction = {
+  label: string;
+  description: string;
+  cta?: string;
+};
+
+const nextActionFor = (status: DesignStatus | undefined): NextAction => {
+  switch (status) {
+    case 'draft':
+    case 'reviewed':
+      return {
+        label: 'Action needed',
+        description: 'Add your contact details below and submit this design for our team to review.',
+        cta: 'Submit for Review',
+      };
+    case 'submitted':
+    case 'in_review':
+      return {
+        label: 'Under review',
+        description: 'Our solutions team is validating the bill of materials. You will be notified when the proposal is ready.',
+      };
+    case 'bom_finalized':
+    case 'proposal_ready':
+      return {
+        label: 'Proposal ready',
+        description: 'A formal quote has been prepared. Open the quote to review pricing and accept the proposal.',
+      };
+    case 'approved':
+    case 'order_decomposed':
+      return {
+        label: 'Approved',
+        description: 'Order has been generated. Track fulfillment progress below.',
+      };
+    case 'fulfillment_in_progress':
+      return {
+        label: 'Fulfillment in progress',
+        description: 'Equipment is being procured and prepared for shipment.',
+      };
+    case 'installation_scheduled':
+      return {
+        label: 'Installation scheduled',
+        description: 'Your installation is on the calendar. Confirm any onsite details with the operations team.',
+      };
+    case 'installed':
+    case 'completed':
+      return {
+        label: 'All set',
+        description: 'Deployment is complete. Reach out if you need any post-installation support.',
+      };
+    default:
+      return { label: 'In progress', description: 'Tracking progress on this design request.' };
+  }
+};
+
 const defaultInstallState: DesignInstallAssistance = {
   installMode: 'self_install',
   preferredInstallDate: '',
@@ -89,11 +166,11 @@ const defaultInstallState: DesignInstallAssistance = {
 };
 
 export const DesignDetailPage = () => {
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
   const navigate = useNavigate();
   const { designId } = useParams();
   const [design, setDesign] = useState<NetworkDesignDetail | null>(null);
-  const [lead, setLead] = useState<LeadState>({ fullName: '', email: '', companyName: '', phone: '', notes: '' });
+  const [onboarding, setOnboarding] = useState<OnboardingProfile | null>(null);
   const [installAssistance, setInstallAssistance] = useState<DesignInstallAssistance>(defaultInstallState);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -102,6 +179,7 @@ export const DesignDetailPage = () => {
   const [notice, setNotice] = useState('');
   const [msData, setMsData] = useState<ManagedServicesDesignSummary | null>(null);
   const [msSaving, setMsSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const loadDesign = async () => {
     if (!accessToken || !designId) return;
@@ -112,13 +190,13 @@ export const DesignDetailPage = () => {
       setDesign(data);
       // Always fetch managed services via dedicated endpoint for freshest data
       loadManagedServices(data.id);
-      setLead({
-        fullName: data.lead?.fullName || '',
-        email: data.lead?.email || '',
-        companyName: data.lead?.companyName || '',
-        phone: data.lead?.phone || '',
-        notes: data.lead?.notes || '',
-      });
+      // Pull contact info from onboarding profile so the user doesn't re-enter it
+      try {
+        const profile = await commerceApi.getOnboardingProfile(accessToken);
+        setOnboarding(profile);
+      } catch {
+        setOnboarding(null);
+      }
       setInstallAssistance({
         installMode: data.installAssistance?.installMode || 'self_install',
         preferredInstallDate: data.installAssistance?.preferredInstallDate || '',
@@ -267,10 +345,34 @@ export const DesignDetailPage = () => {
     [design?.updates],
   );
 
+  const onDeleteDesign = async () => {
+    if (!accessToken || !design) return;
+    const name = design.designName || `Design ${design.id.slice(0, 8)}`;
+    const confirmed = window.confirm(`Delete "${name}"? This cannot be undone.`);
+    if (!confirmed) return;
+    setDeleting(true);
+    setError('');
+    try {
+      await commerceApi.deleteNetworkDesign(accessToken, design.id);
+      navigate('/shop/designs');
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Failed to delete design');
+      setDeleting(false);
+    }
+  };
+
   const onSubmitDesign = async () => {
     if (!accessToken || !design) return;
-    if (!lead.fullName || !lead.email || !lead.companyName) {
-      setError('Full name, email, and company are required for submission.');
+    // Pull lead info from the design itself first, then from onboarding profile,
+    // then fall back to the authenticated user's email.
+    const fullName = design.lead?.fullName || onboarding?.admin_name || '';
+    const email = design.lead?.email || onboarding?.admin_email || user?.email || '';
+    const companyName = design.lead?.companyName || onboarding?.organization_name || '';
+    const phone = design.lead?.phone || onboarding?.admin_phone || undefined;
+    if (!fullName || !email || !companyName) {
+      setError(
+        'Your contact info is incomplete. Please complete your account onboarding before submitting this design.',
+      );
       return;
     }
     setSubmitting(true);
@@ -278,11 +380,11 @@ export const DesignDetailPage = () => {
     try {
       const updated = await commerceApi.submitNetworkDesign(accessToken, design.id, {
         lead: {
-          fullName: lead.fullName,
-          email: lead.email,
-          companyName: lead.companyName,
-          phone: lead.phone || undefined,
-          notes: lead.notes || undefined,
+          fullName,
+          email,
+          companyName,
+          phone,
+          notes: design.lead?.notes || undefined,
         },
       });
       setDesign(updated);
@@ -313,311 +415,404 @@ export const DesignDetailPage = () => {
     }
   };
 
-  return (
-    <section className="content-wrap fade-in">
-      <div className="content-head row-between">
-        <div>
-          <h1>Request Status Detail</h1>
-          <p className="lead">Track progress from submission through fulfillment and installation in one place.</p>
-        </div>
-        <Link to="/shop/designs" className="ghost-link">Back to Design History</Link>
-      </div>
+  const next = nextActionFor(design?.status);
+  const statusTone = design ? STATUS_TONE[design.status] || 'neutral' : 'neutral';
+  const designLabel = design ? (design.designName || `Design ${design.id.slice(0, 8)}`) : '';
+  const canDelete = design?.status === 'draft' || design?.status === 'reviewed';
 
-      {loading && <div className="mini-note">Loading design...</div>}
+  return (
+    <section className="content-wrap fade-in design-detail-page">
+      {/* Breadcrumb */}
+      <Link to="/shop/designs" className="dd-back-link">
+        <ArrowLeft size={14} /> Back to Design History
+      </Link>
+
+      {loading && !design && <div className="dd-loading">Loading design…</div>}
       {error && <div className="onboarding-alert error">{error}</div>}
       {notice && <div className="toast-notice">{notice}</div>}
 
       {design && (
-        <section className="dashboard-grid">
-          <article className="dashboard-panel">
-            <h3>Request Summary</h3>
-            <p className="mini-note">{design.designName || `Design ${design.id.slice(0, 8)}`}</p>
-            <p className="mini-note">Status: <span className="badge">{formatStatus(design.status)}</span></p>
-            <p className="mini-note">Last Updated: {formatDate(design.statusUpdatedAt || design.updatedAt)}</p>
-            {design.quoteId && <p className="mini-note">Quote: {design.quoteId.slice(0, 8).toUpperCase()}</p>}
-            {design.orderId && <p className="mini-note">Order: {design.orderId.slice(0, 8).toUpperCase()}</p>}
-            <div className="dashboard-kpi-grid">
-              <div>
-                <span>Estimated CapEx</span>
-                <strong>{formatCurrency(design.estimatedCapex)}</strong>
-              </div>
-              <div>
-                <span>AP Count</span>
-                <strong>{design.apCount}</strong>
-              </div>
-              <div>
-                <span>Switch Count</span>
-                <strong>{design.switchCount}</strong>
+        <>
+          {/* ── Hero header ─────────────────────────────────────────── */}
+          <header className="dd-hero">
+            <div className="dd-hero-main">
+              <span className="dd-eyebrow">Network Design</span>
+              <h1 className="dd-title">{designLabel}</h1>
+              <div className="dd-hero-meta">
+                <span className={`dd-status-pill dd-tone-${statusTone}`}>
+                  <span className="dd-status-dot" />
+                  {formatStatus(design.status)}
+                </span>
+                <span className="dd-meta-sep">·</span>
+                <span>Updated {formatDate(design.statusUpdatedAt || design.updatedAt)}</span>
+                {design.quoteId && (
+                  <>
+                    <span className="dd-meta-sep">·</span>
+                    <button
+                      type="button"
+                      className="dd-meta-link"
+                      onClick={() => navigate(`/shop/quotes/${design.quoteId}`)}
+                    >
+                      Quote {design.quoteId.slice(0, 8).toUpperCase()} <ArrowUpRight size={12} />
+                    </button>
+                  </>
+                )}
+                {design.orderId && (
+                  <>
+                    <span className="dd-meta-sep">·</span>
+                    <button
+                      type="button"
+                      className="dd-meta-link"
+                      onClick={() => navigate(`/shop/orders/${design.orderId}`)}
+                    >
+                      Order {design.orderId.slice(0, 8).toUpperCase()} <ArrowUpRight size={12} />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
-            <div className="dashboard-link-row">
-              <button className="ghost-btn" onClick={() => navigate('/shop/designs')}>View History</button>
-              {design.quoteId && (
-                <button className="ghost-btn" onClick={() => navigate(`/shop/quotes/${design.quoteId}`)}>
-                  Open Quote
+            <div className="dd-hero-actions">
+              {canSubmit && (
+                <button className="primary-btn dd-primary-cta" onClick={onSubmitDesign} disabled={submitting}>
+                  <Send size={14} /> {submitting ? 'Submitting…' : 'Submit for Review'}
                 </button>
               )}
-              {design.orderId && (
-                <button className="ghost-btn" onClick={() => navigate(`/shop/orders/${design.orderId}`)}>
-                  Open Order
+              {design.quoteId && !canSubmit && (
+                <button className="primary-btn dd-primary-cta" onClick={() => navigate(`/shop/quotes/${design.quoteId}`)}>
+                  Open Quote <ArrowUpRight size={14} />
                 </button>
               )}
-              <button className="ghost-btn" onClick={() => document.getElementById('design-bom')?.scrollIntoView({ behavior: 'smooth' })}>
-                View BOM
-              </button>
-              <button className="ghost-btn" onClick={() => document.getElementById('design-diagram')?.scrollIntoView({ behavior: 'smooth' })}>
-                View Diagram
-              </button>
             </div>
-          </article>
+          </header>
 
-          <article className="dashboard-panel">
-            <h3>Current Status</h3>
-            <p className="mini-note">Submitted: {formatDate(design.submittedAt)}</p>
-            <p className="mini-note">Next milestone: {design.nextMilestone || '-'}</p>
-            <div className="status-track design-status-track">
-              {STATUS_FLOW.map((step, index) => {
-                const stateClass = index < activeStepIndex ? 'done' : index === activeStepIndex ? 'active' : '';
-                return (
-                  <div key={step} className={`track-step ${stateClass}`}>
-                    <span className="dot" />
-                    <span>{formatStatus(step)}</span>
-                  </div>
-                );
-              })}
+          {/* ── Next action callout ─────────────────────────────────── */}
+          <div className={`dd-callout dd-callout-${statusTone}`}>
+            <div className="dd-callout-icon">
+              {statusTone === 'success' ? <CheckCircle2 size={18} /> : <CalendarClock size={18} />}
             </div>
-          </article>
-
-          <article className="dashboard-panel full-width">
-            <h3>Progress Timeline</h3>
-            <ul className="plain-bullets">
-              {statusHistory.map((entry) => (
-                <li key={`${entry.changedAt}-${entry.status}`}>
-                  <strong>{formatStatus(entry.status)}</strong> · {formatDate(entry.changedAt)}
-                  {entry.changedBy ? ` · ${entry.changedBy}` : ''}
-                  {entry.note ? ` · ${entry.note}` : ''}
-                </li>
-              ))}
-              {statusHistory.length === 0 && <li>No status updates yet.</li>}
-            </ul>
-          </article>
-
-          <article className="dashboard-panel">
-            <h3>Estimated Milestones</h3>
-            <ul className="plain-bullets">
-              <li>Review: {formatDate(design.milestones?.estimatedReviewDate)}</li>
-              <li>Proposal: {formatDate(design.milestones?.estimatedProposalDate)}</li>
-              <li>Fulfillment: {formatDate(design.milestones?.estimatedFulfillmentDate)}</li>
-              <li>Installation: {formatDate(design.milestones?.estimatedInstallationDate)}</li>
-            </ul>
-          </article>
-
-          <article className="dashboard-panel">
-            <h3>Confirmed Milestones</h3>
-            <ul className="plain-bullets">
-              <li>Fulfillment: {formatDate(design.milestones?.confirmedFulfillmentDate)}</li>
-              <li>Installation: {formatDate(design.milestones?.confirmedInstallationDate)}</li>
-            </ul>
-          </article>
-
-          <article className="dashboard-panel full-width">
-            <h3>Latest Updates</h3>
-            <ul className="plain-bullets">
-              {updates.map((update) => (
-                <li key={update.id}>
-                  <strong>{update.visibility === 'customer' ? 'Customer Update' : 'Internal Update'}</strong>
-                  {` · ${formatDate(update.createdAt)} · ${update.message}`}
-                </li>
-              ))}
-              {updates.length === 0 && <li>No updates yet.</li>}
-            </ul>
-          </article>
-
-          <article className="dashboard-panel">
-            <h3>Contact / Lead</h3>
-            <div className="onboarding-input-grid">
-              <label>
-                Full Name
-                <input value={lead.fullName} onChange={(e) => setLead((prev) => ({ ...prev, fullName: e.target.value }))} />
-              </label>
-              <label>
-                Email
-                <input value={lead.email} onChange={(e) => setLead((prev) => ({ ...prev, email: e.target.value }))} />
-              </label>
-              <label>
-                Company Name
-                <input value={lead.companyName} onChange={(e) => setLead((prev) => ({ ...prev, companyName: e.target.value }))} />
-              </label>
-              <label>
-                Phone
-                <input value={lead.phone} onChange={(e) => setLead((prev) => ({ ...prev, phone: e.target.value }))} />
-              </label>
-              <label>
-                Notes
-                <input value={lead.notes} onChange={(e) => setLead((prev) => ({ ...prev, notes: e.target.value }))} />
-              </label>
+            <div className="dd-callout-body">
+              <strong>{next.label}</strong>
+              <span>{next.description}</span>
             </div>
-            {canSubmit && (
-              <button className="primary-btn" onClick={onSubmitDesign} disabled={submitting}>
-                {submitting ? 'Submitting...' : 'Submit Design Request'}
-              </button>
-            )}
-          </article>
-
-          <article className="dashboard-panel">
-            <h3>Deployment / Installation</h3>
-            <div className="onboarding-input-grid">
-              <label>
-                Install Mode
-                <select
-                  value={installAssistance.installMode || 'self_install'}
-                  onChange={(e) =>
-                    setInstallAssistance((prev) => ({ ...prev, installMode: e.target.value as DesignInstallAssistance['installMode'] }))
-                  }
-                >
-                  <option value="self_install">Self-install</option>
-                  <option value="remote_assistance">Remote/video assistance</option>
-                  <option value="onsite_visit">Onsite technician visit</option>
-                </select>
-              </label>
-              <label>
-                Preferred Install Date
-                <input
-                  type="date"
-                  value={installAssistance.preferredInstallDate || ''}
-                  onChange={(e) => setInstallAssistance((prev) => ({ ...prev, preferredInstallDate: e.target.value }))}
-                />
-              </label>
-              <label>
-                Install Notes
-                <input
-                  value={installAssistance.installNotes || ''}
-                  onChange={(e) => setInstallAssistance((prev) => ({ ...prev, installNotes: e.target.value }))}
-                />
-              </label>
-            </div>
-            <button className="secondary-btn" onClick={onSaveInstallAssistance} disabled={savingInstall}>
-              {savingInstall ? 'Saving...' : 'Save Install Preference'}
-            </button>
-          </article>
-
-          <article className="dashboard-panel full-width" id="design-diagram">
-            <h3>Diagram / Topology Reference</h3>
-            <p className="mini-note">
-              Topology lines represent connectivity relationships rather than literal cable routing paths:
-              Wired link, Wireless link, and Managed connection.
-            </p>
-            <div className="integration-grid">
-              <div className="integration-card">
-                <div className="row-between">
-                  <strong>Topology Nodes</strong>
-                  <span className="badge">{(design.topology?.nodes || []).length || 0}</span>
-                </div>
+            {design.nextMilestone && (
+              <div className="dd-callout-aside">
+                <span className="dd-callout-label">Next milestone</span>
+                <strong>{design.nextMilestone}</strong>
               </div>
-              <div className="integration-card">
-                <div className="row-between">
-                  <strong>Topology Edges</strong>
-                  <span className="badge">{(design.topology?.edges || []).length || 0}</span>
-                </div>
+            )}
+          </div>
+
+          {/* ── Diagram ─────────────────────────────────────────────── */}
+          <section className="dd-section" id="dd-diagram">
+            <div className="dd-section-head">
+              <h2><Network size={16} /> Network Diagram</h2>
+              <span className="dd-section-sub">
+                {(design.topology?.nodes || []).length} node{(design.topology?.nodes || []).length === 1 ? '' : 's'} ·
+                {' '}
+                {(design.topology?.edges || []).length} link{(design.topology?.edges || []).length === 1 ? '' : 's'}
+              </span>
+            </div>
+            <div className="dd-section-card">
+              {design.drawioXml ? (
+                <DrawioDiagramViewer
+                  xml={design.drawioXml}
+                  title={`${design.designName || 'Network Design'} Diagram`}
+                  initialHeight={700}
+                />
+              ) : (
+                <p className="dd-empty">No diagram has been generated yet.</p>
+              )}
+            </div>
+          </section>
+
+          {/* ── KPI strip ───────────────────────────────────────────── */}
+          <div className="dd-kpi-strip">
+            <div className="dd-kpi">
+              <div className="dd-kpi-icon"><Layers size={16} /></div>
+              <div>
+                <span className="dd-kpi-label">Estimated CapEx</span>
+                <strong className="dd-kpi-value">{formatCurrency(design.estimatedCapex)}</strong>
               </div>
             </div>
-            {Array.isArray(design.assumptions) && design.assumptions.length > 0 && (
-              <ul className="plain-bullets">
-                {design.assumptions.map((note, index) => (
-                  <li key={`${index}-${note}`}>{note}</li>
-                ))}
-              </ul>
+            <div className="dd-kpi">
+              <div className="dd-kpi-icon"><Wifi size={16} /></div>
+              <div>
+                <span className="dd-kpi-label">Access Points</span>
+                <strong className="dd-kpi-value">{design.apCount}</strong>
+              </div>
+            </div>
+            <div className="dd-kpi">
+              <div className="dd-kpi-icon"><Network size={16} /></div>
+              <div>
+                <span className="dd-kpi-label">Switches</span>
+                <strong className="dd-kpi-value">{design.switchCount}</strong>
+              </div>
+            </div>
+            {msTotalMonthly > 0 && (
+              <div className="dd-kpi">
+                <div className="dd-kpi-icon"><Server size={16} /></div>
+                <div>
+                  <span className="dd-kpi-label">Managed Services</span>
+                  <strong className="dd-kpi-value">{formatCurrency(msTotalMonthly)}<small>/mo</small></strong>
+                </div>
+              </div>
             )}
-            {design.drawioXml && (
-              <DrawioDiagramViewer
-                xml={design.drawioXml}
-                title={`${design.designName || 'Network Design'} Diagram`}
-                initialHeight={700}
-              />
-            )}
-          </article>
+          </div>
 
-          <article className="dashboard-panel full-width" id="design-bom">
-            <h3>Equipment / BOM Snapshot</h3>
-            {quoteRequiredCount > 0 && (
-              <p className="mini-note">
-                {quoteRequiredCount} line{quoteRequiredCount > 1 ? 's are' : ' is'} price-on-request pending final quote.
-              </p>
-            )}
-            <table className="cart-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Category</th>
-                  <th>Qty</th>
-                  <th>Unit Price</th>
-                  <th>Total</th>
-                  <th>Managed Service</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bomLines.map((line) => {
-                  const msDevice = line.item_id ? msDeviceMap.get(line.item_id) : undefined;
-                  const hasMsPrice = msDevice && msDevice.managedServicePrice > 0;
-                  const msIncluded = hasMsPrice && msDevice.groupEnabled && !msDevice.excluded;
+          {/* ── In-page nav ─────────────────────────────────────────── */}
+          <nav className="dd-section-nav">
+            <a href="#dd-progress">Progress</a>
+            <a href="#dd-bom">Equipment</a>
+            <a href="#dd-diagram">Diagram</a>
+            <a href="#dd-installation">Installation</a>
+          </nav>
+
+          {/* ── Progress section ────────────────────────────────────── */}
+          <section className="dd-section" id="dd-progress">
+            <div className="dd-section-head">
+              <h2>Progress</h2>
+              <span className="dd-section-sub">Where this design is in the lifecycle</span>
+            </div>
+            <div className="dd-progress-card">
+              <div className="status-track design-status-track">
+                {STATUS_FLOW.map((step, index) => {
+                  const stateClass = index < activeStepIndex ? 'done' : index === activeStepIndex ? 'active' : '';
                   return (
-                    <tr key={line.line_id}>
-                      <td>
-                        <div>{line.name}</div>
-                        {(line.connectivity || line.cable_type) && (
-                          <div className="mini-note">
-                            {line.cable_type && line.cable_length_meters
-                              ? `${line.cable_type} • ${Math.round(line.cable_length_meters)}m estimated • $${Number(line.price_per_meter || 0).toFixed(2)}/m`
-                              : connectivityLabel(line.connectivity)}
-                          </div>
-                        )}
-                      </td>
-                      <td>{line.category || '-'}</td>
-                      <td>{line.quantity}</td>
-                      <td>{formatBomMoney(line, 'unit')}</td>
-                      <td>{formatBomMoney(line, 'total')}</td>
-                      <td>
-                        {hasMsPrice ? (
-                          <label className="ms-inline-check">
-                            <input
-                              type="checkbox"
-                              checked={msIncluded}
-                              disabled={design.status !== 'draft' && design.status !== 'reviewed'}
-                              onChange={() => toggleMsForDevice(msDevice.itemId, !msDevice.excluded ? false : true)}
-                            />
-                            <span className={msIncluded ? 'ms-inline-price' : 'ms-inline-price ms-inline-excluded'}>
-                              ${msDevice.managedServicePrice.toFixed(2)}/mo
-                            </span>
-                          </label>
-                        ) : (
-                          <span className="mini-note">—</span>
-                        )}
-                      </td>
-                    </tr>
+                    <div key={step} className={`track-step ${stateClass}`}>
+                      <span className="dot" />
+                      <span>{formatStatus(step)}</span>
+                    </div>
                   );
                 })}
-                {bomLines.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="mini-note">No BOM lines found for this design.</td>
-                  </tr>
-                )}
-              </tbody>
-              {msTotalMonthly > 0 && (
-                <tfoot>
-                  <tr className="ms-total-row">
-                    <td colSpan={5} style={{ textAlign: 'right', fontWeight: 600 }}>
-                      Total Managed Services
-                    </td>
-                    <td className="ms-inline-total">
-                      {formatCurrency(msTotalMonthly)}/mo
-                    </td>
-                  </tr>
-                </tfoot>
-              )}
-            </table>
-          </article>
+              </div>
+              <div className="dd-milestone-grid">
+                <div>
+                  <span className="dd-milestone-label">Submitted</span>
+                  <strong>{formatDate(design.submittedAt)}</strong>
+                </div>
+                <div>
+                  <span className="dd-milestone-label">Estimated Review</span>
+                  <strong>{formatDate(design.milestones?.estimatedReviewDate)}</strong>
+                </div>
+                <div>
+                  <span className="dd-milestone-label">Estimated Proposal</span>
+                  <strong>{formatDate(design.milestones?.estimatedProposalDate)}</strong>
+                </div>
+                <div>
+                  <span className="dd-milestone-label">Estimated Fulfillment</span>
+                  <strong>{formatDate(design.milestones?.estimatedFulfillmentDate)}</strong>
+                </div>
+                <div>
+                  <span className="dd-milestone-label">Estimated Installation</span>
+                  <strong>{formatDate(design.milestones?.estimatedInstallationDate)}</strong>
+                </div>
+                <div>
+                  <span className="dd-milestone-label">Confirmed Installation</span>
+                  <strong>{formatDate(design.milestones?.confirmedInstallationDate)}</strong>
+                </div>
+              </div>
+            </div>
 
-        </section>
+            <div className="dd-twin-grid">
+              <div className="dd-section-card">
+                <h3 className="dd-card-h"><CalendarClock size={14} /> Status Timeline</h3>
+                {statusHistory.length === 0 ? (
+                  <p className="dd-empty">No status changes recorded yet.</p>
+                ) : (
+                  <ul className="dd-timeline">
+                    {statusHistory.map((entry) => (
+                      <li key={`${entry.changedAt}-${entry.status}`}>
+                        <div className="dd-timeline-dot" />
+                        <div>
+                          <strong>{formatStatus(entry.status)}</strong>
+                          <div className="dd-timeline-meta">
+                            {formatDate(entry.changedAt)}
+                            {entry.changedBy ? ` · ${entry.changedBy}` : ''}
+                          </div>
+                          {entry.note && <div className="dd-timeline-note">{entry.note}</div>}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="dd-section-card">
+                <h3 className="dd-card-h"><MessageSquare size={14} /> Latest Updates</h3>
+                {updates.length === 0 ? (
+                  <p className="dd-empty">No updates from the team yet.</p>
+                ) : (
+                  <ul className="dd-update-list">
+                    {updates.map((update) => (
+                      <li key={update.id}>
+                        <span className={`dd-update-tag ${update.visibility === 'customer' ? 'customer' : 'internal'}`}>
+                          {update.visibility === 'customer' ? 'Customer' : 'Internal'}
+                        </span>
+                        <div>
+                          <p className="dd-update-msg">{update.message}</p>
+                          <span className="dd-update-meta">{formatDate(update.createdAt)}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* ── Equipment / BOM ─────────────────────────────────────── */}
+          <section className="dd-section" id="dd-bom">
+            <div className="dd-section-head">
+              <h2><Cpu size={16} /> Equipment & Bill of Materials</h2>
+              <span className="dd-section-sub">
+                {bomLines.length} line{bomLines.length === 1 ? '' : 's'}
+                {quoteRequiredCount > 0 ? ` · ${quoteRequiredCount} price-on-request` : ''}
+              </span>
+            </div>
+            <div className="dd-section-card dd-bom-card">
+              <table className="cart-table dd-bom-table">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Category</th>
+                    <th className="dd-num">Qty</th>
+                    <th className="dd-num">Unit</th>
+                    <th className="dd-num">Total</th>
+                    <th>Managed Service</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bomLines.map((line) => {
+                    const msDevice = line.item_id ? msDeviceMap.get(line.item_id) : undefined;
+                    const hasMsPrice = msDevice && msDevice.managedServicePrice > 0;
+                    const msIncluded = hasMsPrice && msDevice.groupEnabled && !msDevice.excluded;
+                    return (
+                      <tr key={line.line_id}>
+                        <td>
+                          <div className="dd-bom-name">{line.name}</div>
+                          {(line.connectivity || line.cable_type) && (
+                            <div className="dd-bom-sub">
+                              {line.cable_type && line.cable_length_meters
+                                ? `${line.cable_type} • ${Math.round(line.cable_length_meters)}m est. • $${Number(line.price_per_meter || 0).toFixed(2)}/m`
+                                : connectivityLabel(line.connectivity)}
+                            </div>
+                          )}
+                        </td>
+                        <td>{line.category || '—'}</td>
+                        <td className="dd-num">{line.quantity}</td>
+                        <td className="dd-num">{formatBomMoney(line, 'unit')}</td>
+                        <td className="dd-num">{formatBomMoney(line, 'total')}</td>
+                        <td>
+                          {hasMsPrice ? (
+                            <label className="ms-inline-check">
+                              <input
+                                type="checkbox"
+                                checked={msIncluded}
+                                disabled={design.status !== 'draft' && design.status !== 'reviewed'}
+                                onChange={() => toggleMsForDevice(msDevice.itemId, !msDevice.excluded ? false : true)}
+                              />
+                              <span className={msIncluded ? 'ms-inline-price' : 'ms-inline-price ms-inline-excluded'}>
+                                ${msDevice.managedServicePrice.toFixed(2)}/mo
+                              </span>
+                            </label>
+                          ) : (
+                            <span className="dd-bom-sub">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {bomLines.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="dd-empty">No BOM lines yet.</td>
+                    </tr>
+                  )}
+                </tbody>
+                {msTotalMonthly > 0 && (
+                  <tfoot>
+                    <tr className="ms-total-row">
+                      <td colSpan={5} className="dd-bom-total-label">Total Managed Services</td>
+                      <td className="ms-inline-total">{formatCurrency(msTotalMonthly)}/mo</td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </section>
+
+          {/* ── Installation ────────────────────────────────────────── */}
+          <section className="dd-section" id="dd-installation">
+            <div className="dd-section-head">
+              <h2><MapPin size={16} /> Installation Preference</h2>
+              <span className="dd-section-sub">Choose how you'd like the equipment deployed</span>
+            </div>
+            <div className="dd-section-card">
+              <p className="dd-card-help">
+                We'll confirm scheduling once the order is approved.
+              </p>
+              <div className="dd-form-grid">
+                <label>
+                  <span>Install Mode</span>
+                  <select
+                    value={installAssistance.installMode || 'self_install'}
+                    onChange={(e) =>
+                      setInstallAssistance((prev) => ({ ...prev, installMode: e.target.value as DesignInstallAssistance['installMode'] }))
+                    }
+                  >
+                    <option value="self_install">Self-install — we ship, you deploy</option>
+                    <option value="remote_assistance">Remote / video assistance</option>
+                    <option value="onsite_visit">Onsite technician visit</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Preferred Install Date</span>
+                  <input
+                    type="date"
+                    value={installAssistance.preferredInstallDate || ''}
+                    onChange={(e) => setInstallAssistance((prev) => ({ ...prev, preferredInstallDate: e.target.value }))}
+                  />
+                </label>
+                <label className="dd-form-full">
+                  <span>Install Notes</span>
+                  <textarea
+                    rows={3}
+                    value={installAssistance.installNotes || ''}
+                    onChange={(e) => setInstallAssistance((prev) => ({ ...prev, installNotes: e.target.value }))}
+                    placeholder="Site access, contact, building hours, etc."
+                  />
+                </label>
+              </div>
+              <div className="dd-form-actions">
+                <button className="secondary-btn" onClick={onSaveInstallAssistance} disabled={savingInstall}>
+                  {savingInstall ? 'Saving…' : 'Save Preference'}
+                </button>
+              </div>
+            </div>
+          </section>
+
+          {/* ── Danger zone ─────────────────────────────────────────── */}
+          {canDelete && (
+            <section className="dd-section">
+              <div className="dd-danger-zone">
+                <div>
+                  <h3><Trash2 size={14} /> Delete this design</h3>
+                  <p>
+                    Permanently remove this design and its bill of materials. This cannot be undone.
+                    Available only while the design is in <strong>Draft</strong> or <strong>Reviewed</strong>.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="dd-danger-btn"
+                  onClick={onDeleteDesign}
+                  disabled={deleting}
+                >
+                  <Trash2 size={14} /> {deleting ? 'Deleting…' : 'Delete Design'}
+                </button>
+              </div>
+            </section>
+          )}
+        </>
       )}
     </section>
   );

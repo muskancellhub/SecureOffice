@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -193,6 +193,18 @@ def list_ops_submissions(current_user: dict = Depends(get_current_user), db: Ses
 def get_design(design_id: str, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row = NetworkDesignService(db).get_design(current_user, design_id)
     return _serialize_detail(row, include_internal=_is_admin_actor(current_user), db=db)
+
+
+@router.delete('/{design_id}', status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+def delete_design(design_id: str, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Delete a design.
+
+    Users can delete their own draft/reviewed designs. Admins can delete any design
+    in their tenant. Submitted/approved designs cannot be deleted by regular users
+    (returns 409) — the ops pipeline owns them at that point.
+    """
+    NetworkDesignService(db).delete_design(current_user, design_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post('/{design_id}/submit', response_model=NetworkDesignDetailResponse)

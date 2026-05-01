@@ -86,6 +86,10 @@ class NetworkDesignRepository:
             stmt = stmt.where(NetworkDesign.status.notin_([NetworkDesignStatus.DRAFT, NetworkDesignStatus.REVIEWED]))
         return list(self.db.scalars(stmt).all())
 
+    def delete_design(self, design: NetworkDesign) -> None:
+        self.db.delete(design)
+        self.db.flush()
+
     def list_ops_submissions(self, *, tenant_id: str) -> list[NetworkDesign]:
         submitted_like = [
             NetworkDesignStatus.SUBMITTED,

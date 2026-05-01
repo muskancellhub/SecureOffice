@@ -12,6 +12,7 @@ from app.core.permissions import default_permissions_for_role
 from app.core.runtime_migrations import apply_runtime_migrations
 from app.middleware.auth_middleware import AuthContextMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.models import User, UserRole, UserType
 from app.models.tenant import Tenant, TenantType
 from app.models.vendor import Vendor
@@ -33,7 +34,18 @@ from app.services.oauth_service import register_oauth_clients
 from app import models  # noqa: F401
 
 settings = get_settings()
-app = FastAPI(title=settings.app_name, debug=settings.app_debug)
+
+# In production, hide the auto-generated API docs. They leak the full endpoint
+# shape + request/response schemas to anyone who can reach the backend, which
+# is an easy reconnaissance win for attackers.
+_is_prod = settings.app_env == 'production'
+app = FastAPI(
+    title=settings.app_name,
+    debug=settings.app_debug,
+    docs_url=None if _is_prod else '/docs',
+    redoc_url=None if _is_prod else '/redoc',
+    openapi_url=None if _is_prod else '/openapi.json',
+)
 
 
 def _assert_production_hardening(settings) -> None:
@@ -163,6 +175,7 @@ app.add_middleware(
     https_only=settings.cookie_secure,
 )
 app.add_middleware(RateLimitMiddleware, trusted_proxy_count=settings.trusted_proxy_count)
+app.add_middleware(SecurityHeadersMiddleware, app_env=settings.app_env)
 app.add_middleware(AuthContextMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -190,6 +203,19 @@ async def validation_error_handler(_: Request, exc: RequestValidationError):
 
 @app.exception_handler(Exception)
 async def unhandled_error_handler(_: Request, exc: Exception):
+    # Bad Unicode in JSON body → Postgres rejects it → SQLAlchemy DataError.
+    # Classify these as client input errors (400), not server errors (500).
+    # Prevents a trivial DoS where any authenticated user can force 500s by
+    # sending lone surrogates like "\uD812" in JSON fields that hit JSONB.
+    try:
+        from sqlalchemy.exc import DataError
+    except ImportError:
+        DataError = ()  # type: ignore[assignment]
+    if isinstance(exc, UnicodeError) or (DataError and isinstance(exc, DataError) and 'surrogate' in str(exc).lower()):
+        return JSONResponse(
+            status_code=400,
+            content={'detail': 'Request body contains invalid Unicode (lone surrogates or non-UTF-8 sequences).'},
+        )
     if settings.app_debug:
         return JSONResponse(status_code=500, content={'detail': str(exc)})
     return JSONResponse(status_code=500, content={'detail': 'Internal server error'})

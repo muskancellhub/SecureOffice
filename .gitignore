@@ -66,5 +66,5 @@ id_rsa.pub
 *.sqlite3
 
 # --- Agent / IDE local config ---
-.claude/settings.local.json
+**/.claude/settings.local.json
 .gstack/

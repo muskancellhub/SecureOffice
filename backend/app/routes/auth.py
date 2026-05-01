@@ -127,14 +127,14 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
 @router.get('/google/login')
 async def google_login(request: Request):
     if not hasattr(oauth, 'google'):
-        raise AppError('Google OAuth is not configured', 500)
+        raise AppError('Google OAuth is not configured', 503)
     return await oauth.google.authorize_redirect(request, settings.google_redirect_uri)
 
 
 @router.get('/google/callback')
 async def google_callback(request: Request, db: Session = Depends(get_db)):
     if not hasattr(oauth, 'google'):
-        raise AppError('Google OAuth is not configured', 500)
+        raise AppError('Google OAuth is not configured', 503)
 
     token = await oauth.google.authorize_access_token(request)
     userinfo = token.get('userinfo')
@@ -156,14 +156,14 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
 @router.get('/microsoft/login')
 async def microsoft_login(request: Request):
     if not hasattr(oauth, 'microsoft'):
-        raise AppError('Microsoft OAuth is not configured', 500)
+        raise AppError('Microsoft OAuth is not configured', 503)
     return await oauth.microsoft.authorize_redirect(request, settings.microsoft_redirect_uri)
 
 
 @router.get('/microsoft/callback')
 async def microsoft_callback(request: Request, db: Session = Depends(get_db)):
     if not hasattr(oauth, 'microsoft'):
-        raise AppError('Microsoft OAuth is not configured', 500)
+        raise AppError('Microsoft OAuth is not configured', 503)
 
     # Microsoft `common`/`organizations` authorities can emit tenant-specific `iss`.
     # Pass explicit claims_options to avoid strict issuer equality against metadata issuer.

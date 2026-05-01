@@ -400,6 +400,10 @@ export const getNetworkDesign = async (accessToken: string, designId: string) =>
   return data as NetworkDesignDetail;
 };
 
+export const deleteNetworkDesign = async (accessToken: string, designId: string) => {
+  await api.delete(`/designs/${designId}`, { headers: authHeaders(accessToken) });
+};
+
 export const updateNetworkDesignStatus = async (
   accessToken: string,
   designId: string,
@@ -485,6 +489,24 @@ export const fetchZabbixTriggers = async (accessToken: string, limit = 100) => {
 
 export const fetchZabbixHostMetrics = async (accessToken: string, hostId: string) => {
   const { data } = await api.get(`/zabbix/hosts/${hostId}/metrics`, { headers: authHeaders(accessToken) });
+  return data;
+};
+
+export const fetchZabbixConfig = async (accessToken: string) => {
+  const { data } = await api.get('/zabbix/config', { headers: authHeaders(accessToken) });
+  return data as {
+    configured: boolean;
+    effective_url: string;
+    effective_username: string;
+    source: 'runtime' | 'env' | 'unset';
+  };
+};
+
+export const updateZabbixConfig = async (
+  accessToken: string,
+  payload: { url: string; username: string; password: string },
+) => {
+  const { data } = await api.post('/zabbix/config', payload, { headers: authHeaders(accessToken) });
   return data;
 };
 

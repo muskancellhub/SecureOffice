@@ -1045,6 +1045,33 @@ class NetworkDesignService:
         self._assert_design_access(current_user, design)
         return design
 
+    def delete_design(self, current_user: dict, design_id: str) -> None:
+        """Delete a design.
+
+        Policy:
+          - Regular users can only delete their own designs in DRAFT or REVIEWED state.
+            Once submitted (SUBMITTED onwards), the design is part of the ops/ordering
+            pipeline and must be canceled via status update, not deleted.
+          - Admins (ADMIN, SUPER_ADMIN) can delete any design in their tenant regardless
+            of state — they own the lifecycle and may need to clean up stale records.
+        """
+        self._assert_user_exists(current_user)
+        design = self.repo.get_design_by_id(design_id)
+        if not design:
+            raise NotFoundError('Design not found')
+        self._assert_design_access(current_user, design)
+
+        if not self._is_admin(current_user.get('role')):
+            deletable_states = {NetworkDesignStatus.DRAFT, NetworkDesignStatus.REVIEWED}
+            if design.status not in deletable_states:
+                raise AppError(
+                    'Submitted designs cannot be deleted. Contact support to cancel this request.',
+                    409,
+                )
+
+        self.repo.delete_design(design)
+        self.db.commit()
+
     def _fetch_design_for_tenant_admin(self, current_user: dict, design_id: str) -> NetworkDesign:
         design = self.repo.get_design_by_id(design_id)
         if not design:

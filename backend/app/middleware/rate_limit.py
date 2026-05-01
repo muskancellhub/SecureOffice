@@ -19,6 +19,13 @@ AUTH_PATH_LIMITS: dict[str, tuple[int, int]] = {
     '/auth/signup': (5, 60),
     '/auth/vendor/signup': (5, 60),
     '/auth/refresh': (30, 60),
+    # Unauthenticated LLM endpoints. Each call spends OpenAI/Anam tokens billed
+    # to our account, so the default 120/min/IP is too lax — distributed
+    # attackers could drain budget. These are aggressive by design; if legitimate
+    # traffic spikes, bump via env + a Redis-backed limiter.
+    '/intake/chat': (5, 60),
+    '/anam/session': (5, 60),
+    '/anam/parse-intent': (10, 60),
 }
 
 

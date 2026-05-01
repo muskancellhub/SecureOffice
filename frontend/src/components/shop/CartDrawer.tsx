@@ -1,4 +1,4 @@
-import { ChevronDown, Heart, Minus, PanelRight, Plus, Shield, ShoppingCart, Sparkles, Trash2 } from 'lucide-react';
+import { ChevronDown, Heart, Minus, PanelRight, Plus, Shield, ShoppingCart, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as commerceApi from '../../api/commerceApi';
@@ -13,9 +13,6 @@ interface CartDrawerProps {
 }
 
 type TabKey = 'items' | 'services' | 'notes';
-
-const BUNDLE_GOAL = 12;
-const BUNDLE_DISCOUNT_RATE = 0.1;
 
 const GROUP_ORDER = ['PHONES', 'ROUTERS & GATEWAYS', 'CONNECTIVITY', 'ACCESSORIES'] as const;
 
@@ -100,18 +97,9 @@ export const CartDrawer = ({ collapsed = false, onToggleCollapse }: CartDrawerPr
       .filter((g) => g.lines.length > 0);
   }, [deviceLines]);
 
-  const totalDeviceUnits = useMemo(
-    () => deviceLines.reduce((sum, line) => sum + line.quantity, 0),
-    [deviceLines],
-  );
-
   const devicesSubtotal = cart?.one_time_subtotal || 0;
   const recurringMonthly = cart?.monthly_subtotal || 0;
-  const remainingToBundle = Math.max(0, BUNDLE_GOAL - totalDeviceUnits);
-  const bundleEligible = totalDeviceUnits >= BUNDLE_GOAL;
-  const bundleDiscountAmount = bundleEligible ? devicesSubtotal * BUNDLE_DISCOUNT_RATE : 0;
-  const totalToday = Math.max(0, devicesSubtotal - bundleDiscountAmount);
-  const bundleProgressPct = Math.min(100, Math.round((totalDeviceUnits / BUNDLE_GOAL) * 100));
+  const totalToday = devicesSubtotal;
   const draftNumber = useMemo(() => {
     const raw = cart?.id || '';
     const tail = raw.replace(/[^0-9a-zA-Z]/g, '').slice(-4).toUpperCase() || '0000';
@@ -347,21 +335,6 @@ export const CartDrawer = ({ collapsed = false, onToggleCollapse }: CartDrawerPr
       </div>
 
       <div className="sb-body">
-        <div className="sb-bundle">
-          <div className="sb-bundle-head">
-            <span>Bundle discount</span>
-            <span className="sb-bundle-count">{totalDeviceUnits} / {BUNDLE_GOAL} items</span>
-          </div>
-          <div className="sb-bundle-track">
-            <div className="sb-bundle-fill" style={{ width: `${bundleProgressPct}%` }} />
-          </div>
-          <p className="sb-bundle-note">
-            {bundleEligible
-              ? `You unlocked ${Math.round(BUNDLE_DISCOUNT_RATE * 100)}% off your devices.`
-              : `Add ${remainingToBundle} more ${remainingToBundle === 1 ? 'device' : 'devices'} to unlock ${Math.round((BUNDLE_DISCOUNT_RATE + 0.05) * 100)}% off.`}
-          </p>
-        </div>
-
         <div className="sb-tabs" role="tablist">
           <button
             role="tab"
@@ -500,12 +473,6 @@ export const CartDrawer = ({ collapsed = false, onToggleCollapse }: CartDrawerPr
           <span>Managed services</span>
           <strong>+${recurringMonthly.toFixed(2)}/mo</strong>
         </div>
-        {bundleEligible && bundleDiscountAmount > 0 && (
-          <div className="sb-summary-row sb-summary-discount">
-            <span><Sparkles size={11} /> Bundle preview (−{Math.round(BUNDLE_DISCOUNT_RATE * 100)}%)</span>
-            <strong>−${bundleDiscountAmount.toFixed(2)}</strong>
-          </div>
-        )}
         <div className="sb-summary-divider" />
         <div className="sb-summary-totals">
           <div>

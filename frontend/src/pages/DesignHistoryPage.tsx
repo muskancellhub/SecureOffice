@@ -1,4 +1,4 @@
-import { Clock, Eye, FileText, Plus, ReceiptText, ShoppingCart, Zap } from 'lucide-react';
+import { Clock, Eye, FileText, Plus, ReceiptText, ShoppingCart, Trash2, Zap } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
@@ -27,6 +27,10 @@ const formatDate = (dateStr: string): string => {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
+// A regular user can delete their own drafts/reviewed designs.
+// For submitted designs, backend returns 409 — so we hide the button.
+const canDelete = (status: string): boolean => status === 'draft' || status === 'reviewed';
+
 export const DesignHistoryPage = () => {
   const { accessToken } = useAuth();
   const navigate = useNavigate();
@@ -34,6 +38,25 @@ export const DesignHistoryPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [intakeOpen, setIntakeOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const onDelete = async (design: NetworkDesignSummary) => {
+    if (!accessToken) return;
+    const name = design.designName || `Design ${design.id.slice(0, 8)}`;
+    const confirmed = window.confirm(`Delete "${name}"? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setDeletingId(design.id);
+    setError('');
+    try {
+      await commerceApi.deleteNetworkDesign(accessToken, design.id);
+      setDesigns((rows) => rows.filter((r) => r.id !== design.id));
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Failed to delete design');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   useEffect(() => {
     if (!accessToken) return;
@@ -133,6 +156,16 @@ export const DesignHistoryPage = () => {
                       <Link className="dh-action-link" to={`/shop/orders/${design.orderId}`}>
                         <ShoppingCart size={13} /> Order
                       </Link>
+                    )}
+                    {canDelete(design.status) && (
+                      <button
+                        type="button"
+                        className="dh-action-link dh-action-danger"
+                        onClick={() => onDelete(design)}
+                        disabled={deletingId === design.id}
+                      >
+                        <Trash2 size={13} /> {deletingId === design.id ? 'Deleting…' : 'Delete'}
+                      </button>
                     )}
                   </div>
                 </article>

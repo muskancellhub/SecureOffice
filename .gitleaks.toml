@@ -1,0 +1,22 @@
+# Project-specific gitleaks rules. Layered on top of the default ruleset,
+# which misses some common high-value patterns.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "postgres-connection-string"
+description = "PostgreSQL connection URL with embedded credentials"
+regex = '''postgres(?:ql)?(?:\+[a-z0-9_]+)?:\/\/[A-Za-z0-9_-]+:[^@\s'"]{4,}@[A-Za-z0-9.\-_]+'''
+tags = ["key", "db"]
+
+[[rules]]
+id = "mysql-connection-string"
+description = "MySQL connection URL with embedded credentials"
+regex = '''mysql(?:\+[a-z0-9_]+)?:\/\/[A-Za-z0-9_-]+:[^@\s'"]{4,}@[A-Za-z0-9.\-_]+'''
+tags = ["key", "db"]
+
+[[rules]]
+id = "mongodb-connection-string"
+description = "MongoDB connection URL with embedded credentials"
+regex = '''mongodb(?:\+srv)?:\/\/[A-Za-z0-9_-]+:[^@\s'"]{4,}@[A-Za-z0-9.\-_]+'''
+tags = ["key", "db"]

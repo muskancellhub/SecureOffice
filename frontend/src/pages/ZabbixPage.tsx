@@ -9,6 +9,7 @@ import {
   Cpu,
   ExternalLink,
   HardDrive,
+  KeyRound,
   LayoutDashboard,
   MonitorCheck,
   RefreshCw,
@@ -82,7 +83,7 @@ function relativeAgo(minutes: number): string {
 }
 
 /* ===================================================================
-   Realistic demo data
+   Fallback sample data (used only when the API is unreachable)
    =================================================================== */
 
 const DEMO_HOSTS = [
@@ -193,7 +194,8 @@ function formatMetricValue(m: any): string {
    =================================================================== */
 
 export const ZabbixPage = () => {
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
+  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
   const [dashboard, setDashboard] = useState<any>(null);
   const [hosts, setHosts] = useState<any[]>([]);
   const [problems, setProblems] = useState<any[]>([]);
@@ -206,6 +208,21 @@ export const ZabbixPage = () => {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [grafanaTimeRange, setGrafanaTimeRange] = useState('now-1h');
+
+  // Admin-only credentials form state
+  const [showCredsForm, setShowCredsForm] = useState(false);
+  const [credsConfig, setCredsConfig] = useState<{
+    configured: boolean;
+    effective_url: string;
+    effective_username: string;
+    source: 'runtime' | 'env' | 'unset';
+  } | null>(null);
+  const [credsUrl, setCredsUrl] = useState('');
+  const [credsUsername, setCredsUsername] = useState('');
+  const [credsPassword, setCredsPassword] = useState('');
+  const [credsSaving, setCredsSaving] = useState(false);
+  const [credsError, setCredsError] = useState('');
+  const [credsNotice, setCredsNotice] = useState('');
 
   const loadDemoData = useCallback(() => {
     setDashboard(DEMO_DASHBOARD);
@@ -245,6 +262,46 @@ export const ZabbixPage = () => {
     fetchAll();
   }, [fetchAll]);
 
+  // Load credentials status for admins
+  useEffect(() => {
+    if (!isAdmin || !accessToken) return;
+    commerceApi
+      .fetchZabbixConfig(accessToken)
+      .then((cfg) => {
+        setCredsConfig(cfg);
+        setCredsUrl(cfg.effective_url || '');
+        setCredsUsername(cfg.effective_username || '');
+      })
+      .catch(() => setCredsConfig(null));
+  }, [isAdmin, accessToken]);
+
+  const onSaveCredentials = async () => {
+    if (!accessToken) return;
+    setCredsError('');
+    setCredsNotice('');
+    if (!credsUrl.trim() || !credsUsername.trim() || !credsPassword) {
+      setCredsError('URL, username, and password are all required.');
+      return;
+    }
+    setCredsSaving(true);
+    try {
+      const result = await commerceApi.updateZabbixConfig(accessToken, {
+        url: credsUrl.trim(),
+        username: credsUsername.trim(),
+        password: credsPassword,
+      });
+      setCredsConfig(result.config);
+      setCredsPassword('');
+      setCredsNotice('Zabbix credentials saved and monitoring synced.');
+      // Refresh the dashboard with the new credentials
+      await fetchAll();
+    } catch (err: any) {
+      setCredsError(err?.response?.data?.detail || 'Failed to save credentials');
+    } finally {
+      setCredsSaving(false);
+    }
+  };
+
   const onExpandHost = async (hostId: string) => {
     if (expandedHost === hostId) {
       setExpandedHost(null);
@@ -280,7 +337,6 @@ export const ZabbixPage = () => {
       <div className="content-head">
         <h1><MonitorCheck size={20} /> Zabbix Monitoring</h1>
         <div className="zabbix-header-actions">
-          {isDemo && activeTab === 'overview' && <span className="zabbix-demo-badge">Demo Data</span>}
           {lastRefresh && activeTab === 'overview' && (
             <span className="zabbix-last-refresh">
               Updated {lastRefresh.toLocaleTimeString()}
@@ -289,6 +345,11 @@ export const ZabbixPage = () => {
           {activeTab === 'overview' && (
             <button className="ghost-btn" onClick={fetchAll} disabled={loading}>
               <RefreshCw size={14} className={loading ? 'spin-icon' : ''} /> Refresh
+            </button>
+          )}
+          {isAdmin && activeTab === 'overview' && (
+            <button className="ghost-btn" onClick={() => setShowCredsForm((v) => !v)}>
+              <KeyRound size={14} /> {showCredsForm ? 'Hide' : 'Configure'} Credentials
             </button>
           )}
           {activeTab === 'grafana' && (
@@ -303,6 +364,65 @@ export const ZabbixPage = () => {
           )}
         </div>
       </div>
+
+      {/* admin credentials form */}
+      {isAdmin && showCredsForm && activeTab === 'overview' && (
+        <div className="zabbix-creds-card">
+          <div className="zabbix-creds-head">
+            <h3><KeyRound size={15} /> Zabbix Credentials</h3>
+            {credsConfig && (
+              <span className="zabbix-creds-source">
+                Source: <strong>{credsConfig.source}</strong>
+                {credsConfig.configured ? ' · synced' : ''}
+              </span>
+            )}
+          </div>
+          <p className="zabbix-creds-help">
+            Saving will validate the credentials against the Zabbix server and sync
+            monitoring data. They override any environment-based config for this session.
+          </p>
+          <div className="zabbix-creds-grid">
+            <label>
+              Zabbix URL
+              <input
+                type="url"
+                placeholder="https://zabbix.example.com"
+                value={credsUrl}
+                onChange={(e) => setCredsUrl(e.target.value)}
+                disabled={credsSaving}
+              />
+            </label>
+            <label>
+              Username
+              <input
+                type="text"
+                autoComplete="off"
+                value={credsUsername}
+                onChange={(e) => setCredsUsername(e.target.value)}
+                disabled={credsSaving}
+              />
+            </label>
+            <label>
+              Password
+              <input
+                type="password"
+                autoComplete="new-password"
+                placeholder="••••••••"
+                value={credsPassword}
+                onChange={(e) => setCredsPassword(e.target.value)}
+                disabled={credsSaving}
+              />
+            </label>
+          </div>
+          {credsError && <div className="error-text">{credsError}</div>}
+          {credsNotice && <div className="zabbix-creds-notice">{credsNotice}</div>}
+          <div className="zabbix-creds-actions">
+            <button className="primary-btn" onClick={onSaveCredentials} disabled={credsSaving}>
+              {credsSaving ? 'Syncing…' : 'Save & Sync'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* tabs */}
       <div className="zabbix-tabs">
