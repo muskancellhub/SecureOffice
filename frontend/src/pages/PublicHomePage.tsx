@@ -3,6 +3,7 @@ import { Suspense, useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import NetworkScene3D from '../components/NetworkScene3D';
+import { SceneErrorBoundary } from '../components/SceneErrorBoundary';
 import { BusinessIntakeModal } from '../components/BusinessIntakeModal';
 
 function Typewriter({ text, speed = 50, delay = 400, pauseMs = 2000 }: { text: string; speed?: number; delay?: number; pauseMs?: number }) {
@@ -140,13 +141,19 @@ export const PublicHomePage = () => {
         </div>
 
         <div className="marketing-hero-visual" aria-hidden="true">
-          <Suspense fallback={
+          <SceneErrorBoundary fallback={
             <div className="marketing-image-placeholder" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 340 }}>
-              Loading 3D scene...
+              Network visualization unavailable in this browser.
             </div>
           }>
-            <NetworkScene3D />
-          </Suspense>
+            <Suspense fallback={
+              <div className="marketing-image-placeholder" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 340 }}>
+                Loading 3D scene...
+              </div>
+            }>
+              <NetworkScene3D />
+            </Suspense>
+          </SceneErrorBoundary>
         </div>
       </div>
 
