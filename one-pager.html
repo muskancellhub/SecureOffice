@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Secure AI Office — One Pager</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --pink:   #c01f70;
+    --pink-lt:#f7d6ea;
+    --pink-bg:#fdf0f7;
+    --dark:   #111827;
+    --mid:    #374151;
+    --gray:   #6b7280;
+    --border: #e5e7eb;
+  }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: #fff;
+    color: var(--dark);
+    width: 210mm;
+    height: 297mm;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── TOP BAR ── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 11px 26px 9px;
+    border-bottom: 1.5px solid var(--border);
+    flex-shrink: 0;
+  }
+  .brand-name {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--dark);
+  }
+  .brand-name span { color: var(--pink); }
+  .topbar-right {
+    font-size: 11px;
+    color: var(--gray);
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    padding: 18px 26px 14px;
+    border-bottom: 1.5px solid var(--border);
+    flex-shrink: 0;
+  }
+  .hero h1 {
+    font-size: 31px;
+    font-weight: 900;
+    line-height: 1.15;
+    color: var(--dark);
+    max-width: 520px;
+  }
+  .hero h1 em { font-style: normal; color: var(--pink); }
+  .hero-sub {
+    margin-top: 8px;
+    font-size: 12.5px;
+    color: var(--mid);
+    line-height: 1.6;
+    max-width: 560px;
+  }
+
+  /* ── TWO COLUMN COMPARE ── */
+  .compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 13px;
+    padding: 15px 26px 14px;
+    border-bottom: 1.5px solid var(--border);
+    flex-shrink: 0;
+  }
+  .compare-box {
+    border: 1.5px solid var(--border);
+    border-radius: 9px;
+    padding: 13px 15px;
+    background: #fafafa;
+  }
+  .compare-box.accent {
+    background: var(--pink-bg);
+    border-color: var(--pink-lt);
+  }
+  .compare-box h3 {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--gray);
+    margin-bottom: 11px;
+  }
+  .compare-box.accent h3 { color: var(--pink); }
+  .compare-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 7px;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--mid);
+  }
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #d1d5db;
+    flex-shrink: 0;
+    margin-top: 3px;
+  }
+  .dot.pink { background: var(--pink); }
+  .compare-row strong { color: var(--dark); }
+
+  /* ── SECTION HEADER ── */
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 12px 26px 0;
+    margin-bottom: 10px;
+    flex-shrink: 0;
+  }
+  .section-bar {
+    width: 26px;
+    height: 3px;
+    background: var(--pink);
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .section-header h2 {
+    font-size: 11.5px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--dark);
+  }
+
+  /* ── OUTCOMES ── */
+  .outcomes-section {
+    padding: 0 26px 14px;
+    border-bottom: 1.5px solid var(--border);
+    flex-shrink: 0;
+  }
+  .outcomes-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 11px;
+  }
+  .outcome-card {
+    border-left: 3.5px solid var(--pink);
+    padding: 10px 12px;
+    background: #fafafa;
+    border-radius: 0 7px 7px 0;
+  }
+  .outcome-card h4 {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--dark);
+    margin-bottom: 5px;
+  }
+  .outcome-card p {
+    font-size: 10.5px;
+    color: var(--gray);
+    line-height: 1.5;
+  }
+
+  /* ── PHASES ── */
+  .phases-section {
+    padding: 0 26px 14px;
+    border-bottom: 1.5px solid var(--border);
+    flex-shrink: 0;
+  }
+  .phases-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 9px;
+  }
+  .phase-card {
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 12px 10px;
+    background: #fff;
+    position: relative;
+  }
+  .phase-label {
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--pink);
+    margin-bottom: 5px;
+    display: block;
+  }
+  .phase-card h4 {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--dark);
+    margin-bottom: 6px;
+    line-height: 1.3;
+  }
+  .phase-card p {
+    font-size: 10px;
+    color: var(--gray);
+    line-height: 1.5;
+  }
+  .phase-num {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    font-size: 22px;
+    font-weight: 900;
+    color: var(--border);
+    line-height: 1;
+  }
+  .phase-card:first-child { border-color: var(--pink-lt); background: var(--pink-bg); }
+
+  /* ── BOTTOM COMMERCIAL ── */
+  .commercial-section {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    margin: 0 26px 12px;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1.5px solid var(--border);
+    flex-shrink: 0;
+  }
+  .commercial-left {
+    background: var(--dark);
+    color: #fff;
+    padding: 16px 22px;
+  }
+  .commercial-left h3 {
+    font-size: 14px;
+    font-weight: 800;
+    margin-bottom: 5px;
+  }
+  .commercial-left p {
+    font-size: 11px;
+    color: #9ca3af;
+    margin-bottom: 10px;
+    line-height: 1.5;
+    max-width: 370px;
+  }
+  .check-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 11px;
+    color: #d1d5db;
+  }
+  .check-icon {
+    width: 17px;
+    height: 17px;
+    background: var(--pink);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 9px;
+    color: #fff;
+    font-weight: 700;
+  }
+  .commercial-right {
+    background: var(--pink);
+    color: #fff;
+    padding: 16px 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 160px;
+    text-align: center;
+  }
+  .big-stat {
+    font-size: 56px;
+    font-weight: 900;
+    line-height: 1;
+  }
+  .big-stat sup { font-size: 22px; vertical-align: top; margin-top: 8px; display: inline-block; }
+  .big-stat-label {
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-top: 6px;
+    line-height: 1.4;
+  }
+
+  /* ── FOOTER ── */
+  .footer {
+    border-top: 1.5px solid var(--border);
+    padding: 9px 26px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: auto;
+    flex-shrink: 0;
+  }
+  .footer-left {
+    font-size: 10.5px;
+    color: var(--gray);
+  }
+  .footer-left em { font-style: normal; color: var(--pink); font-weight: 600; }
+  .footer-right {
+    font-size: 10px;
+    color: var(--gray);
+    letter-spacing: 0.02em;
+  }
+
+  @media print {
+    body { width: 210mm; height: 297mm; margin: 0; }
+    @page { size: A4; margin: 0; }
+  }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="brand-name">
+    <span>S</span>ecure <span>A</span>I <span>O</span>ffice &nbsp;&middot;&nbsp; <span>S</span>ecure<span>O</span>ffice
+  </div>
+  <div class="topbar-right">SecureOffice &middot; Powered by CellHub</div>
+</div>
+
+<!-- HERO -->
+<div class="hero">
+  <h1>Deploy Your <em>SMB Network</em><br/>From Intake to Order — in Days</h1>
+  <p class="hero-sub">
+    The only AI-native platform giving SMB teams end-to-end control over network procurement &mdash;
+    from requirement discovery through visual BOM and BAFO-ready proposals. Every product, price, and
+    design decision is unified in one workspace, eliminating manual coordination between sales, ops, and vendors.
+  </p>
+</div>
+
+<!-- COMPARE -->
+<div class="compare-grid">
+  <div class="compare-box">
+    <h3>Today's Process &mdash; Fragmented &amp; Manual</h3>
+    <div class="compare-row"><span class="dot"></span><span><strong>Spreadsheets</strong> only capture one project at a time, creating version chaos</span></div>
+    <div class="compare-row"><span class="dot"></span><span><strong>Vendors</strong> quote independently, missing cross-SKU optimization</span></div>
+    <div class="compare-row"><span class="dot"></span><span><strong>Sales engineers</strong> build BOMs manually — slow and error-prone</span></div>
+    <div class="compare-row"><span class="dot"></span><span><strong>No single source of truth</strong> across catalog, contracts &amp; inventory</span></div>
+  </div>
+  <div class="compare-box accent">
+    <h3>SecureOffice Difference &mdash; AI-Native Platform</h3>
+    <div class="compare-row"><span class="dot pink"></span><span><strong>Business intake</strong> &mdash; deterministic sizing from a single questionnaire</span></div>
+    <div class="compare-row"><span class="dot pink"></span><span><strong>Auto-generated BOM</strong> from unified CDW + managed services catalog</span></div>
+    <div class="compare-row"><span class="dot pink"></span><span><strong>3D network diagram</strong> for instant customer-facing design confidence</span></div>
+    <div class="compare-row"><span class="dot pink"></span><span><strong>Single source of truth</strong> across products, quotes, orders &amp; lifecycle</span></div>
+  </div>
+</div>
+
+<!-- OUTCOMES -->
+<div class="section-header">
+  <div class="section-bar"></div>
+  <h2>Outcomes</h2>
+</div>
+<div class="outcomes-section">
+  <div class="outcomes-grid">
+    <div class="outcome-card">
+      <h4>Faster Proposals</h4>
+      <p>Generate BAFO-ready commercial proposals from a single intake session, not days of back-and-forth.</p>
+    </div>
+    <div class="outcome-card">
+      <h4>Design Confidence</h4>
+      <p>Real-time 3D topology diagram previews let customers visualize their network before a single order is placed.</p>
+    </div>
+    <div class="outcome-card">
+      <h4>Smarter BOM</h4>
+      <p>AI-driven product selection and default discount pricing across 14+ line-item categories in one pass.</p>
+    </div>
+    <div class="outcome-card">
+      <h4>Aligned Execution</h4>
+      <p>Sales, ops, and vendors stay synchronized from quote acceptance through fulfillment and lifecycle tracking.</p>
+    </div>
+  </div>
+</div>
+
+<!-- 5-PHASE TIMELINE -->
+<div class="section-header">
+  <div class="section-bar"></div>
+  <h2>End-to-End Workflow</h2>
+</div>
+<div class="phases-section">
+  <div class="phases-grid">
+    <div class="phase-card">
+      <span class="phase-label">Phase 1</span>
+      <h4>Business Intake</h4>
+      <p>Capture office type, headcount, rooms &amp; connectivity needs via guided intake form.</p>
+      <span class="phase-num">1</span>
+    </div>
+    <div class="phase-card">
+      <span class="phase-label">Phase 2</span>
+      <h4>BOM Generation</h4>
+      <p>Deterministic sizing engine maps inputs to routers, APs, phones, and managed services.</p>
+      <span class="phase-num">2</span>
+    </div>
+    <div class="phase-card">
+      <span class="phase-label">Phase 3</span>
+      <h4>Network Design</h4>
+      <p>Visual topology diagram renders automatically; customer can review and approve the design.</p>
+      <span class="phase-num">3</span>
+    </div>
+    <div class="phase-card">
+      <span class="phase-label">Phase 4</span>
+      <h4>Proposal &amp; Quote</h4>
+      <p>BAFO pricing applied, proposal generated, accepted, and converted to a binding quote.</p>
+      <span class="phase-num">4</span>
+    </div>
+    <div class="phase-card">
+      <span class="phase-label">Phase 5</span>
+      <h4>Order &amp; Lifecycle</h4>
+      <p>Order placed, fulfillment tracked, and contracts &amp; subscriptions managed end-to-end.</p>
+      <span class="phase-num">5</span>
+    </div>
+  </div>
+</div>
+
+<!-- COMMERCIAL MODEL -->
+<div class="commercial-section">
+  <div class="commercial-left">
+    <h3>Platform-Led Commercial Model</h3>
+    <p>
+      Subscription-based access to the full Secure AI Office stack &mdash; intake, BOM, design, proposal, and order management.
+      No per-seat upcharges on catalog lookups. Pricing scales with your active project volume.
+    </p>
+    <div class="check-row"><span class="check-icon">&#10003;</span> Unified catalog: routers, phones, managed services, and connectivity</div>
+    <div class="check-row"><span class="check-icon">&#10003;</span> Default + incremental discount pricing model built-in</div>
+    <div class="check-row"><span class="check-icon">&#10003;</span> CLM-ready contract handoff &mdash; no manual export</div>
+    <div class="check-row"><span class="check-icon">&#10003;</span> Vendor marketplace: onboard and manage channel partners</div>
+  </div>
+  <div class="commercial-right">
+    <div class="big-stat"><sup></sup>14<sup>+</sup></div>
+    <div class="big-stat-label">BOM LINE<br/>TYPES AUTOMATED</div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<div class="footer">
+  <div class="footer-left">
+    Ready to build your first design? &nbsp;<em>secureoffice.cellhub.com</em> &middot; sales@cellhubms.com
+  </div>
+  <div class="footer-right">Secure AI Office &middot; CellHub Managed Services</div>
+</div>
+
+</body>
+</html>

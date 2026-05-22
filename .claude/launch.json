@@ -7,6 +7,13 @@
       "runtimeArgs": ["-c", "export PATH=/Users/muskan/.nvm/versions/node/v24.13.1/bin:$PATH && npm run dev"],
       "port": 5173,
       "cwd": "frontend"
+    },
+    {
+      "name": "one-pager",
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["-c", "python3 -m http.server 8099"],
+      "port": 8099,
+      "cwd": "."
     }
   ]
 }
