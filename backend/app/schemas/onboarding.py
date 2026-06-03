@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from app.schemas.auth import validate_email
 
 ValidationStatus = Literal['PENDING', 'VERIFIED', 'FAILED']
 PaymentMethodType = Literal['CARD', 'BANK_TRANSFER', 'MANUAL']
@@ -35,6 +36,11 @@ class UpdateOnboardingProfileRequest(BaseModel):
     admin_name: str | None = None
     admin_email: EmailStr | None = None
     admin_phone: str | None = None
+
+    @field_validator('admin_email')
+    @classmethod
+    def check_email(cls, v: str | None) -> str | None:
+        return validate_email(v) if v else v
     credit_validation_status: ValidationStatus | None = None
     tax_validation_status: ValidationStatus | None = None
     duns_number: str | None = None

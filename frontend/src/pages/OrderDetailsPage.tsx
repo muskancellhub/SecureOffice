@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
+import { startOrderCheckout } from '../api/billingApi';
 import { useAuth } from '../context/AuthContext';
 import type { OrderDetail, OrderLine, WorkflowInstance } from '../types/commerce';
+import { extractApiError } from '../utils/extractApiError';
 
 const timelineSteps = ['Ordered', 'Supplier', 'QC', 'Shipped', 'Delivered'] as const;
 const statusStepIndex: Record<string, number> = {
@@ -20,6 +22,7 @@ export const OrderDetailsPage = () => {
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [workflow, setWorkflow] = useState<WorkflowInstance | null>(null);
   const [error, setError] = useState('');
+  const [payingWithCard, setPayingWithCard] = useState(false);
 
   const load = async () => {
     if (!accessToken || !orderId) return;
@@ -32,13 +35,28 @@ export const OrderDetailsPage = () => {
       setOrder(orderData);
       setWorkflow(workflowData);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to load order');
+      setError(extractApiError(err, 'Failed to load order'));
     }
   };
 
   useEffect(() => {
     load();
   }, [accessToken, orderId]);
+
+  const onPayWithCard = async () => {
+    if (!orderId) return;
+    setPayingWithCard(true);
+    setError('');
+    try {
+      const { data } = await startOrderCheckout(orderId);
+      window.location.assign(data.url);
+    } catch (err: any) {
+      setError(extractApiError(err, 'Failed to start checkout'));
+      setPayingWithCard(false);
+    }
+  };
+
+  const isPayable = order?.status === 'SUBMITTED';
 
   const parentNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -96,8 +114,13 @@ export const OrderDetailsPage = () => {
                   {workflow ? ` | Workflow: ${workflow.status}` : ''}
                 </p>
               </div>
-              <div className="row-between">
+              <div className="row-between" style={{ gap: '0.75rem' }}>
                 <span className="order-status-pill">{order.status}</span>
+                {isPayable && (
+                  <button className="primary-btn" onClick={onPayWithCard} disabled={payingWithCard}>
+                    {payingWithCard ? 'Redirecting...' : 'Pay with Card'}
+                  </button>
+                )}
               </div>
             </div>
             <div className="status-track">

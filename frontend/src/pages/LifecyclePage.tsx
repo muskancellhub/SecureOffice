@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
 import type { AssetSummary, ContractSummary, SubscriptionStatus, SubscriptionSummary } from '../types/commerce';
+import { extractApiError } from '../utils/extractApiError';
 
 const statusOptions: SubscriptionStatus[] = ['ACTIVE', 'PAUSED', 'CANCELLED'];
 
@@ -29,7 +30,7 @@ export const LifecyclePage = () => {
       setSubscriptions(subscriptionRows);
       setAssets(assetRows);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to load lifecycle data');
+      setError(extractApiError(err, 'Failed to load lifecycle data'));
     } finally {
       setLoading(false);
     }
@@ -47,7 +48,7 @@ export const LifecyclePage = () => {
       const updated = await commerceApi.updateSubscriptionStatus(accessToken, subscriptionId, status);
       setSubscriptions((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to update subscription status');
+      setError(extractApiError(err, 'Failed to update subscription status'));
     } finally {
       setSavingSubscriptionId(null);
     }

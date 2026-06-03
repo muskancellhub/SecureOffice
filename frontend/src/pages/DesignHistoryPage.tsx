@@ -5,6 +5,7 @@ import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
 import { BusinessIntakeModal } from '../components/BusinessIntakeModal';
 import type { NetworkDesignSummary } from '../types/commerce';
+import { extractApiError } from '../utils/extractApiError';
 
 const formatCurrency = (value: number): string =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value || 0);
@@ -52,7 +53,7 @@ export const DesignHistoryPage = () => {
       await commerceApi.deleteNetworkDesign(accessToken, design.id);
       setDesigns((rows) => rows.filter((r) => r.id !== design.id));
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to delete design');
+      setError(extractApiError(err, 'Failed to delete design'));
     } finally {
       setDeletingId(null);
     }
@@ -64,7 +65,7 @@ export const DesignHistoryPage = () => {
     setError('');
     commerceApi.listNetworkDesigns(accessToken)
       .then((rows) => setDesigns(rows))
-      .catch((err: any) => setError(err?.response?.data?.detail || 'Failed to load design history'))
+      .catch((err: any) => setError(extractApiError(err, 'Failed to load design history')))
       .finally(() => setLoading(false));
   }, [accessToken]);
 

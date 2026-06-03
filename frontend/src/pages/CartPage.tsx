@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useShop } from '../context/ShopContext';
 import type { CartLine, CatalogItem } from '../types/commerce';
 import { getRouterImage } from '../utils/productImages';
+import { extractApiError } from '../utils/extractApiError';
 
 const formatCurrency = (value: number): string =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value || 0);
@@ -70,7 +71,7 @@ export const CartPage = () => {
       const quote = await commerceApi.generateQuote(accessToken);
       navigate(`/shop/quotes/${quote.id}`);
     } catch (err: any) {
-      setActionError(err?.response?.data?.detail || 'Failed to generate quote');
+      setActionError(extractApiError(err, 'Failed to generate quote'));
     } finally {
       setGeneratingQuote(false);
     }
@@ -87,7 +88,7 @@ export const CartPage = () => {
         await removeLine(lineId);
       }
     } catch (err: any) {
-      setActionError(err?.response?.data?.detail || 'Failed to clear cart');
+      setActionError(extractApiError(err, 'Failed to clear cart'));
     } finally {
       setClearing(false);
     }
@@ -98,7 +99,7 @@ export const CartPage = () => {
       await attachManagedService(serviceId, routerLineId);
       setExpandedServicePicker(null);
     } catch (err: any) {
-      setActionError(err?.response?.data?.detail || 'Failed to attach service');
+      setActionError(extractApiError(err, 'Failed to attach service'));
     }
   };
 
@@ -364,7 +365,7 @@ export const CartPage = () => {
                   try {
                     await addServiceToCart(firstService.id, 1);
                   } catch (err: any) {
-                    setActionError(err?.response?.data?.detail || 'Failed to add standalone service');
+                    setActionError(extractApiError(err, 'Failed to add standalone service'));
                   }
                 }}
                 disabled={managedServices.length === 0}

@@ -1,10 +1,15 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AuthShell } from '../components/AuthShell';
 import { useAuth } from '../context/AuthContext';
+import { extractApiError, isValidEmail } from '../utils/extractApiError';
+
+// Must match backend otp_resend_cooldown_seconds. The backend enforces the real
+// limit; this just drives the button countdown so users don't bounce off a 429.
+const RESEND_COOLDOWN_SECONDS = 60;
 
 export const LoginPage = () => {
-  const { requestLoginOtp, verifyLoginOtp, startGoogleSSO, startMicrosoftSSO } = useAuth();
+  const { user, loading: authLoading, requestLoginOtp, verifyLoginOtp, startGoogleSSO, startMicrosoftSSO } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState('');
@@ -13,37 +18,95 @@ export const LoginPage = () => {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resendIn, setResendIn] = useState(0);
+  // Synchronous re-entry guard. `loading` state disables the button, but a
+  // state update isn't applied until React re-renders — a second click landing
+  // in the same tick can slip past `disabled={loading}` and fire a duplicate
+  // request (BUG-020). A ref updates immediately, so it blocks the second call.
+  const inFlightRef = useRef(false);
 
-  const nextRoute = useMemo(() => {
+  // Tick the resend countdown down to zero.
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const id = setTimeout(() => setResendIn((s) => s - 1), 1000);
+    return () => clearTimeout(id);
+  }, [resendIn]);
+
+  const [nextRoute, hasExplicitNext] = useMemo(() => {
     const queryNext = new URLSearchParams(location.search).get('next');
     const stateNext = typeof location.state === 'object' && location.state && 'from' in location.state
       ? String((location.state as { from?: string }).from || '')
       : '';
     const savedRedirect = localStorage.getItem('secureOfficePostAuthRedirect') || '';
-    const target = queryNext || stateNext || savedRedirect || '/shop';
-    return target.startsWith('/') ? target : '/shop';
+    const explicit = queryNext || stateNext || savedRedirect;
+    const target = explicit || '/shop';
+    return [target.startsWith('/') ? target : '/shop', !!explicit] as const;
   }, [location.search, location.state]);
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      localStorage.removeItem('secureOfficePostAuthRedirect');
+      navigate(nextRoute, { replace: true });
+    }
+  }, [authLoading, user, nextRoute, navigate]);
+
+  useEffect(() => {
+    const queryNext = new URLSearchParams(location.search).get('next');
+    if (hasExplicitNext && !queryNext) {
+      navigate(`/login?next=${encodeURIComponent(nextRoute)}`, { replace: true });
+    }
+  }, [hasExplicitNext, nextRoute, location.search, navigate]);
 
   const onRequestOtp = async (e: FormEvent) => {
     e.preventDefault();
     if (!email) return;
+    if (!isValidEmail(email)) { setError('Please enter a valid email address'); return; }
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     setError('');
     setNotice('');
     setLoading(true);
     try {
       await requestLoginOtp(email);
       setOtpRequested(true);
-      setNotice('OTP sent to your email.');
+      setNotice('If an account exists, an OTP has been sent to your email.');
+      setResendIn(RESEND_COOLDOWN_SECONDS);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to send OTP');
+      setError(extractApiError(err, 'Failed to send OTP'));
     } finally {
       setLoading(false);
+      inFlightRef.current = false;
+    }
+  };
+
+  const onResendOtp = async () => {
+    if (!email || resendIn > 0 || loading) return;
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    setError('');
+    setNotice('');
+    setLoading(true);
+    try {
+      await requestLoginOtp(email);
+      setNotice('A new OTP has been sent to your email.');
+      setResendIn(RESEND_COOLDOWN_SECONDS);
+    } catch (err: any) {
+      // Backend may still be cooling down (e.g. after a page reload reset the
+      // local timer) or the per-window cap is hit — surface its message and,
+      // for a cooldown 429, restart the local countdown to stay in sync.
+      setError(extractApiError(err, 'Failed to resend OTP'));
+      if (err?.response?.status === 429) setResendIn(RESEND_COOLDOWN_SECONDS);
+    } finally {
+      setLoading(false);
+      inFlightRef.current = false;
     }
   };
 
   const onVerifyOtp = async (e: FormEvent) => {
     e.preventDefault();
     if (!email || !otp) return;
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     setError('');
     setNotice('');
     setLoading(true);
@@ -52,9 +115,21 @@ export const LoginPage = () => {
       localStorage.removeItem('secureOfficePostAuthRedirect');
       navigate(nextRoute, { replace: true });
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'OTP verification failed');
+      const message = extractApiError(err, 'OTP verification failed');
+      // 429 = OTP locked after too many wrong attempts. Send the user back to
+      // the request step so they can get a fresh code instead of being stuck
+      // on a form that can no longer succeed.
+      if (err?.response?.status === 429) {
+        setOtp('');
+        setOtpRequested(false);
+        setError('');
+        setNotice(message);
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
+      inFlightRef.current = false;
     }
   };
 
@@ -86,6 +161,9 @@ export const LoginPage = () => {
           <button className="primary-btn" type="submit" disabled={loading}>
             {loading ? 'Verifying...' : 'Verify & Continue'}
           </button>
+          <button className="ghost-btn" type="button" onClick={onResendOtp} disabled={loading || resendIn > 0}>
+            {resendIn > 0 ? `Resend code in ${resendIn}s` : 'Resend code'}
+          </button>
           <button className="ghost-btn" type="button" onClick={() => setOtpRequested(false)} disabled={loading}>
             Change Email
           </button>
@@ -112,7 +190,7 @@ export const LoginPage = () => {
         </button>
       </div>
 
-      <div className="alt-link">No account? <Link to={nextRoute !== '/shop' ? `/signup?next=${encodeURIComponent(nextRoute)}` : '/signup'}>Sign up</Link></div>
+      <div className="alt-link">No account? <Link to={hasExplicitNext ? `/signup?next=${encodeURIComponent(nextRoute)}` : '/signup'}>Sign up</Link></div>
       <div className="alt-link">
         <Link to="/business-intake">Edit business profile intake</Link>
       </div>

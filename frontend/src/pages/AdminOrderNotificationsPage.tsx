@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
+import { extractApiError } from '../utils/extractApiError';
 
 const parseRecipientInput = (value: string): string[] =>
   Array.from(
@@ -43,7 +44,7 @@ export const AdminOrderNotificationsPage = () => {
       setInput((data.recipients || []).join('\n'));
       setUpdatedAt(data.updated_at);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to load order notification recipients');
+      setError(extractApiError(err, 'Failed to load order notification recipients'));
     } finally {
       setLoading(false);
     }
@@ -71,7 +72,7 @@ export const AdminOrderNotificationsPage = () => {
       setUpdatedAt(data.updated_at);
       setNotice('Recipient list updated.');
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to update recipients');
+      setError(extractApiError(err, 'Failed to update recipients'));
     } finally {
       setSaving(false);
     }

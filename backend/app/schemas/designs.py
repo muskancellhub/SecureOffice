@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from app.schemas.auth import validate_email, validate_phone
 
 
 DesignStatus = Literal[
@@ -49,6 +50,11 @@ class DesignUpdateInput(BaseModel):
     visibility: DesignNoteVisibility = 'internal'
     message: str = Field(min_length=1, max_length=5000)
 
+    @field_validator('message', mode='before')
+    @classmethod
+    def strip_message(cls, v: str) -> str:
+        return v.strip() if isinstance(v, str) else v
+
 
 class LeadCaptureInput(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -56,8 +62,23 @@ class LeadCaptureInput(BaseModel):
     full_name: str = Field(min_length=1, max_length=255, alias='fullName')
     email: EmailStr
     company_name: str = Field(min_length=1, max_length=255, alias='companyName')
-    phone: str | None = Field(default=None, max_length=64)
+    phone: str | None = Field(default=None)
     notes: str | None = Field(default=None, max_length=5000)
+
+    @field_validator('email')
+    @classmethod
+    def check_email(cls, v: str) -> str:
+        return validate_email(v)
+
+    @field_validator('full_name', 'company_name', mode='before')
+    @classmethod
+    def strip_text(cls, v: str) -> str:
+        return v.strip() if isinstance(v, str) else v
+
+    @field_validator('phone')
+    @classmethod
+    def check_phone(cls, v: str | None) -> str | None:
+        return validate_phone(v)
 
 
 class LeadCapturePatchInput(BaseModel):
@@ -66,8 +87,23 @@ class LeadCapturePatchInput(BaseModel):
     full_name: str | None = Field(default=None, min_length=1, max_length=255, alias='fullName')
     email: EmailStr | None = None
     company_name: str | None = Field(default=None, min_length=1, max_length=255, alias='companyName')
-    phone: str | None = Field(default=None, max_length=64)
+    phone: str | None = Field(default=None)
     notes: str | None = Field(default=None, max_length=5000)
+
+    @field_validator('email')
+    @classmethod
+    def check_email(cls, v: str | None) -> str | None:
+        return validate_email(v) if v else v
+
+    @field_validator('full_name', 'company_name', mode='before')
+    @classmethod
+    def strip_text(cls, v: str | None) -> str | None:
+        return v.strip() if isinstance(v, str) else v
+
+    @field_validator('phone')
+    @classmethod
+    def check_phone(cls, v: str | None) -> str | None:
+        return validate_phone(v)
 
 
 class SaveNetworkDesignRequest(BaseModel):

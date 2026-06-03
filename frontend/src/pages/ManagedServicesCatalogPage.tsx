@@ -4,6 +4,7 @@ import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
 import { useShop } from '../context/ShopContext';
 import type { CatalogItem } from '../types/commerce';
+import { extractApiError } from '../utils/extractApiError';
 
 const GROUP_CONFIG = [
   { key: 'network', label: 'Network', categories: ['router', 'wifi_ap', 'switch', 'firewall', 'cellular_gateway'] },
@@ -26,7 +27,7 @@ export const ManagedServicesCatalogPage = () => {
     commerceApi
       .getCatalog(accessToken, { type: 'DEVICE', sort: 'price_low', page_size: 250 })
       .then(setDevices)
-      .catch((err: any) => setError(err?.response?.data?.detail || 'Failed to load catalog'))
+      .catch((err: any) => setError(extractApiError(err, 'Failed to load catalog')))
       .finally(() => setLoading(false));
   }, [accessToken]);
 
@@ -52,7 +53,7 @@ export const ManagedServicesCatalogPage = () => {
       await addRouterToCart(device.id, 1);
       setNotice(`${device.name} added to cart.`);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to add to cart');
+      setError(extractApiError(err, 'Failed to add to cart'));
     } finally {
       setBusyId(null);
     }
@@ -68,7 +69,7 @@ export const ManagedServicesCatalogPage = () => {
         await updateLineQuantity(lineId, newQty);
       }
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to update quantity');
+      setError(extractApiError(err, 'Failed to update quantity'));
     } finally {
       setBusyId(null);
     }

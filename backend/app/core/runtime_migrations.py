@@ -939,3 +939,51 @@ def apply_runtime_migrations() -> None:
             "ALTER TABLE otps ADD COLUMN IF NOT EXISTS attempts_remaining INTEGER NOT NULL DEFAULT 5"
         ))
         conn.execute(text("UPDATE otps SET attempts_remaining = 5 WHERE attempts_remaining IS NULL"))
+
+        # ── OTP issuance timestamp (per-email request throttle) ──
+        # Existing rows get NOW() so they fall outside future throttle windows
+        # immediately rather than being treated as a fresh burst.
+        conn.execute(text(
+            "ALTER TABLE otps ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()"
+        ))
+        conn.execute(text("UPDATE otps SET created_at = NOW() WHERE created_at IS NULL"))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_otps_user_created_at ON otps (user_id, created_at)"
+        ))
+
+        # ── Stripe integration columns ──
+        conn.execute(text(
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(64)"
+        ))
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_tenants_stripe_customer_id "
+            "ON tenants (stripe_customer_id) WHERE stripe_customer_id IS NOT NULL"
+        ))
+
+        conn.execute(text(
+            "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(64)"
+        ))
+        conn.execute(text(
+            "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_price_id VARCHAR(64)"
+        ))
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_subscriptions_stripe_subscription_id "
+            "ON subscriptions (stripe_subscription_id) WHERE stripe_subscription_id IS NOT NULL"
+        ))
+
+        conn.execute(text(
+            "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS stripe_invoice_id VARCHAR(64)"
+        ))
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_invoices_stripe_invoice_id "
+            "ON invoices (stripe_invoice_id) WHERE stripe_invoice_id IS NOT NULL"
+        ))
+
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS stripe_events (
+                id           VARCHAR(64) PRIMARY KEY,
+                type         VARCHAR(128) NOT NULL,
+                received_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                payload      JSONB NOT NULL
+            )
+        """))

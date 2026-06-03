@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models import OTP
@@ -33,6 +33,28 @@ class OTPRepository:
                 OTP.attempts_remaining > 0,
             )
             .order_by(desc(OTP.id))
+        )
+
+    def count_since(self, user_id, since: datetime) -> int:
+        """Count OTPs issued to a user at or after `since` (for request throttling)."""
+        return self.db.scalar(
+            select(func.count())
+            .select_from(OTP)
+            .where(OTP.user_id == user_id, OTP.created_at >= since)
+        ) or 0
+
+    def earliest_created_since(self, user_id, since: datetime) -> datetime | None:
+        """Issuance time of the oldest OTP still inside the window — used to tell
+        the user when the throttle will free up."""
+        return self.db.scalar(
+            select(func.min(OTP.created_at))
+            .where(OTP.user_id == user_id, OTP.created_at >= since)
+        )
+
+    def latest_created_at(self, user_id) -> datetime | None:
+        """Issuance time of the most recent OTP — used to enforce the resend cooldown."""
+        return self.db.scalar(
+            select(func.max(OTP.created_at)).where(OTP.user_id == user_id)
         )
 
     def mark_used(self, otp: OTP) -> None:

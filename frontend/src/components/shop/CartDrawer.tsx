@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useShop } from '../../context/ShopContext';
 import type { CartLine, CatalogItem } from '../../types/commerce';
 import { getRouterImage } from '../../utils/productImages';
+import { extractApiError } from '../../utils/extractApiError';
 
 interface CartDrawerProps {
   collapsed?: boolean;
@@ -114,7 +115,7 @@ export const CartDrawer = ({ collapsed = false, onToggleCollapse }: CartDrawerPr
       const quote = await commerceApi.generateQuote(accessToken);
       navigate(`/shop/quotes/${quote.id}`);
     } catch (err: any) {
-      setActionError(err?.response?.data?.detail || 'Failed to generate quote');
+      setActionError(extractApiError(err, 'Failed to generate quote'));
     } finally {
       setGeneratingQuote(false);
     }
@@ -125,7 +126,7 @@ export const CartDrawer = ({ collapsed = false, onToggleCollapse }: CartDrawerPr
       await attachManagedService(serviceId, routerLineId);
       setExpandedServicePicker(null);
     } catch (err: any) {
-      setActionError(err?.response?.data?.detail || 'Failed to attach service');
+      setActionError(extractApiError(err, 'Failed to attach service'));
     }
   };
 

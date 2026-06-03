@@ -10,24 +10,25 @@ interface AuthShellProps {
 export const AuthShell = ({ title, subtitle, children, showTabs = true }: AuthShellProps) => {
   const location = useLocation();
   const isLogin = location.pathname === '/login';
+  const search = location.search;
 
   return (
     <div className="auth-page">
+      <header className="auth-topbar">
+        <Link to="/" className="auth-topbar-brand">Secure AI Office</Link>
+        <Link to="/" className="auth-topbar-home">Home</Link>
+      </header>
+
       <div className="auth-layout">
         <div className="auth-left">
-          <div className="logo-row">
-            <span className="logo-mark">➤</span>
-            <span className="logo-text">Secure AI Office</span>
-          </div>
-
           <div className="auth-content">
             <h1>{title}</h1>
             <p>{subtitle}</p>
 
             {showTabs && (
               <div className="auth-tabs">
-                <Link to="/login" className={isLogin ? 'active' : ''}>Sign In</Link>
-                <Link to="/signup" className={!isLogin ? 'active' : ''}>Signup</Link>
+                <Link to={`/login${search}`} className={isLogin ? 'active' : ''}>Sign In</Link>
+                <Link to={`/signup${search}`} className={!isLogin ? 'active' : ''}>Signup</Link>
               </div>
             )}
 

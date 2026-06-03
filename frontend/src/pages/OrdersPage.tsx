@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
 import type { OrderSummary } from '../types/commerce';
+import { extractApiError } from '../utils/extractApiError';
 
 const statusSteps = ['Ordered', 'Supplier', 'QC', 'Shipped', 'Delivered'] as const;
 const statusStepIndex: Record<string, number> = {
@@ -26,7 +27,7 @@ export const OrdersPage = () => {
     commerceApi
       .listOrders(accessToken)
       .then(setOrders)
-      .catch((err: any) => setError(err?.response?.data?.detail || 'Failed to load orders'));
+      .catch((err: any) => setError(extractApiError(err, 'Failed to load orders')));
   }, [accessToken]);
 
   const sortedOrders = useMemo(

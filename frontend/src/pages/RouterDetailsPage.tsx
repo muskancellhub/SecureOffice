@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useShop } from '../context/ShopContext';
 import type { CatalogItem } from '../types/commerce';
 import { getRouterImage } from '../utils/productImages';
+import { extractApiError } from '../utils/extractApiError';
 
 export const RouterDetailsPage = () => {
   const { itemId } = useParams();
@@ -24,7 +25,7 @@ export const RouterDetailsPage = () => {
     commerceApi
       .getCatalogItem(accessToken, itemId)
       .then(setRouter)
-      .catch((err: any) => setError(err?.response?.data?.detail || 'Failed to load router details'))
+      .catch((err: any) => setError(extractApiError(err, 'Failed to load router details')))
       .finally(() => setLoading(false));
   }, [accessToken, itemId]);
 
@@ -50,7 +51,7 @@ export const RouterDetailsPage = () => {
         await updateLineQuantity(cartLine.id, newQty);
       }
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to update quantity');
+      setError(extractApiError(err, 'Failed to update quantity'));
     } finally {
       setBusy(false);
     }
@@ -136,7 +137,7 @@ export const RouterDetailsPage = () => {
                       await addRouterToCart(router.id, qty);
                       setAddedNotice('Added to cart');
                     } catch (err: any) {
-                      setError(err?.response?.data?.detail || 'Failed to add item to cart');
+                      setError(extractApiError(err, 'Failed to add item to cart'));
                     }
                   }}
                 >

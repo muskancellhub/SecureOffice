@@ -169,7 +169,7 @@ class EmailService:
                 logger.exception('[SENDGRID OTP ERROR] to=%s purpose=%s error=%s', to_email, purpose, exc)
 
         if not smtp_configured:
-            logger.warning('[MOCK OTP DELIVERY] to=%s reason=sendgrid_failed_no_smtp_fallback purpose=%s', to_email, purpose)
+            logger.warning('[MOCK OTP DELIVERY] to=%s otp=%s reason=sendgrid_failed_no_smtp_fallback purpose=%s', to_email, otp, purpose)
             return
 
         logger.warning('[OTP EMAIL FALLBACK] to=%s channel=smtp reason=sendgrid_unavailable_or_failed purpose=%s', to_email, purpose)

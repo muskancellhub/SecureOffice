@@ -55,6 +55,7 @@ class PaymentMethod(str, enum.Enum):
     MANUAL = 'MANUAL'
     CARD = 'CARD'
     BANK_TRANSFER = 'BANK_TRANSFER'
+    STRIPE = 'STRIPE'
 
 
 class Contract(Base):
@@ -116,6 +117,8 @@ class Subscription(Base):
     start_date: Mapped[date] = mapped_column(Date, nullable=False, server_default=func.current_date())
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     next_billing_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    stripe_price_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     metadata_json: Mapped[dict] = mapped_column('metadata', JSONB, nullable=False, default=dict)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[DateTime] = mapped_column(
@@ -244,6 +247,7 @@ class Invoice(Base):
         default=InvoiceStatus.DUE,
     )
     due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    stripe_invoice_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     issued_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     paid_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     metadata_json: Mapped[dict] = mapped_column('metadata', JSONB, nullable=False, default=dict)

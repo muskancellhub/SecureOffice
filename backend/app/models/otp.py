@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -16,5 +16,8 @@ class OTP(Base):
     # reaches 0, get_latest_active_for_user stops returning it and the user must
     # request a new OTP — blocks brute-force on the 6-digit code space.
     attempts_remaining: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    # Issuance time, used to enforce the per-email OTP request throttle over a
+    # rolling window (independent of expires_at, since expired rows are retained).
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     user = relationship('User', back_populates='otps')

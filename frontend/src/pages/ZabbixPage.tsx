@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import * as commerceApi from '../api/commerceApi';
+import { extractApiError } from '../utils/extractApiError';
 
 /* ===================================================================
    Grafana embed config
@@ -296,7 +297,7 @@ export const ZabbixPage = () => {
       // Refresh the dashboard with the new credentials
       await fetchAll();
     } catch (err: any) {
-      setCredsError(err?.response?.data?.detail || 'Failed to save credentials');
+      setCredsError(extractApiError(err, 'Failed to save credentials'));
     } finally {
       setCredsSaving(false);
     }

@@ -5,6 +5,7 @@ import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
 import { useShop } from '../context/ShopContext';
 import type { DesignXSuggestedLine } from '../types/commerce';
+import { extractApiError } from '../utils/extractApiError';
 
 const steps = [
   { id: 1, title: 'Requirement', subtitle: 'Capture intent', icon: ListTodo },
@@ -48,7 +49,7 @@ export const SolutionFlowPage = () => {
       if (newQty <= 0) await removeLine(lineId);
       else await updateLineQuantity(lineId, newQty);
     } catch (err: any) {
-      setActionError(err?.response?.data?.detail || 'Failed to update quantity');
+      setActionError(extractApiError(err, 'Failed to update quantity'));
     } finally {
       setProcessing(false);
     }
@@ -86,7 +87,7 @@ export const SolutionFlowPage = () => {
       setUnavailableCategories(response.unavailable_categories);
       setActiveStep(2);
     } catch (err: any) {
-      setActionError(err?.response?.data?.detail || 'Failed to fetch DesignX BOM');
+      setActionError(extractApiError(err, 'Failed to fetch DesignX BOM'));
     } finally {
       setLoadingSuggestions(false);
     }
@@ -105,7 +106,7 @@ export const SolutionFlowPage = () => {
       await refreshCart();
       setActionNotice('Added to cart');
     } catch (err: any) {
-      setActionError(err?.response?.data?.detail || `Failed to add ${line.name} to cart`);
+      setActionError(extractApiError(err, `Failed to add ${line.name} to cart`));
     } finally {
       setProcessing(false);
     }
@@ -127,7 +128,7 @@ export const SolutionFlowPage = () => {
       setActionNotice('Added to cart');
       setActiveStep(3);
     } catch (err: any) {
-      setActionError(err?.response?.data?.detail || 'Failed to add suggestions to cart');
+      setActionError(extractApiError(err, 'Failed to add suggestions to cart'));
     } finally {
       setProcessing(false);
     }
@@ -147,7 +148,7 @@ export const SolutionFlowPage = () => {
       const quote = await commerceApi.generateQuote(accessToken);
       navigate(`/shop/quotes/${quote.id}`);
     } catch (err: any) {
-      setActionError(err?.response?.data?.detail || 'Failed to create proposal from cart');
+      setActionError(extractApiError(err, 'Failed to create proposal from cart'));
     } finally {
       setProcessing(false);
     }

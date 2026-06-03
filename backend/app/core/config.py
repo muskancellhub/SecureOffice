@@ -37,6 +37,17 @@ class Settings(BaseSettings):
 
     otp_expire_minutes: int = 5
 
+    # Per-email OTP request throttle: caps how many OTPs can be issued to a single
+    # account within a rolling window. The IP-based RateLimitMiddleware stops a
+    # single noisy IP, but a distributed attacker (botnet / rotating IPs) can still
+    # email-bomb one victim and burn our email quota — this closes that gap.
+    otp_request_max_per_window: int = 3
+    otp_request_window_minutes: int = 10
+    # Minimum gap between successive OTP sends to one account. Stops the
+    # "5 wrong attempts -> instant resend -> 5 more" loop at machine speed and
+    # cuts email cost, without punishing a legit user who simply mistyped.
+    otp_resend_cooldown_seconds: int = 60
+
     smtp_host: str = ''
     smtp_port: int = 587
     smtp_username: str = ''
@@ -80,6 +91,12 @@ class Settings(BaseSettings):
     zabbix_url: str = Field(default='', alias='ZABBIX_URL')
     zabbix_username: str = Field(default='', alias='ZABBIX_USERNAME')
     zabbix_password: str = Field(default='', alias='ZABBIX_PASSWORD')
+
+    stripe_secret_key: str = Field(default='', alias='STRIPE_SECRET_KEY')
+    stripe_publishable_key: str = Field(default='', alias='STRIPE_PUBLISHABLE_KEY')
+    stripe_webhook_secret: str = Field(default='', alias='STRIPE_WEBHOOK_SECRET')
+    stripe_success_url: str = Field(default='', alias='STRIPE_SUCCESS_URL')
+    stripe_cancel_url: str = Field(default='', alias='STRIPE_CANCEL_URL')
 
 
 @lru_cache

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, Shield, ToggleLeft, ToggleRight } from 'lucide-react';
 import * as commerceApi from '../api/commerceApi';
 import type { ManagedServicesDesignSummary, ManagedServiceCategorySummary } from '../types/commerce';
+import { extractApiError } from '../utils/extractApiError';
 
 interface Props {
   designId: string;
@@ -22,7 +23,7 @@ export const ManagedServicesPanel = ({ designId, accessToken, readOnly }: Props)
       const data = await commerceApi.getDesignManagedServices(accessToken, designId);
       setMsData(data);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to load managed services');
+      setError(extractApiError(err, 'Failed to load managed services'));
     } finally {
       setLoading(false);
     }
@@ -49,7 +50,7 @@ export const ManagedServicesPanel = ({ designId, accessToken, readOnly }: Props)
       });
       setMsData(result);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to update');
+      setError(extractApiError(err, 'Failed to update'));
     } finally {
       setSaving(false);
     }
@@ -74,7 +75,7 @@ export const ManagedServicesPanel = ({ designId, accessToken, readOnly }: Props)
       });
       setMsData(result);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to update');
+      setError(extractApiError(err, 'Failed to update'));
     } finally {
       setSaving(false);
     }

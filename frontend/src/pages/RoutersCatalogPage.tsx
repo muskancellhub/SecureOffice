@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useShop } from '../context/ShopContext';
 import type { CatalogItem } from '../types/commerce';
 import { getRouterImage } from '../utils/productImages';
+import { extractApiError } from '../utils/extractApiError';
 
 const sortOptions = [
   { value: 'recommended', label: 'Recommended' },
@@ -60,7 +61,7 @@ export const RoutersCatalogPage = () => {
         await updateLineQuantity(lineId, newQty);
       }
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to update quantity');
+      setError(extractApiError(err, 'Failed to update quantity'));
     } finally {
       setBusyItemId(null);
     }
@@ -85,7 +86,7 @@ export const RoutersCatalogPage = () => {
       });
       setItems(filtered);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to load catalog');
+      setError(extractApiError(err, 'Failed to load catalog'));
     } finally {
       setLoading(false);
     }
@@ -280,7 +281,7 @@ export const RoutersCatalogPage = () => {
                               await addRouterToCart(item.id, 1);
                               setAddedNotice('Added to cart');
                             } catch (err: any) {
-                              setError(err?.response?.data?.detail || 'Failed to add item to cart');
+                              setError(extractApiError(err, 'Failed to add item to cart'));
                             }
                           }}
                         >

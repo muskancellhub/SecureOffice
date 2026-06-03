@@ -51,9 +51,46 @@ select {
 .auth-page {
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 16px;
+}
+
+.auth-topbar {
+  width: min(1080px, 100%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 14px;
+}
+
+.auth-topbar-brand {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1a2841;
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+
+.auth-topbar-brand:hover {
+  opacity: 0.75;
+}
+
+.auth-topbar-home {
+  font-size: 14px;
+  font-weight: 500;
+  color: #2d3d55;
+  text-decoration: none;
+  padding: 6px 16px;
+  border: 1px solid #d2dae7;
+  border-radius: 8px;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.auth-topbar-home:hover {
+  background: #f0f3f8;
+  color: #1a2841;
 }
 
 .drawio-viewer-wrap {
@@ -165,11 +202,13 @@ select {
   align-items: center;
   gap: 10px;
   font-size: 30px;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
 }
 
 .logo-mark {
   font-size: 20px;
-  transform: rotate(180deg);
 }
 
 .logo-text {

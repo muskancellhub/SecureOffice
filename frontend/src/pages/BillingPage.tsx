@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as commerceApi from '../api/commerceApi';
+import { startSubscriptionCheckout } from '../api/billingApi';
 import { useAuth } from '../context/AuthContext';
 import type { BillingOverview, InvoiceRecord } from '../types/commerce';
+import { extractApiError } from '../utils/extractApiError';
 
 export const BillingPage = () => {
   const { accessToken, user } = useAuth();
@@ -11,6 +13,7 @@ export const BillingPage = () => {
   const [loading, setLoading] = useState(false);
   const [runningInvoicing, setRunningInvoicing] = useState(false);
   const [payingInvoiceId, setPayingInvoiceId] = useState<string | null>(null);
+  const [subscribing, setSubscribing] = useState(false);
   const [error, setError] = useState('');
 
   const load = async () => {
@@ -25,7 +28,7 @@ export const BillingPage = () => {
       setOverview(overviewData);
       setInvoices(invoiceRows);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to load billing data');
+      setError(extractApiError(err, 'Failed to load billing data'));
     } finally {
       setLoading(false);
     }
@@ -45,9 +48,26 @@ export const BillingPage = () => {
       await commerceApi.runInvoicing(accessToken);
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to run invoicing');
+      setError(extractApiError(err, 'Failed to run invoicing'));
     } finally {
       setRunningInvoicing(false);
+    }
+  };
+
+  const onSubscribe = async () => {
+    const priceId = import.meta.env.VITE_STRIPE_DEFAULT_PRICE_ID;
+    if (!priceId) {
+      setError('Stripe Price ID not configured');
+      return;
+    }
+    setSubscribing(true);
+    setError('');
+    try {
+      const { data } = await startSubscriptionCheckout(priceId);
+      window.location.assign(data.url);
+    } catch (err: any) {
+      setError(extractApiError(err, 'Failed to start checkout'));
+      setSubscribing(false);
     }
   };
 
@@ -59,7 +79,7 @@ export const BillingPage = () => {
       await commerceApi.recordInvoicePayment(accessToken, invoice.id, { amount: invoice.amount, method: 'MANUAL' });
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to record payment');
+      setError(extractApiError(err, 'Failed to record payment'));
     } finally {
       setPayingInvoiceId(null);
     }
@@ -72,11 +92,16 @@ export const BillingPage = () => {
           <h1>Billing</h1>
           <p className="lead">Last 12 months actuals, next 12 months projection, invoices, and payments.</p>
         </div>
-        {isAdmin && (
-          <button className="primary-btn" onClick={onRunInvoicing} disabled={runningInvoicing}>
-            {runningInvoicing ? 'Running...' : 'Run Invoicing'}
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button className="primary-btn" onClick={onSubscribe} disabled={subscribing}>
+            {subscribing ? 'Redirecting...' : 'Subscribe'}
           </button>
-        )}
+          {isAdmin && (
+            <button className="secondary-btn" onClick={onRunInvoicing} disabled={runningInvoicing}>
+              {runningInvoicing ? 'Running...' : 'Run Invoicing'}
+            </button>
+          )}
+        </div>
       </div>
 
       {loading && <div className="mini-note">Loading billing data...</div>}

@@ -3,6 +3,7 @@ import * as usersApi from '../api/usersApi';
 import { useAuth } from '../context/AuthContext';
 import type { UserRole } from '../types/auth';
 import type { PermissionCatalogItem, UserSummary } from '../types/users';
+import { extractApiError, isValidEmail } from '../utils/extractApiError';
 
 const USER_SCOPE = ['view_catalog', 'manage_cart', 'generate_quotes', 'view_quotes', 'view_orders', 'view_lifecycle', 'view_billing'];
 const ADMIN_SCOPE = [
@@ -82,7 +83,7 @@ export const AdminUserManagementPage = () => {
       setUsers(fetchedUsers);
       setCatalog(fetchedCatalog);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to load users');
+      setError(extractApiError(err, 'Failed to load users'));
     } finally {
       setLoading(false);
     }
@@ -94,6 +95,7 @@ export const AdminUserManagementPage = () => {
 
   const onCreateUser = async () => {
     if (!accessToken || !canManageUsers) return;
+    if (!isValidEmail(email)) { setError('Please enter a valid email address'); return; }
     setCreating(true);
     setError('');
     try {
@@ -112,7 +114,7 @@ export const AdminUserManagementPage = () => {
       setTenantId('');
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to create user');
+      setError(extractApiError(err, 'Failed to create user'));
     } finally {
       setCreating(false);
     }
@@ -136,7 +138,7 @@ export const AdminUserManagementPage = () => {
       const updated = await usersApi.updateUserRole(accessToken, target.id, nextRole);
       setUsers((prev) => prev.map((u) => (u.id === target.id ? updated : u)));
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to update role');
+      setError(extractApiError(err, 'Failed to update role'));
     } finally {
       setRoleSavingUserId(null);
     }
@@ -160,7 +162,7 @@ export const AdminUserManagementPage = () => {
       setUsers((prev) => prev.map((u) => (u.id === target.id ? updated : u)));
       setPermissionEditorUserId(null);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to update permissions');
+      setError(extractApiError(err, 'Failed to update permissions'));
     } finally {
       setPermissionSavingUserId(null);
     }

@@ -18,6 +18,7 @@ import {
 import * as commerceApi from '../api/commerceApi';
 import { DrawioDiagramViewer } from '../components/DrawioDiagramViewer';
 import { useAuth } from '../context/AuthContext';
+import { extractApiError } from '../utils/extractApiError';
 import type {
   DesignInstallAssistance,
   DesignStatus,
@@ -203,7 +204,7 @@ export const DesignDetailPage = () => {
         installNotes: data.installAssistance?.installNotes || '',
       });
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to load design details');
+      setError(extractApiError(err, 'Failed to load design details'));
     } finally {
       setLoading(false);
     }
@@ -323,7 +324,7 @@ export const DesignDetailPage = () => {
       // Reconcile server truth for the grand total
       setMsData(result);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to update managed service');
+      setError(extractApiError(err, 'Failed to update managed service'));
       // Revert on error
       loadManagedServices();
     }
@@ -356,7 +357,7 @@ export const DesignDetailPage = () => {
       await commerceApi.deleteNetworkDesign(accessToken, design.id);
       navigate('/shop/designs');
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to delete design');
+      setError(extractApiError(err, 'Failed to delete design'));
       setDeleting(false);
     }
   };
@@ -390,7 +391,7 @@ export const DesignDetailPage = () => {
       setDesign(updated);
       setNotice('Design submitted successfully.');
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to submit design');
+      setError(extractApiError(err, 'Failed to submit design'));
     } finally {
       setSubmitting(false);
     }
@@ -409,7 +410,7 @@ export const DesignDetailPage = () => {
       setDesign(updated);
       setNotice('Installation preference saved.');
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to save installation preference');
+      setError(extractApiError(err, 'Failed to save installation preference'));
     } finally {
       setSavingInstall(false);
     }

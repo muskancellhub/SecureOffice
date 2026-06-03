@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
 import type { OnboardingProfile, ValidationStatus } from '../types/commerce';
+import { extractApiError, isValidEmail } from '../utils/extractApiError';
 
 const validationOptions: ValidationStatus[] = ['PENDING', 'VERIFIED', 'FAILED'];
 
@@ -52,7 +53,7 @@ export const OnboardingPage = () => {
       setPaymentMethodType((data.payment_method_type as any) || 'CARD');
       setPaymentLast4(data.payment_method_last4 || '');
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to load onboarding profile');
+      setError(extractApiError(err, 'Failed to load onboarding profile'));
     } finally {
       setLoading(false);
     }
@@ -71,6 +72,7 @@ export const OnboardingPage = () => {
   const onSave = async (e: FormEvent) => {
     e.preventDefault();
     if (!accessToken) return;
+    if (adminEmail && !isValidEmail(adminEmail)) { setError('Please enter a valid admin email address'); return; }
     setSaving(true);
     setError('');
     setNotice('');
@@ -94,7 +96,7 @@ export const OnboardingPage = () => {
         navigate('/shop/dashboard', { replace: true });
       }
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to save onboarding');
+      setError(extractApiError(err, 'Failed to save onboarding'));
     } finally {
       setSaving(false);
     }
@@ -115,7 +117,7 @@ export const OnboardingPage = () => {
       setPaymentMethodSetup(true);
       setNotice('Payment method validated. Checkout can proceed.');
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Payment validation failed');
+      setError(extractApiError(err, 'Payment validation failed'));
     } finally {
       setValidatingPayment(false);
     }

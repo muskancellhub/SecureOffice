@@ -3,6 +3,7 @@ import { Search, Save } from 'lucide-react';
 import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
 import type { CatalogItem } from '../types/commerce';
+import { extractApiError } from '../utils/extractApiError';
 
 const GROUP_TABS = [
   { key: 'all', label: 'All Devices' },
@@ -35,7 +36,7 @@ export const AdminManagedServicesPage = () => {
       });
       setDevices(data);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to load devices');
+      setError(extractApiError(err, 'Failed to load devices'));
     } finally {
       setLoading(false);
     }
@@ -98,7 +99,7 @@ export const AdminManagedServicesPage = () => {
       setEditedPrices({});
       await load();
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to save prices');
+      setError(extractApiError(err, 'Failed to save prices'));
     } finally {
       setSaving(false);
     }

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
 import type { OnboardingProfile, QuoteDetail, QuoteLine } from '../types/commerce';
+import { extractApiError } from '../utils/extractApiError';
 
 const lineName = (line: QuoteLine) => line.name || line.name_snapshot || 'Line item';
 const lineUnit = (line: QuoteLine) => line.final_unit_price_snapshot ?? line.unit_price;
@@ -36,7 +37,7 @@ export const QuoteDetailsPage = () => {
         setOnboarding(null);
       }
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to load quote');
+      setError(extractApiError(err, 'Failed to load quote'));
     }
   };
 
@@ -96,7 +97,7 @@ export const QuoteDetailsPage = () => {
       setQuote(updated);
       setNotice('Quote marked as SENT.');
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to send quote');
+      setError(extractApiError(err, 'Failed to send quote'));
     } finally {
       setSending(false);
     }
@@ -111,7 +112,7 @@ export const QuoteDetailsPage = () => {
       setQuote(updated);
       setNotice('Quote accepted and ready for conversion.');
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to accept quote');
+      setError(extractApiError(err, 'Failed to accept quote'));
     } finally {
       setAccepting(false);
     }
@@ -126,7 +127,7 @@ export const QuoteDetailsPage = () => {
       setNotice('Quote converted to order.');
       navigate(`/shop/orders/${order.id}`);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to convert quote');
+      setError(extractApiError(err, 'Failed to convert quote'));
     } finally {
       setSubmitting(false);
     }
@@ -284,7 +285,7 @@ export const QuoteDetailsPage = () => {
                   setOnboarding(updated);
                   setNotice('Payment method validated.');
                 } catch (err: any) {
-                  setError(err?.response?.data?.detail || 'Failed to validate payment method');
+                  setError(extractApiError(err, 'Failed to validate payment method'));
                 }
               }}
             >

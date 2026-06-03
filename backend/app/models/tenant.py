@@ -20,6 +20,7 @@ class Tenant(Base):
     tenant_type: Mapped[TenantType] = mapped_column(
         Enum(TenantType, name='tenant_type'), nullable=False, default=TenantType.CELLHUB,
     )
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     users = relationship('User', back_populates='tenant')

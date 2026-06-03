@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
 import type { CatalogSyncResponse, IntegrationSyncLog } from '../types/commerce';
+import { extractApiError } from '../utils/extractApiError';
 
 const SyncResultCard = ({ title, result }: { title: string; result: CatalogSyncResponse }) => (
   <div className="card">
@@ -70,7 +71,7 @@ export const AdminCatalogSyncPage = () => {
       setCdwResult(await commerceApi.syncCdwRouters(accessToken, query, limit));
       await loadCdwLast();
     } catch (err: any) {
-      setCdwError(err?.response?.data?.detail || 'CDW sync failed');
+      setCdwError(extractApiError(err, 'CDW sync failed'));
     } finally {
       setCdwLoading(false);
     }
@@ -84,7 +85,7 @@ export const AdminCatalogSyncPage = () => {
       setPapiResult(await commerceApi.syncPapiDevices(accessToken, { page_size: papiPageSize, max_pages: papiMaxPages }));
       await loadPapiLast();
     } catch (err: any) {
-      setPapiError(err?.response?.data?.detail || 'T-Mobile Device Catalog sync failed');
+      setPapiError(extractApiError(err, 'T-Mobile Device Catalog sync failed'));
     } finally {
       setPapiLoading(false);
     }

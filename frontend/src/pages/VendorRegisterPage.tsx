@@ -1,8 +1,10 @@
 import { FormEvent, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AuthShell } from '../components/AuthShell';
 import * as authApi from '../api/authApi';
 import type { VendorSignupPayload } from '../types/auth';
+import { extractApiError, isValidEmail } from '../utils/extractApiError';
+import { PhoneInput } from '../components/PhoneInput';
 
 const US_STATES = [
   'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA',
@@ -15,6 +17,8 @@ const PUBLIC_DOMAINS = ['gmail.com','yahoo.com','hotmail.com','outlook.com','aol
 
 export const VendorRegisterPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const nextParam = new URLSearchParams(location.search).get('next') || '';
   const [step, setStep] = useState(1);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -50,8 +54,12 @@ export const VendorRegisterPage = () => {
       setError('Company website is required.');
       return false;
     }
+    if (!form.company_email || !isValidEmail(form.company_email)) {
+      setError('Please enter a valid company email address.');
+      return false;
+    }
     const emailDomain = form.company_email.split('@')[1]?.toLowerCase();
-    if (!form.company_email || PUBLIC_DOMAINS.includes(emailDomain)) {
+    if (PUBLIC_DOMAINS.includes(emailDomain)) {
       setError('A corporate email is required (no public domains like gmail.com).');
       return false;
     }
@@ -83,6 +91,10 @@ export const VendorRegisterPage = () => {
       setError('Please fill in all required fields.');
       return false;
     }
+    if (!isValidEmail(form.contact_email)) {
+      setError('Please enter a valid email address.');
+      return false;
+    }
     if (form.password.length < 6) {
       setError('Password must be at least 6 characters.');
       return false;
@@ -106,7 +118,7 @@ export const VendorRegisterPage = () => {
       await authApi.vendorSignup(form);
       setSuccess(true);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Registration failed. Please try again.');
+      setError(extractApiError(err, 'Registration failed. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -117,7 +129,7 @@ export const VendorRegisterPage = () => {
       <AuthShell title="Application Submitted" subtitle="Your vendor application is under review" showTabs={false}>
         <div className="vendor-success-msg">
           <p>Your vendor account has been created. You can now log in to the vendor portal.</p>
-          <button className="primary-btn" onClick={() => navigate('/vendor/login')} style={{ marginTop: 16 }}>
+          <button className="primary-btn" onClick={() => navigate(nextParam ? `/vendor/login?next=${encodeURIComponent(nextParam)}` : '/vendor/login')} style={{ marginTop: 16 }}>
             Go to Vendor Login
           </button>
         </div>
@@ -178,7 +190,7 @@ export const VendorRegisterPage = () => {
             <h3 className="vendor-step-title">Your Login Credentials</h3>
             <input type="text" placeholder="Full Name *" value={form.contact_name} onChange={(e) => set('contact_name', e.target.value)} required />
             <input type="email" placeholder="Login Email *" value={form.contact_email} onChange={(e) => set('contact_email', e.target.value)} required />
-            <input type="tel" placeholder="Phone (optional)" value={form.contact_phone || ''} onChange={(e) => set('contact_phone', e.target.value)} />
+            <PhoneInput value={form.contact_phone || ''} onChange={(v) => set('contact_phone', v)} />
             <input type="password" placeholder="Password (min 6 chars) *" value={form.password} onChange={(e) => set('password', e.target.value)} required minLength={6} />
           </>
         )}
@@ -204,7 +216,7 @@ export const VendorRegisterPage = () => {
       </form>
 
       <div className="alt-link">
-        Already a vendor? <Link to="/vendor/login">Sign in</Link>
+        Already a vendor? <Link to={nextParam ? `/vendor/login?next=${encodeURIComponent(nextParam)}` : '/vendor/login'}>Sign in</Link>
       </div>
     </AuthShell>
   );

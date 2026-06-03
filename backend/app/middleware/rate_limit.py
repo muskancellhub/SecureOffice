@@ -1,3 +1,4 @@
+import math
 import time
 from collections import defaultdict, deque
 from fastapi import Request
@@ -92,9 +93,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         if len(q) >= max_requests:
             retry_after = max(1, int(window - (now - q[0])))
+            retry_minutes = max(1, math.ceil(retry_after / 60))
             return JSONResponse(
                 status_code=429,
-                content={'detail': 'Rate limit exceeded'},
+                content={'detail': f'Too many requests. Please try again after {retry_minutes} minute(s).'},
                 headers={'Retry-After': str(retry_after)},
             )
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
 import type { DesignInstallAssistance, DesignMilestones, DesignStatus, DesignUpdateVisibility, NetworkDesignDetail, NetworkDesignSummary } from '../types/commerce';
+import { extractApiError } from '../utils/extractApiError';
 
 const NEXT_STATUS_OPTIONS: Record<DesignStatus, DesignStatus[]> = {
   draft: ['reviewed', 'submitted'],
@@ -77,7 +78,7 @@ export const AdminDesignSubmissionsPage = () => {
         setActiveDesignId(data[0].id);
       }
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to load submitted designs');
+      setError(extractApiError(err, 'Failed to load submitted designs'));
     } finally {
       setLoading(false);
     }
@@ -102,7 +103,7 @@ export const AdminDesignSubmissionsPage = () => {
         installNotes: detail.installAssistance?.installNotes || '',
       });
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to load design detail');
+      setError(extractApiError(err, 'Failed to load design detail'));
     }
   };
 
@@ -133,7 +134,7 @@ export const AdminDesignSubmissionsPage = () => {
       if (activeDesignId === designId) setActiveDesign(updated);
       setNotice(`Status updated to ${formatStatus(status)}.`);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to update design status');
+      setError(extractApiError(err, 'Failed to update design status'));
     }
   };
 
@@ -150,7 +151,7 @@ export const AdminDesignSubmissionsPage = () => {
       setNoteMessage('');
       setNotice('Update note posted.');
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to add update');
+      setError(extractApiError(err, 'Failed to add update'));
     }
   };
 
@@ -163,7 +164,7 @@ export const AdminDesignSubmissionsPage = () => {
       setRows((prev) => prev.map((row) => (row.id === activeDesignId ? updated : row)));
       setNotice('Milestones updated.');
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to update milestones');
+      setError(extractApiError(err, 'Failed to update milestones'));
     }
   };
 
@@ -176,7 +177,7 @@ export const AdminDesignSubmissionsPage = () => {
       setRows((prev) => prev.map((row) => (row.id === activeDesignId ? updated : row)));
       setNotice('Installation preferences updated.');
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to update installation preferences');
+      setError(extractApiError(err, 'Failed to update installation preferences'));
     }
   };
 

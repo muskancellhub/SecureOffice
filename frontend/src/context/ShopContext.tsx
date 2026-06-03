@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import * as commerceApi from '../api/commerceApi';
 import type { Cart, CatalogItem } from '../types/commerce';
 import { useAuth } from './AuthContext';
+import { extractApiError } from '../utils/extractApiError';
 
 interface ShopContextValue {
   cart: Cart | null;
@@ -35,7 +36,7 @@ export const ShopProvider = ({ children }: { children: React.ReactNode }) => {
       const data = await commerceApi.getCart(accessToken);
       setCart(data);
     } catch (err: any) {
-      setCartError(err?.response?.data?.detail || 'Failed to load cart');
+      setCartError(extractApiError(err, 'Failed to load cart'));
     } finally {
       setLoadingCart(false);
     }

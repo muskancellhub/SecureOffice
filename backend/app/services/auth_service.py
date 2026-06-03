@@ -1,3 +1,4 @@
+import math
 import uuid
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
@@ -29,6 +30,14 @@ class AuthService:
 
     def _resolve_tenant_id(self, requested_tenant_id: str | None) -> uuid.UUID:
         if requested_tenant_id:
+            # Validate the UUID shape before hitting the repo. tenant_repo.get_by_id
+            # calls uuid.UUID() internally, which raises ValueError on malformed
+            # input (e.g. "not-a-uuid") — uncaught, that surfaces as a 500. Convert
+            # it to a clear 400 so API consumers get an actionable message.
+            try:
+                uuid.UUID(str(requested_tenant_id))
+            except (ValueError, AttributeError, TypeError):
+                raise AppError('Invalid tenant_id format', 400)
             tenant = self.tenant_repo.get_by_id(requested_tenant_id)
             if not tenant:
                 raise NotFoundError('Tenant not found')
@@ -166,6 +175,20 @@ class AuthService:
         self.db.commit()
         return user
 
+    def _verify_otp_attempt(self, latest_otp, otp: str) -> None:
+        """Check a submitted OTP against the active code, enforcing the per-OTP
+        attempt limit. On a wrong code it decrements `attempts_remaining`; once
+        exhausted the OTP is locked and a 429 is raised so the client can prompt
+        the user to request a new code. Returns silently when the code matches.
+        """
+        if OTPService.verify_otp(otp, latest_otp.code_hash):
+            return
+        remaining = self.otp_repo.decrement_attempts(latest_otp)
+        self.db.commit()
+        if remaining <= 0:
+            raise AppError('Too many invalid attempts. Please request a new code.', 429)
+        raise AppError(f'Invalid OTP. {remaining} attempt(s) remaining.', 400)
+
     def verify_otp(self, *, email: str, otp: str):
         user = self.user_repo.get_by_email(email)
         if not user:
@@ -175,12 +198,7 @@ class AuthService:
         if not latest_otp:
             raise AppError('OTP expired or not found', 400)
 
-        if not OTPService.verify_otp(otp, latest_otp.code_hash):
-            remaining = self.otp_repo.decrement_attempts(latest_otp)
-            self.db.commit()
-            if remaining <= 0:
-                raise AppError('Too many invalid attempts. Request a new code.', 400)
-            raise AppError(f'Invalid OTP. {remaining} attempt(s) remaining.', 400)
+        self._verify_otp_attempt(latest_otp, otp)
 
         user.is_verified = True
         self.otp_repo.mark_used(latest_otp)
@@ -209,9 +227,46 @@ class AuthService:
         if not user.is_verified:
             raise UnauthorizedError('Please verify OTP first')
 
+        self._enforce_otp_request_throttle(user)
         self._ensure_bootstrap_super_admin(user)
         self._issue_otp_for_user(user=user, purpose='login')
         self.db.commit()
+
+    def _enforce_otp_request_throttle(self, user) -> None:
+        """Block per-account OTP request floods (email bombing / quota drain).
+
+        The IP-based RateLimitMiddleware stops a single noisy source; this caps
+        OTPs issued to one account regardless of source IP, so a distributed
+        attacker can't spam a victim's inbox or burn our email quota.
+        """
+        now = datetime.now(timezone.utc)
+
+        # Short resend cooldown: a minimum gap between successive sends. This is
+        # the UX/cost guard (and blocks rapid "wrong x5 -> resend" loops); the
+        # window cap below is the brute-force ceiling.
+        cooldown = settings.otp_resend_cooldown_seconds
+        if cooldown > 0:
+            last = self.otp_repo.latest_created_at(user.id)
+            if last is not None:
+                elapsed = (now - last).total_seconds()
+                if elapsed < cooldown:
+                    wait = max(1, math.ceil(cooldown - elapsed))
+                    raise AppError(f'Please wait {wait} second(s) before requesting another code.', 429)
+
+        window = timedelta(minutes=settings.otp_request_window_minutes)
+        window_start = now - window
+        recent = self.otp_repo.count_since(user.id, window_start)
+        if recent >= settings.otp_request_max_per_window:
+            # Earliest OTP in the window frees up a slot once it ages out.
+            earliest = self.otp_repo.earliest_created_since(user.id, window_start)
+            retry_minutes = settings.otp_request_window_minutes
+            if earliest is not None:
+                remaining = (earliest + window) - now
+                retry_minutes = max(1, math.ceil(remaining.total_seconds() / 60))
+            raise AppError(
+                f'Too many OTP requests. Please try again after {retry_minutes} minute(s).',
+                429,
+            )
 
     def login_with_otp(self, *, email: str, otp: str):
         user = self.user_repo.get_by_email(email)
@@ -223,12 +278,8 @@ class AuthService:
         latest_otp = self.otp_repo.get_latest_active_for_user(user.id)
         if not latest_otp:
             raise AppError('OTP expired or not found', 400)
-        if not OTPService.verify_otp(otp, latest_otp.code_hash):
-            remaining = self.otp_repo.decrement_attempts(latest_otp)
-            self.db.commit()
-            if remaining <= 0:
-                raise AppError('Too many invalid attempts. Request a new code.', 400)
-            raise AppError(f'Invalid OTP. {remaining} attempt(s) remaining.', 400)
+
+        self._verify_otp_attempt(latest_otp, otp)
 
         self.otp_repo.mark_used(latest_otp)
         self._ensure_bootstrap_super_admin(user)

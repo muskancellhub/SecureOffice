@@ -5,6 +5,7 @@ import * as commerceApi from '../api/commerceApi';
 import { DrawioDiagramViewer } from '../components/DrawioDiagramViewer';
 import { useAuth } from '../context/AuthContext';
 import { useShop } from '../context/ShopContext';
+import { extractApiError } from '../utils/extractApiError';
 import type {
   ManagedServiceDeviceEntry,
   ManagedServicesDesignSummary,
@@ -267,7 +268,7 @@ export const NetworkDesignBuilderPage = () => {
       });
       setMsData(result);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to update managed service');
+      setError(extractApiError(err, 'Failed to update managed service'));
       loadManagedServices(savedDesign.id);
     }
   };
@@ -287,7 +288,7 @@ export const NetworkDesignBuilderPage = () => {
       if (newQty <= 0) await removeLine(lineId);
       else await updateLineQuantity(lineId, newQty);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to update quantity');
+      setError(extractApiError(err, 'Failed to update quantity'));
     } finally {
       setBusyLineId(null);
     }
@@ -334,7 +335,7 @@ export const NetworkDesignBuilderPage = () => {
       setTopologyArtifact(topologyResult);
       return { bomResult, topologyResult };
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to generate BOM/topology');
+      setError(extractApiError(err, 'Failed to generate BOM/topology'));
       return null;
     } finally {
       setLoading(false);
@@ -412,7 +413,7 @@ export const NetworkDesignBuilderPage = () => {
       loadManagedServices(saved.id);
       setNotice('Design saved to history.');
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to save design');
+      setError(extractApiError(err, 'Failed to save design'));
     } finally {
       setSaving(false);
     }
@@ -430,7 +431,7 @@ export const NetworkDesignBuilderPage = () => {
       setNotice(`Added ${line.name} to cart.`);
       setTimeout(() => navigate('/shop/cart'), 600);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || `Failed to add ${line.name} to cart`);
+      setError(extractApiError(err, `Failed to add ${line.name} to cart`));
     } finally {
       setAddingLineId(null);
     }

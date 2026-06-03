@@ -1,6 +1,7 @@
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from app.models.user import UserRole
+from app.schemas.auth import validate_email, validate_phone
 
 
 class UserSummaryResponse(BaseModel):
@@ -22,9 +23,24 @@ class CreateUserRequest(BaseModel):
     email: EmailStr
     name: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=8, max_length=128)
-    mobile: str | None = Field(default=None, max_length=32)
+    mobile: str | None = Field(default=None)
     role: UserRole = UserRole.USER
     tenant_id: str | None = None
+
+    @field_validator('email')
+    @classmethod
+    def check_email(cls, v: str) -> str:
+        return validate_email(v)
+
+    @field_validator('name', mode='before')
+    @classmethod
+    def strip_name(cls, v: str) -> str:
+        return v.strip() if isinstance(v, str) else v
+
+    @field_validator('mobile')
+    @classmethod
+    def check_mobile(cls, v: str | None) -> str | None:
+        return validate_phone(v)
 
 
 class UpdateUserRoleRequest(BaseModel):

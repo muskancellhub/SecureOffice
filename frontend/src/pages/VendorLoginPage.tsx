@@ -1,11 +1,14 @@
 import { FormEvent, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AuthShell } from '../components/AuthShell';
 import { useAuth } from '../context/AuthContext';
+import { extractApiError, isValidEmail } from '../utils/extractApiError';
 
 export const VendorLoginPage = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const nextParam = new URLSearchParams(location.search).get('next') || '';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -13,13 +16,14 @@ export const VendorLoginPage = () => {
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!isValidEmail(email)) { setError('Please enter a valid email address'); return; }
     setError('');
     setLoading(true);
     try {
       await login({ email, password });
-      navigate('/shop/dashboard', { replace: true });
+      navigate(nextParam || '/shop/dashboard', { replace: true });
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Login failed. Check your credentials.');
+      setError(extractApiError(err, 'Login failed. Check your credentials.'));
     } finally {
       setLoading(false);
     }
@@ -49,10 +53,10 @@ export const VendorLoginPage = () => {
       </form>
 
       <div className="alt-link">
-        Not a vendor yet? <Link to="/vendor/register">Apply now</Link>
+        Not a vendor yet? <Link to={nextParam ? `/vendor/register?next=${encodeURIComponent(nextParam)}` : '/vendor/register'}>Apply now</Link>
       </div>
       <div className="alt-link">
-        <Link to="/login">Customer / Staff login</Link>
+        <Link to={nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : '/login'}>Customer / Staff login</Link>
       </div>
     </AuthShell>
   );

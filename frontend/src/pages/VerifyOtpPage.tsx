@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AuthShell } from '../components/AuthShell';
 import { useAuth } from '../context/AuthContext';
+import { extractApiError } from '../utils/extractApiError';
 
 export const VerifyOtpPage = () => {
   const { verifyOtp } = useAuth();
@@ -22,7 +23,7 @@ export const VerifyOtpPage = () => {
       localStorage.removeItem('secureOfficePostAuthRedirect');
       navigate(nextRoute || '/shop/onboarding', { replace: true });
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'OTP verification failed');
+      setError(extractApiError(err, 'OTP verification failed'));
     } finally {
       setLoading(false);
     }

@@ -198,7 +198,11 @@ async def http_error_handler(_: Request, exc: StarletteHTTPException):
 
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(_: Request, exc: RequestValidationError):
-    return JSONResponse(status_code=422, content={'detail': exc.errors()})
+    safe_errors = [
+        {k: v for k, v in e.items() if k != 'ctx'}
+        for e in exc.errors()
+    ]
+    return JSONResponse(status_code=422, content={'detail': safe_errors})
 
 
 @app.exception_handler(Exception)
@@ -238,6 +242,10 @@ app.include_router(orders_router)
 app.include_router(pricing_router)
 app.include_router(lifecycle_router)
 app.include_router(billing_router)
+
+from app.routes.stripe import router as stripe_router
+app.include_router(stripe_router)
+
 app.include_router(chatbot_router)
 
 from app.routes.anam import router as anam_router
