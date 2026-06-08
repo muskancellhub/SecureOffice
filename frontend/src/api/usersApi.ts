@@ -17,6 +17,20 @@ export const createUser = async (accessToken: string, payload: CreateUserPayload
   return data as UserSummary;
 };
 
+export interface InviteUserResult {
+  user: UserSummary;
+  email_sent: boolean;
+  email_error: string | null;
+}
+
+export const inviteUser = async (
+  accessToken: string,
+  payload: { email: string; name?: string; role?: UserRole; tenant_id?: string },
+) => {
+  const { data } = await api.post('/users/invite', payload, { headers: authHeaders(accessToken) });
+  return data as InviteUserResult;
+};
+
 export const updateUserRole = async (accessToken: string, userId: string, role: UserRole) => {
   const { data } = await api.patch(`/users/${userId}/role`, { role }, { headers: authHeaders(accessToken) });
   return data as UserSummary;

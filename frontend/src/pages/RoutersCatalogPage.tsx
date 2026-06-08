@@ -1,6 +1,7 @@
-import { ArrowUpDown, Heart, Minus, Plus, Search, ShoppingCart, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Laptop, LayoutGrid, Minus, Network, Plus, RadioTower, Router as RouterIcon, Search, Server, ShieldCheck, ShoppingCart, Smartphone, Trash2, Wifi } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
 import { useShop } from '../context/ShopContext';
@@ -8,305 +9,312 @@ import type { CatalogItem } from '../types/commerce';
 import { getRouterImage } from '../utils/productImages';
 import { extractApiError } from '../utils/extractApiError';
 
-const sortOptions = [
-  { value: 'recommended', label: 'Recommended' },
-  { value: 'price_low', label: 'Price low -> high' },
-  { value: 'price_high', label: 'Price high -> low' },
-  { value: 'availability', label: 'Availability' },
-] as const;
+const TABS: { key: string; label: string; cats: string[] | null; icon: LucideIcon }[] = [
+  { key: 'all', label: 'All devices', cats: null, icon: LayoutGrid },
+  { key: 'network', label: 'Routers & switches', cats: ['router', 'switch', 'wifi_ap', 'firewall', 'security_appliance'], icon: RouterIcon },
+  { key: 'compute', label: 'Tablets & laptops', cats: ['laptop', 'tablet'], icon: Laptop },
+  { key: 'phone', label: 'Phones', cats: ['phone'], icon: Smartphone },
+  { key: 'cellular', label: 'Hotspots & gateways', cats: ['hotspot', 'cellular_gateway'], icon: RadioTower },
+];
 
-const categoryOptions = [
-  { value: '', label: 'All Devices' },
-  { value: 'router', label: 'Routers (CDW)' },
-  { value: 'laptop', label: 'Tablets & Laptops (T-Mobile Device Catalog)' },
-  { value: 'phone', label: 'Phones (T-Mobile Device Catalog)' },
-  { value: 'hotspot', label: 'Hotspots (T-Mobile Device Catalog)' },
-] as const;
+const PRICE_RANGES: { value: string; label: string; min: number; max: number }[] = [
+  { value: '', label: 'Any price', min: 0, max: Infinity },
+  { value: '0-500', label: 'Under $500', min: 0, max: 500 },
+  { value: '500-2000', label: '$500 – $2,000', min: 500, max: 2000 },
+  { value: '2000-5000', label: '$2,000 – $5,000', min: 2000, max: 5000 },
+  { value: '5000-', label: '$5,000+', min: 5000, max: Infinity },
+];
+
+const SORTS = [
+  { value: 'recommended', label: 'Sort: Recommended' },
+  { value: 'price_low', label: 'Price: low to high' },
+  { value: 'price_high', label: 'Price: high to low' },
+  { value: 'availability', label: 'Availability' },
+];
+
+const CATEGORY_ICON: Record<string, { icon: LucideIcon; tone: string }> = {
+  router: { icon: RouterIcon, tone: 'blue' }, wifi_ap: { icon: Wifi, tone: 'blue' }, switch: { icon: Network, tone: 'blue' },
+  firewall: { icon: ShieldCheck, tone: 'blue' }, security_appliance: { icon: ShieldCheck, tone: 'blue' },
+  cellular_gateway: { icon: RadioTower, tone: 'amber' }, hotspot: { icon: RadioTower, tone: 'amber' },
+  laptop: { icon: Laptop, tone: 'violet' }, tablet: { icon: Laptop, tone: 'violet' }, phone: { icon: Smartphone, tone: 'violet' },
+};
+
+const availabilityInfo = (item: CatalogItem): { label: string; tone: string } => {
+  const a = (item.availability || 'in_stock').toLowerCase();
+  if (a.includes('back')) return { label: 'Backorder', tone: 'amber' };
+  if (a.includes('lead')) return { label: 'Lead time', tone: 'amber' };
+  return { label: 'In stock', tone: 'green' };
+};
+
+const brandOf = (item: CatalogItem): string => String(item.attributes?.brand || item.vendor || '').trim();
+const papiImageOf = (item: CatalogItem): string => String(item.attributes?.image_url || '').trim();
 
 export const RoutersCatalogPage = () => {
   const { accessToken } = useAuth();
+  const navigate = useNavigate();
   const { cart, addRouterToCart, updateLineQuantity, removeLine } = useShop();
   const [searchParams] = useSearchParams();
-  const initialCategory = (['router', 'laptop', 'phone', 'hotspot'].includes(searchParams.get('category') || '') ? searchParams.get('category') : '') as '' | 'router' | 'laptop' | 'phone' | 'hotspot';
-  const [items, setItems] = useState<CatalogItem[]>([]);
+  const initialTab = TABS.find((t) => t.cats?.includes(searchParams.get('category') || ''))?.key || 'all';
+
+  const [allItems, setAllItems] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [addedNotice, setAddedNotice] = useState('');
-  const [page, setPage] = useState(1);
-
-  const [category, setCategory] = useState<'' | 'router' | 'laptop' | 'phone' | 'hotspot'>(initialCategory);
+  const [tab, setTab] = useState(initialTab);
   const [search, setSearch] = useState('');
-  const [sort, setSort] = useState<'recommended' | 'price_low' | 'price_high' | 'availability'>('recommended');
   const [brand, setBrand] = useState('');
+  const [priceRange, setPriceRange] = useState('');
   const [availability, setAvailability] = useState('');
-  const [minPrice, setMinPrice] = useState('');
-  const [maxPrice, setMaxPrice] = useState('');
+  const [sort, setSort] = useState('recommended');
   const [busyItemId, setBusyItemId] = useState<string | null>(null);
+  const [failedImg, setFailedImg] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 16;
 
   const cartLineMap = useMemo(() => {
     const map = new Map<string, { lineId: string; quantity: number }>();
     if (!cart?.lines) return map;
-    for (const line of cart.lines) {
-      map.set(line.catalog_item_id, { lineId: line.id, quantity: line.quantity });
-    }
+    for (const line of cart.lines) map.set(line.catalog_item_id, { lineId: line.id, quantity: line.quantity });
     return map;
   }, [cart]);
 
-  const handleQtyChange = async (lineId: string, itemId: string, newQty: number) => {
-    try {
-      setBusyItemId(itemId);
-      if (newQty <= 0) {
-        await removeLine(lineId);
-      } else {
-        await updateLineQuantity(lineId, newQty);
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    // The backend caps page_size at 250, so page through the full catalog
+    // (PAPI + Excel + seeded SKUs) instead of truncating at one page.
+    (async () => {
+      try {
+        // The catalog service caps DEVICE listings at 25 items per page, so we
+        // page through the whole catalog (~400 SKUs across PAPI / Excel / CDW)
+        // until a page comes back empty instead of stopping after one request.
+        const all: CatalogItem[] = [];
+        const seen = new Set<string>();
+        for (let page = 1; page <= 100; page += 1) {
+          const batch = await commerceApi.getCatalog(accessToken, { type: 'DEVICE', sort: 'recommended', page, page_size: 250 });
+          if (batch.length === 0) break;
+          for (const it of batch) {
+            if (!seen.has(it.id)) { seen.add(it.id); all.push(it); }
+          }
+          if (batch.length < 25) break;
+        }
+        if (!cancelled) setAllItems(all);
+      } catch (err: any) {
+        if (!cancelled) setError(extractApiError(err, 'Failed to load catalog'));
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    } catch (err: any) {
-      setError(extractApiError(err, 'Failed to update quantity'));
+    })();
+    return () => { cancelled = true; };
+  }, [accessToken]);
+
+  const brands = useMemo(
+    () => Array.from(new Set(allItems.map(brandOf).filter(Boolean))).sort(),
+    [allItems],
+  );
+
+  const tabCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const t of TABS) {
+      counts[t.key] = t.cats === null
+        ? allItems.length
+        : allItems.filter((i) => t.cats!.includes((i.attributes?.category || '').toLowerCase())).length;
+    }
+    return counts;
+  }, [allItems]);
+
+  const filtered = useMemo(() => {
+    const activeTab = TABS.find((t) => t.key === tab) || TABS[0];
+    const q = search.trim().toLowerCase();
+    const range = PRICE_RANGES.find((r) => r.value === priceRange) || PRICE_RANGES[0];
+    let rows = allItems.filter((item) => {
+      const cat = (item.attributes?.category || '').toLowerCase();
+      if (activeTab.cats && !activeTab.cats.includes(cat)) return false;
+      if (q && ![item.name, item.sku, brandOf(item)].some((v) => (v || '').toLowerCase().includes(q))) return false;
+      if (brand && brandOf(item) !== brand) return false;
+      if (item.price < range.min || item.price > range.max) return false;
+      if (availability) {
+        const a = (item.availability || 'in_stock').toLowerCase();
+        const isBack = a.includes('back');
+        if (availability === 'in_stock' && isBack) return false;
+        if (availability === 'backorder' && !isBack) return false;
+      }
+      return true;
+    });
+    if (sort === 'price_low') rows = [...rows].sort((a, b) => a.price - b.price);
+    else if (sort === 'price_high') rows = [...rows].sort((a, b) => b.price - a.price);
+    else if (sort === 'availability') rows = [...rows].sort((a, b) => availabilityInfo(a).tone.localeCompare(availabilityInfo(b).tone));
+    return rows;
+  }, [allItems, tab, search, brand, priceRange, availability, sort]);
+
+  // Reset to first page whenever the result set changes.
+  useEffect(() => { setPage(1); }, [tab, search, brand, priceRange, availability, sort]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const pageNumbers = useMemo(() => {
+    const nums: (number | '…')[] = [];
+    const push = (n: number) => nums.push(n);
+    if (pageCount <= 7) {
+      for (let i = 1; i <= pageCount; i += 1) push(i);
+    } else {
+      push(1);
+      if (safePage > 3) nums.push('…');
+      for (let i = Math.max(2, safePage - 1); i <= Math.min(pageCount - 1, safePage + 1); i += 1) push(i);
+      if (safePage < pageCount - 2) nums.push('…');
+      push(pageCount);
+    }
+    return nums;
+  }, [pageCount, safePage]);
+
+  const handleQtyChange = async (lineId: string, itemId: string, newQty: number) => {
+    setBusyItemId(itemId);
+    try {
+      if (newQty <= 0) await removeLine(lineId);
+      else await updateLineQuantity(lineId, newQty);
     } finally {
       setBusyItemId(null);
     }
   };
 
-  const loadItems = async () => {
-    if (!accessToken) return;
-    setLoading(true);
-    setError('');
-    try {
-      const filtered = await commerceApi.getCatalog(accessToken, {
-        type: 'DEVICE',
-        category: category || undefined,
-        search: search || undefined,
-        sort,
-        brand: brand || undefined,
-        availability: availability || undefined,
-        min_price: minPrice ? Number(minPrice) : undefined,
-        max_price: maxPrice ? Number(maxPrice) : undefined,
-        page,
-        page_size: 25,
-      });
-      setItems(filtered);
-    } catch (err: any) {
-      setError(extractApiError(err, 'Failed to load catalog'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadItems();
-  }, [accessToken, category, search, sort, brand, availability, minPrice, maxPrice, page]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [category, search, sort, brand, availability, minPrice, maxPrice]);
-
-  const brands = useMemo(
-    () => Array.from(new Set(items.map((row) => String(row.attributes?.brand || '').trim()).filter(Boolean))).sort(),
-    [items],
-  );
-
-  const clearFilters = () => {
-    setSearch('');
-    setBrand('');
-    setAvailability('');
-    setMinPrice('');
-    setMaxPrice('');
-    setSort('recommended');
-  };
-
-  useEffect(() => {
-    if (!addedNotice) return;
-    const timer = window.setTimeout(() => setAddedNotice(''), 1400);
-    return () => window.clearTimeout(timer);
-  }, [addedNotice]);
-
-  const title = useMemo(() => {
-    if (!category) return 'Device Catalog';
-    if (category === 'laptop') return 'Tablets & Laptops';
-    if (category === 'phone') return 'Phones';
-    if (category === 'hotspot') return 'Hotspots';
-    return 'Routers';
-  }, [category]);
-  const hasNextPage = items.length === 25;
-
   return (
-    <section className="content-wrap fade-in routers-catalog-page">
-      <div className="content-head row-between">
+    <section className="content-wrap fade-in cat2-page">
+      <header className="cat2-header cat2-header-row">
         <div>
-          <h1>{title}</h1>
-          <p className="lead">Manual catalog exploration path. Add items directly to cart.</p>
+          <h1>Device catalog</h1>
+          <p>Real SKUs from Meraki, Extreme, InHand &amp; T-Mobile. Add directly to your cart.</p>
         </div>
-      </div>
-
-      <div className="toolbar-grid routers-toolbar">
-        <label className="search-wrap" aria-label="Search catalog">
-          <Search size={17} />
-          <input
-            className="search-input"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by model, brand, SKU..."
-          />
-        </label>
-
-        <label className="sort-wrap" aria-label="Sort catalog">
-          <ArrowUpDown size={16} />
-          <select value={sort} onChange={(e) => setSort(e.target.value as any)}>
-            {sortOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+        <button className="cat2-viewcart" onClick={() => navigate('/shop/cart')}>
+          <ShoppingCart size={17} /> View cart
+        </button>
+      </header>
 
       {error && <div className="error-text">{error}</div>}
 
-      <div className="catalog-layout routers-layout">
-        <aside className="filters-panel routers-filter-panel">
-          <h4>
-            <SlidersHorizontal size={16} />
-            Filters
-          </h4>
-
-          <label>Category</label>
-          <select value={category} onChange={(e) => setCategory(e.target.value as any)}>
-            {categoryOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-
-          <label>Brand</label>
-          <select value={brand} onChange={(e) => setBrand(e.target.value)}>
-            <option value="">All brands</option>
-            {brands.map((entry) => (
-              <option key={entry} value={entry}>{entry}</option>
-            ))}
-          </select>
-
-          <label>Price range</label>
-          <div className="inline-fields">
-            <input type="number" value={minPrice} onChange={(e) => setMinPrice(e.target.value)} placeholder="Min" />
-            <input type="number" value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)} placeholder="Max" />
-          </div>
-
-          <label>Availability</label>
-          <select value={availability} onChange={(e) => setAvailability(e.target.value)}>
-            <option value="">Any</option>
-            <option value="in_stock">In stock</option>
-            <option value="in stock">In stock (text)</option>
-            <option value="backorder">Backorder</option>
-          </select>
-
-          <button className="ghost-btn clear-filter-btn" onClick={clearFilters}>
-            Clear filters
-          </button>
-        </aside>
-
-        <div className="products-zone">
-          {loading && <div className="mini-note">Loading catalog...</div>}
-          {!loading && items.length === 0 && <div className="mini-note">No products matched your filters.</div>}
-
-          <div className="product-grid routers-grid">
-            {items.map((item) => (
-              <article key={item.id} className="router-card animated-card storefront-card">
-                <div className="storefront-image-block">
-                  <span className="badge stock-pill ok">{(item.availability || 'In stock').replace(/_/g, ' ')}</span>
-                  <span className="wishlist-chip" aria-hidden="true">
-                    <Heart size={12} />
-                  </span>
-                  <img
-                    src={getRouterImage({
-                      id: item.id,
-                      sku: item.sku,
-                      name: item.name,
-                      brand: String(item.attributes?.brand || ''),
-                      model: String(item.attributes?.model || ''),
-                      imageUrl: String(item.attributes?.image_url || ''),
-                    })}
-                    alt={item.name}
-                    className="product-image"
-                    loading="lazy"
-                  />
-                </div>
-
-                <div className="storefront-card-body">
-                  <div className="item-meta-row">
-                    <p className="brand-line">{String(item.attributes?.brand || item.vendor || 'Catalog')}</p>
-                    <span className="item-availability-note">{(item.availability || 'In stock').replace(/_/g, ' ')}</span>
-                  </div>
-
-                  <h3>
-                    <Link className="item-title-link" to={`/shop/routers/${item.id}`}>
-                      {item.name}
-                    </Link>
-                  </h3>
-                  <p className="storefront-subline">{String(item.attributes?.model || item.sku)}</p>
-
-                  <div className="storefront-bottom-row">
-                    <div className="storefront-price-col">
-                      <strong className="storefront-price">${item.price.toFixed(2)}</strong>
-                    </div>
-
-                    {(() => {
-                      const cartLine = cartLineMap.get(item.id);
-                      const isBusy = busyItemId === item.id;
-                      if (cartLine) {
-                        return (
-                          <div className="qty-stepper">
-                            <button className="qty-stepper-btn" disabled={isBusy}
-                              onClick={() => cartLine.quantity <= 1
-                                ? handleQtyChange(cartLine.lineId, item.id, 0)
-                                : handleQtyChange(cartLine.lineId, item.id, cartLine.quantity - 1)
-                              }
-                            >
-                              {cartLine.quantity <= 1 ? <Trash2 size={13} /> : <Minus size={13} />}
-                            </button>
-                            <span className="qty-stepper-value">{cartLine.quantity}</span>
-                            <button className="qty-stepper-btn" disabled={isBusy}
-                              onClick={() => handleQtyChange(cartLine.lineId, item.id, cartLine.quantity + 1)}
-                            >
-                              <Plus size={13} />
-                            </button>
-                          </div>
-                        );
-                      }
-                      return (
-                        <button
-                          className="item-cart-btn"
-                          aria-label="Add to cart"
-                          onClick={async () => {
-                            try {
-                              await addRouterToCart(item.id, 1);
-                              setAddedNotice('Added to cart');
-                            } catch (err: any) {
-                              setError(extractApiError(err, 'Failed to add item to cart'));
-                            }
-                          }}
-                        >
-                          <ShoppingCart size={14} />
-                          <span>Add to cart</span>
-                        </button>
-                      );
-                    })()}
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-          <div className="dashboard-link-row">
-            <button className="ghost-btn" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page === 1 || loading}>
-              Previous
+      <div className="cat2-tabs">
+        {TABS.map((t) => {
+          const Icon = t.icon;
+          return (
+            <button key={t.key} className={`cat2-tab ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)}>
+              <Icon size={16} /> {t.label} <span className="cat2-tab-count">{tabCounts[t.key] ?? 0}</span>
             </button>
-            <span className="mini-note">Page {page}</span>
-            <button className="ghost-btn" onClick={() => setPage((prev) => prev + 1)} disabled={!hasNextPage || loading}>
-              Next
-            </button>
-          </div>
-        </div>
+          );
+        })}
       </div>
-      {addedNotice && <div className="toast-notice">{addedNotice}</div>}
+
+      <div className="cat2-bar">
+        <div className="cat2-bar-search">
+          <Search size={17} />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search model, brand, SKU…" />
+        </div>
+        <select value={brand} onChange={(e) => setBrand(e.target.value)}>
+          <option value="">All brands</option>
+          {brands.map((b) => <option key={b} value={b}>{b}</option>)}
+        </select>
+        <select value={priceRange} onChange={(e) => setPriceRange(e.target.value)}>
+          {PRICE_RANGES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+        </select>
+        <select value={availability} onChange={(e) => setAvailability(e.target.value)}>
+          <option value="">Any availability</option>
+          <option value="in_stock">In stock</option>
+          <option value="backorder">Backorder</option>
+        </select>
+        <select className="cat2-bar-sort" value={sort} onChange={(e) => setSort(e.target.value)}>
+          {SORTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+        </select>
+      </div>
+
+      <div className="cat2-count-line">
+        {filtered.length} products
+        {filtered.length > 0 && <span className="cat2-count-page"> · page {safePage} of {pageCount}</span>}
+      </div>
+
+      {loading && <div className="cat2-note">Loading catalog…</div>}
+      {!loading && filtered.length === 0 && <div className="cat2-note">No products matched your filters.</div>}
+
+      <div className="cat2-grid">
+        {pageItems.map((item, idx) => {
+          const cat = item.attributes?.category || '';
+          const viz = CATEGORY_ICON[cat] || { icon: Server, tone: 'blue' };
+          const Icon = viz.icon;
+          const stock = availabilityInfo(item);
+          const tag = String(item.attributes?.badge || '') || (sort === 'recommended' && safePage === 1 && idx === 0 && tab === 'all' ? 'Recommended' : '');
+          const papi = papiImageOf(item);
+          const imageSrc = papi && !failedImg.has(item.id)
+            ? getRouterImage({ id: item.id, sku: item.sku, name: item.name, brand: brandOf(item), model: String(item.attributes?.model || ''), imageUrl: papi })
+            : '';
+          const cartLine = cartLineMap.get(item.id);
+          const isBusy = busyItemId === item.id;
+          return (
+            <article key={item.id} className="cat2-card">
+              <Link to={`/shop/routers/${item.id}`} className={`cat2-viz tone-${viz.tone}`}>
+                <span className={`cat2-stock ${stock.tone}`}>{stock.label}</span>
+                {tag && <span className="cat2-tag">{tag}</span>}
+                {imageSrc ? (
+                  <img
+                    className="cat2-img"
+                    src={imageSrc}
+                    alt={item.name}
+                    loading="lazy"
+                    onError={() => setFailedImg((prev) => new Set(prev).add(item.id))}
+                  />
+                ) : (
+                  <span className="cat2-viz-icon"><Icon size={30} /></span>
+                )}
+              </Link>
+              <div className="cat2-card-body">
+                <p className="cat2-brand">{brandOf(item) || 'Catalog'}</p>
+                <h3><Link to={`/shop/routers/${item.id}`}>{item.name}</Link></h3>
+                <p className="cat2-sku">{item.sku}</p>
+                {item.managed_service_price != null && (
+                  <span className="cat2-managed"><ShieldCheck size={13} /> Managed from $ {item.managed_service_price.toFixed(0)} <small>/mo</small></span>
+                )}
+                <div className="cat2-card-foot">
+                  <strong className="cat2-price">${item.price.toFixed(2)}</strong>
+                  {cartLine ? (
+                    <div className="qty-stepper">
+                      <button className="qty-stepper-btn" disabled={isBusy}
+                        onClick={() => cartLine.quantity <= 1 ? handleQtyChange(cartLine.lineId, item.id, 0) : handleQtyChange(cartLine.lineId, item.id, cartLine.quantity - 1)}>
+                        {cartLine.quantity <= 1 ? <Trash2 size={13} /> : <Minus size={13} />}
+                      </button>
+                      <span className="qty-stepper-value">{cartLine.quantity}</span>
+                      <button className="qty-stepper-btn" disabled={isBusy}
+                        onClick={() => handleQtyChange(cartLine.lineId, item.id, cartLine.quantity + 1)}>
+                        <Plus size={13} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button className="cat2-add" onClick={() => addRouterToCart(item.id, 1)}>
+                      <ShoppingCart size={15} /> Add
+                    </button>
+                  )}
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+
+      {pageCount > 1 && (
+        <nav className="cat2-pager" aria-label="Catalog pages">
+          <button className="cat2-page-btn" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage === 1}>
+            <ChevronLeft size={15} /> Previous
+          </button>
+          <div className="cat2-page-nums">
+            {pageNumbers.map((n, i) => (
+              n === '…'
+                ? <span key={`e${i}`} className="cat2-page-ellipsis">…</span>
+                : <button key={n} className={`cat2-page-num-btn ${n === safePage ? 'active' : ''}`} onClick={() => setPage(n)}>{n}</button>
+            ))}
+          </div>
+          <button className="cat2-page-btn" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={safePage === pageCount}>
+            Next <ChevronRight size={15} />
+          </button>
+        </nav>
+      )}
     </section>
   );
 };

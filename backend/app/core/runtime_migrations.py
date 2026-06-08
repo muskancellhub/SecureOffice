@@ -1,5 +1,6 @@
 from sqlalchemy import text
 from app.core.database import engine
+from app.core.tenancy import CELLHUB_MASTER_TENANT_ID, CELLHUB_MASTER_TENANT_NAME
 
 
 def apply_runtime_migrations() -> None:
@@ -987,3 +988,298 @@ def apply_runtime_migrations() -> None:
                 payload      JSONB NOT NULL
             )
         """))
+
+        # ── Component pricing engine (Secure Office, Phase 1) ──
+        # New tables are also declared as ORM models (app/models/product.py,
+        # financing.py) so the service layer can query them; we create them here
+        # too because apply_runtime_migrations() runs BEFORE create_all() and the
+        # FK ALTERs below reference products/product_components. This mirrors the
+        # existing customer_pricing/list_prices convention (ORM + raw create).
+        # Enum columns are VARCHAR + CHECK (native_enum=False parity).
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS products (
+                id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                vendor          VARCHAR(128) NOT NULL,
+                technology      VARCHAR(128) NOT NULL,
+                sku             VARCHAR(128) NOT NULL UNIQUE,
+                vendor_sku      VARCHAR(128),
+                name            VARCHAR(255) NOT NULL,
+                description     VARCHAR(1024),
+                default_financial_model VARCHAR(8) NOT NULL DEFAULT 'BOTH'
+                    CHECK (default_financial_model IN ('CAPEX','OPEX','BOTH')),
+                margin_pct      NUMERIC(6,4),
+                leasing_pct     NUMERIC(6,4),
+                is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+                attributes      JSONB NOT NULL DEFAULT '{}'::jsonb,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_products_vendor_tech ON products (vendor, technology)"))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS product_components (
+                id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                product_id         UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+                component_type     VARCHAR(32) NOT NULL,
+                financial_model    VARCHAR(8) NOT NULL DEFAULT 'BOTH'
+                    CHECK (financial_model IN ('CAPEX','OPEX','BOTH')),
+                label              VARCHAR(255) NOT NULL,
+                vendor_component_sku VARCHAR(128),
+                vendor_cost        NUMERIC(12,4) NOT NULL,
+                msrp               NUMERIC(12,2),
+                uom                VARCHAR(16) NOT NULL DEFAULT 'PER_DEVICE',
+                billing            VARCHAR(16) NOT NULL DEFAULT 'ONE_TIME',
+                interval           VARCHAR(16),
+                margin_pct         NUMERIC(6,4),
+                leasing_pct        NUMERIC(6,4),
+                default_qty        INTEGER NOT NULL DEFAULT 1,
+                is_required        BOOLEAN NOT NULL DEFAULT TRUE,
+                catalog_item_id    UUID REFERENCES catalog_items(id) ON DELETE SET NULL,
+                is_active          BOOLEAN NOT NULL DEFAULT TRUE,
+                attributes         JSONB NOT NULL DEFAULT '{}'::jsonb,
+                created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT pc_billing_check CHECK (billing IN ('ONE_TIME','RECURRING')),
+                CONSTRAINT pc_interval_check CHECK (interval IS NULL OR interval IN ('MONTH','YEAR')),
+                CONSTRAINT uq_pc_product_type_sku UNIQUE (product_id, component_type, vendor_component_sku)
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_product_components_product ON product_components (product_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_product_components_type ON product_components (component_type)"))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bundles (
+                id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                sku          VARCHAR(128) NOT NULL UNIQUE,
+                name         VARCHAR(255) NOT NULL,
+                vendor       VARCHAR(128),
+                technology   VARCHAR(128),
+                description  VARCHAR(1024),
+                is_active    BOOLEAN NOT NULL DEFAULT TRUE,
+                attributes   JSONB NOT NULL DEFAULT '{}'::jsonb,
+                created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bundle_items (
+                id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                bundle_id    UUID NOT NULL REFERENCES bundles(id) ON DELETE CASCADE,
+                product_id   UUID NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+                default_qty  INTEGER NOT NULL DEFAULT 1,
+                is_optional  BOOLEAN NOT NULL DEFAULT FALSE,
+                is_removable BOOLEAN NOT NULL DEFAULT TRUE,
+                sort_order   INTEGER NOT NULL DEFAULT 0,
+                created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT uq_bundle_items_bundle_product UNIQUE (bundle_id, product_id)
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_bundle_items_bundle ON bundle_items (bundle_id)"))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS financing_terms (
+                id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name            VARCHAR(128) NOT NULL,
+                term_months     INTEGER NOT NULL DEFAULT 36,
+                annual_rate_pct NUMERIC(6,4) NOT NULL DEFAULT 0.0500,
+                subscription_interval VARCHAR(16) NOT NULL DEFAULT 'MONTH',
+                is_default      BOOLEAN NOT NULL DEFAULT FALSE,
+                is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS customer_price_overrides (
+                id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                product_id    UUID REFERENCES products(id) ON DELETE CASCADE,
+                component_id  UUID REFERENCES product_components(id) ON DELETE CASCADE,
+                override_margin_pct NUMERIC(6,4),
+                override_unit_price NUMERIC(12,2),
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT cpo_target_check CHECK (product_id IS NOT NULL OR component_id IS NOT NULL)
+            )
+        """))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_cpo_tenant_component ON customer_price_overrides (tenant_id, component_id) WHERE component_id IS NOT NULL"))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_cpo_tenant_product ON customer_price_overrides (tenant_id, product_id) WHERE product_id IS NOT NULL"))
+
+        # §4.5 customer_pricing: cost-plus-margin model alongside legacy discount.
+        conn.execute(text("ALTER TABLE customer_pricing ADD COLUMN IF NOT EXISTS default_margin_pct NUMERIC(6,4) NOT NULL DEFAULT 0.2000"))
+        conn.execute(text("ALTER TABLE customer_pricing ADD COLUMN IF NOT EXISTS credit_status VARCHAR(16) NOT NULL DEFAULT 'PENDING'"))
+        conn.execute(text("ALTER TABLE customer_pricing ADD COLUMN IF NOT EXISTS credit_limit NUMERIC(12,2)"))
+        conn.execute(text("ALTER TABLE customer_pricing ADD COLUMN IF NOT EXISTS opex_eligible BOOLEAN NOT NULL DEFAULT FALSE"))
+        conn.execute(text("ALTER TABLE customer_pricing ADD COLUMN IF NOT EXISTS credit_checked_at TIMESTAMPTZ"))
+        conn.execute(text("ALTER TABLE customer_pricing ADD COLUMN IF NOT EXISTS credit_bureau_ref VARCHAR(128)"))
+
+        # §4.7 tenant_onboarding: business-credit inputs (consumed by future credit layer).
+        conn.execute(text("ALTER TABLE tenant_onboarding ADD COLUMN IF NOT EXISTS legal_company_name VARCHAR(255)"))
+        conn.execute(text("ALTER TABLE tenant_onboarding ADD COLUMN IF NOT EXISTS ein VARCHAR(32)"))
+        conn.execute(text("ALTER TABLE tenant_onboarding ADD COLUMN IF NOT EXISTS business_registration_no VARCHAR(64)"))
+        conn.execute(text("ALTER TABLE tenant_onboarding ADD COLUMN IF NOT EXISTS business_credit_bureau VARCHAR(64)"))
+        conn.execute(text("ALTER TABLE tenant_onboarding ADD COLUMN IF NOT EXISTS business_credit_score INTEGER"))
+        conn.execute(text("ALTER TABLE tenant_onboarding ADD COLUMN IF NOT EXISTS credit_check_result JSONB NOT NULL DEFAULT '{}'::jsonb"))
+
+        # §4.8 quotes header: financial model.
+        conn.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS financial_model VARCHAR(8) NOT NULL DEFAULT 'CAPEX'"))
+        conn.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS subscription_interval VARCHAR(16)"))
+
+        # §4.8 quote_lines / order_lines: component-pricing snapshots (mirror each other).
+        for _ln_table in ('quote_lines', 'order_lines'):
+            conn.execute(text(f"ALTER TABLE {_ln_table} ADD COLUMN IF NOT EXISTS component_type VARCHAR(32)"))
+            conn.execute(text(f"ALTER TABLE {_ln_table} ADD COLUMN IF NOT EXISTS financial_model VARCHAR(8)"))
+            conn.execute(text(f"ALTER TABLE {_ln_table} ADD COLUMN IF NOT EXISTS product_id UUID REFERENCES products(id) ON DELETE SET NULL"))
+            conn.execute(text(f"ALTER TABLE {_ln_table} ADD COLUMN IF NOT EXISTS component_id UUID REFERENCES product_components(id) ON DELETE SET NULL"))
+            conn.execute(text(f"ALTER TABLE {_ln_table} ADD COLUMN IF NOT EXISTS cost_snapshot NUMERIC(12,4) NOT NULL DEFAULT 0"))
+            conn.execute(text(f"ALTER TABLE {_ln_table} ADD COLUMN IF NOT EXISTS margin_pct_snapshot NUMERIC(6,4) NOT NULL DEFAULT 0"))
+            conn.execute(text(f"ALTER TABLE {_ln_table} ADD COLUMN IF NOT EXISTS leasing_pct_snapshot NUMERIC(6,4)"))
+            conn.execute(text(f"ALTER TABLE {_ln_table} ADD COLUMN IF NOT EXISTS term_months INTEGER"))
+
+        # §4.8 orders header parity.
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS financial_model VARCHAR(8) NOT NULL DEFAULT 'CAPEX'"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS subscription_interval VARCHAR(16)"))
+
+        # --- Multi-tenant Phase 0: canonical CellHub master tenant ---
+        # Stable, well-known row that per-tenant config is backfilled and cloned
+        # from in later phases. Idempotent: only inserted if its fixed id is
+        # absent, so re-runs and existing data are left untouched.
+        conn.execute(
+            text(
+                """
+                INSERT INTO tenants (id, name, tenant_type)
+                SELECT :tid, :tname, 'CELLHUB'
+                WHERE NOT EXISTS (SELECT 1 FROM tenants WHERE id = :tid)
+                """
+            ),
+            {"tid": CELLHUB_MASTER_TENANT_ID, "tname": CELLHUB_MASTER_TENANT_NAME},
+        )
+
+        # --- Multi-tenant Phase 1: financing_terms become per-tenant ---
+        # Shared-catalog decision: financing is the ONLY global config table that
+        # goes per-tenant; products/catalog/bundles stay global. Existing global
+        # rows are backfilled to the master tenant (runs after the seed above so
+        # the master row is guaranteed to exist).
+        conn.execute(text(
+            "ALTER TABLE financing_terms ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE"
+        ))
+        conn.execute(
+            text("UPDATE financing_terms SET tenant_id = :master WHERE tenant_id IS NULL"),
+            {"master": CELLHUB_MASTER_TENANT_ID},
+        )
+        # Defensive: collapse duplicate (tenant_id, name) rows before the unique
+        # index. Pre-per-tenant data could have several same-named global rows that
+        # all backfilled onto the master tenant. Keep the earliest of each. Safe —
+        # financing_terms is looked up by value, not referenced by any FK.
+        conn.execute(text(
+            """
+            DELETE FROM financing_terms ft
+            WHERE ft.id NOT IN (
+                SELECT DISTINCT ON (tenant_id, name) id FROM financing_terms
+                ORDER BY tenant_id, name, created_at
+            )
+            """
+        ))
+        # Defensive: a partial-unique default index aborts the whole migration txn
+        # if dirty data already has >1 default per tenant. Keep the earliest.
+        conn.execute(text(
+            """
+            UPDATE financing_terms SET is_default = FALSE
+            WHERE is_default = TRUE AND id NOT IN (
+                SELECT DISTINCT ON (tenant_id) id FROM financing_terms
+                WHERE is_default = TRUE ORDER BY tenant_id, created_at
+            )
+            """
+        ))
+        conn.execute(text("ALTER TABLE financing_terms ALTER COLUMN tenant_id SET NOT NULL"))
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_financing_tenant_name ON financing_terms (tenant_id, name)"
+        ))
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_financing_tenant_default ON financing_terms (tenant_id) WHERE is_default"
+        ))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_financing_tenant ON financing_terms (tenant_id)"))
+
+        # --- Multi-tenant Phase 3: tenant_settings (JSONB soft toggles) ---
+        # Typed tables hold money/pricing/financing (Phases 0–1); soft toggles —
+        # design-ops prefs, managed-service category availability, feature flags —
+        # live here as JSONB. One row per tenant (backfilled below; new tenants get
+        # one via TenantProvisioningService).
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS tenant_settings (
+              tenant_id      UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+              design_ops     JSONB NOT NULL DEFAULT '{}'::jsonb,
+              admin_services JSONB NOT NULL DEFAULT '{}'::jsonb,
+              feature_flags  JSONB NOT NULL DEFAULT '{}'::jsonb,
+              updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        ))
+        conn.execute(text(
+            """
+            INSERT INTO tenant_settings (tenant_id)
+            SELECT id FROM tenants
+            WHERE NOT EXISTS (SELECT 1 FROM tenant_settings ts WHERE ts.tenant_id = tenants.id)
+            """
+        ))
+
+        _apply_rls_policies(conn)
+
+
+def _apply_rls_policies(conn) -> None:
+    """Multi-tenant Phase 4 — Row-Level Security (behind the ENABLE_RLS flag).
+
+    Idempotent and *bidirectional*: when ``ENABLE_RLS`` is on, every tenant-scoped
+    table gets RLS enabled+forced with a ``tenant_isolation`` policy; when off, the
+    same tables are reverted (policy dropped, RLS disabled) so the flag is a true
+    kill switch and a stuck-on state self-heals on the next boot.
+
+    The policy allows all rows when ``app.current_tenant_id`` is unset (migrations,
+    seeds, cron, unauthenticated paths) and otherwise restricts to the active
+    tenant. ``FORCE`` makes it apply to the table owner too — but a SUPERUSER DB
+    role still bypasses RLS, so the app must connect as a non-superuser owner.
+    """
+    from app.core.config import get_settings
+
+    enable = get_settings().enable_rls
+
+    # Every table that carries a tenant_id. Shared catalog tables (products,
+    # product_components, bundles, bundle_items, catalog_items) are intentionally
+    # global and excluded. Names are a fixed allowlist (safe to interpolate).
+    rls_tables = (
+        'users', 'quotes', 'orders', 'contracts', 'subscriptions', 'invoices',
+        'payments', 'assets', 'network_designs', 'carts', 'customer_pricing',
+        'customer_price_overrides', 'list_prices', 'tenant_order_notification_settings',
+        'tenant_onboarding', 'financing_terms', 'tenant_settings',
+    )
+
+    # NULLIF(..., '') because a custom GUC, once set then reset at transaction end,
+    # reverts to an EMPTY STRING (not NULL) on a pooled connection — so both NULL
+    # and '' must mean "no tenant context → allow all" (system/seed/unauth paths).
+    policy = (
+        "NULLIF(current_setting('app.current_tenant_id', true), '') IS NULL "
+        "OR tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid"
+    )
+
+    for table in rls_tables:
+        has_tenant_col = conn.execute(
+            text(
+                """
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = :t AND column_name = 'tenant_id'
+                """
+            ),
+            {'t': table},
+        ).first()
+        if not has_tenant_col:
+            continue
+
+        # Always drop first so re-runs (and policy-text changes) are clean.
+        conn.execute(text(f'DROP POLICY IF EXISTS tenant_isolation ON {table}'))
+        if enable:
+            conn.execute(text(f'ALTER TABLE {table} ENABLE ROW LEVEL SECURITY'))
+            conn.execute(text(f'ALTER TABLE {table} FORCE ROW LEVEL SECURITY'))
+            conn.execute(text(
+                f'CREATE POLICY tenant_isolation ON {table} '
+                f'USING ({policy}) WITH CHECK ({policy})'
+            ))
+        else:
+            conn.execute(text(f'ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY'))
+            conn.execute(text(f'ALTER TABLE {table} DISABLE ROW LEVEL SECURITY'))

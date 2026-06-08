@@ -1,36 +1,52 @@
-import { Clock, Eye, FileText, Plus, ReceiptText, ShoppingCart, Trash2, Zap } from 'lucide-react';
+import { FileText, MapPin, Network, Plus, Search, Trash2, Wifi } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
 import { BusinessIntakeModal } from '../components/BusinessIntakeModal';
 import type { NetworkDesignSummary } from '../types/commerce';
 import { extractApiError } from '../utils/extractApiError';
+import networkDesignImg from '../network_design.png';
 
-const formatCurrency = (value: number): string =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value || 0);
-
-const statusConfig: Record<string, { label: string; className: string }> = {
-  draft: { label: 'Draft', className: 'badge-draft' },
-  reviewed: { label: 'Reviewed', className: 'badge-reviewed' },
-  submitted: { label: 'Submitted', className: 'badge-submitted' },
-  approved: { label: 'Approved', className: 'badge-approved' },
-  rejected: { label: 'Rejected', className: 'badge-rejected' },
-};
-
-const getStatusBadge = (status: string) => {
-  const cfg = statusConfig[status] || { label: status, className: '' };
-  return <span className={`design-status-badge ${cfg.className}`}>{cfg.label}</span>;
-};
+const formatCapex = (value: number): string =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value || 0);
 
 const formatDate = (dateStr: string): string => {
   const d = new Date(dateStr);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
 };
+
+const statusConfig: Record<string, { label: string; tone: string }> = {
+  draft: { label: 'Draft', tone: 'draft' },
+  reviewed: { label: 'Reviewed', tone: 'reviewed' },
+  in_review: { label: 'Reviewed', tone: 'reviewed' },
+  submitted: { label: 'Submitted', tone: 'submitted' },
+  bom_finalized: { label: 'Submitted', tone: 'submitted' },
+  proposal_ready: { label: 'Submitted', tone: 'submitted' },
+  approved: { label: 'Approved', tone: 'approved' },
+  order_decomposed: { label: 'Approved', tone: 'approved' },
+  fulfillment_in_progress: { label: 'In Progress', tone: 'submitted' },
+  installation_scheduled: { label: 'Scheduled', tone: 'submitted' },
+  installed: { label: 'Installed', tone: 'installed' },
+  rejected: { label: 'Rejected', tone: 'rejected' },
+};
+
+const FILTERS: { key: string; label: string; match: (status: string) => boolean }[] = [
+  { key: 'all', label: 'All', match: () => true },
+  { key: 'draft', label: 'Draft', match: (s) => s === 'draft' },
+  { key: 'reviewed', label: 'Reviewed', match: (s) => statusConfig[s]?.tone === 'reviewed' },
+  { key: 'submitted', label: 'Submitted', match: (s) => statusConfig[s]?.tone === 'submitted' },
+  { key: 'approved', label: 'Approved', match: (s) => statusConfig[s]?.tone === 'approved' },
+  { key: 'installed', label: 'Installed', match: (s) => s === 'installed' },
+];
 
 // A regular user can delete their own drafts/reviewed designs.
 // For submitted designs, backend returns 409 — so we hide the button.
 const canDelete = (status: string): boolean => status === 'draft' || status === 'reviewed';
+
+// Placeholder visual shown at the top of every design card.
+const CARD_PLACEHOLDER_IMG = networkDesignImg;
 
 export const DesignHistoryPage = () => {
   const { accessToken } = useAuth();
@@ -40,6 +56,8 @@ export const DesignHistoryPage = () => {
   const [error, setError] = useState('');
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState('all');
+  const [query, setQuery] = useState('');
 
   const onDelete = async (design: NetworkDesignSummary) => {
     if (!accessToken) return;
@@ -69,150 +87,138 @@ export const DesignHistoryPage = () => {
       .finally(() => setLoading(false));
   }, [accessToken]);
 
-  const submittedDesigns = useMemo(
-    () => designs.filter((row) => row.status !== 'draft' && row.status !== 'reviewed'),
-    [designs],
-  );
+  const filteredDesigns = useMemo(() => {
+    const matcher = FILTERS.find((f) => f.key === activeFilter) ?? FILTERS[0];
+    const q = query.trim().toLowerCase();
+    return designs.filter((design) => {
+      if (!matcher.match(design.status)) return false;
+      if (!q) return true;
+      const name = (design.designName || '').toLowerCase();
+      const company = (design.lead?.companyName || '').toLowerCase();
+      return name.includes(q) || company.includes(q);
+    });
+  }, [designs, activeFilter, query]);
 
   return (
-    <section className="content-wrap fade-in design-history-page">
-      <div className="dh-header">
-        <div className="dh-header-text">
-          <h1>Design History</h1>
-          <p className="lead">Manage your network designs, track quotes, and continue from previous configurations.</p>
+    <section className="content-wrap fade-in network-designs-page">
+      <div className="nd-header">
+        <div className="nd-header-text">
+          <h1>Network designs</h1>
+          <p className="nd-subtitle">Every design you've sized, saved, and submitted.</p>
         </div>
-        <button className="primary-btn dh-new-btn" onClick={() => navigate('/shop/designs/new')}>
-          <Plus size={16} />
-          New Design
+        <button className="nd-new-btn" onClick={() => navigate('/shop/designs/new')}>
+          <Plus size={17} />
+          New design
         </button>
       </div>
 
-      {loading && <div className="dh-loading-bar"><div className="dh-loading-bar-inner" /></div>}
+      <div className="nd-toolbar">
+        <div className="nd-tabs">
+          {FILTERS.map((filter) => (
+            <button
+              key={filter.key}
+              type="button"
+              className={`nd-tab ${activeFilter === filter.key ? 'active' : ''}`}
+              onClick={() => setActiveFilter(filter.key)}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+        <div className="nd-search">
+          <Search size={16} />
+          <input
+            type="text"
+            placeholder="Search designs..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {loading && <div className="nd-loading-bar"><div className="nd-loading-bar-inner" /></div>}
       {error && <div className="onboarding-alert error">{error}</div>}
 
       {!loading && designs.length === 0 && (
-        <article className="dh-empty-state">
-          <div className="dh-empty-icon"><FileText size={40} strokeWidth={1.2} /></div>
+        <article className="nd-empty-state">
+          <div className="nd-empty-icon"><FileText size={40} strokeWidth={1.2} /></div>
           <h3>No designs yet</h3>
           <p>Create your first network design to get started with automated BOM generation and topology diagrams.</p>
-          <button className="primary-btn" onClick={() => setIntakeOpen(true)}>Create First Design</button>
+          <button className="nd-new-btn" onClick={() => setIntakeOpen(true)}>
+            <Plus size={17} /> Create First Design
+          </button>
         </article>
       )}
 
-      {designs.length > 0 && (
-        <div className="dh-grid">
-          <div className="dh-main-col">
-            <div className="dh-section-label">
-              <Clock size={14} />
-              Recent Designs
-              <span className="dh-count">{designs.length}</span>
-            </div>
-            <div className="dh-designs-list">
-              {designs.map((design) => (
-                <article key={design.id} className="dh-design-card">
-                  <div className="dh-card-top">
-                    <div className="dh-card-title-row">
-                      <h4>{design.designName || `Design ${design.id.slice(0, 8)}`}</h4>
-                      {getStatusBadge(design.status)}
-                    </div>
-                    <span className="dh-card-company">{design.lead?.companyName || 'No company'}</span>
-                  </div>
+      {!loading && designs.length > 0 && filteredDesigns.length === 0 && (
+        <p className="nd-no-match">No designs match this filter.</p>
+      )}
 
-                  <div className="dh-card-metrics">
-                    <div className="dh-metric">
-                      <span className="dh-metric-label">CapEx</span>
-                      <span className="dh-metric-value">{formatCurrency(design.estimatedCapex)}</span>
-                    </div>
-                    <div className="dh-metric">
-                      <span className="dh-metric-label">APs</span>
-                      <span className="dh-metric-value">{design.apCount}</span>
-                    </div>
-                    <div className="dh-metric">
-                      <span className="dh-metric-label">Switches</span>
-                      <span className="dh-metric-value">{design.switchCount}</span>
-                    </div>
-                    <div className="dh-metric">
-                      <span className="dh-metric-label">Created</span>
-                      <span className="dh-metric-value">{formatDate(design.createdAt)}</span>
-                    </div>
-                  </div>
-
-                  {design.nextMilestone && (
-                    <div className="dh-milestone">
-                      <Zap size={12} />
-                      {design.nextMilestone}
-                    </div>
+      {filteredDesigns.length > 0 && (
+        <div className="nd-grid">
+          {filteredDesigns.map((design) => {
+            const status = statusConfig[design.status] || { label: design.status, tone: 'draft' };
+            return (
+              <article
+                key={design.id}
+                className="nd-card"
+                onClick={() => navigate(`/shop/designs/${design.id}`)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    navigate(`/shop/designs/${design.id}`);
+                  }
+                }}
+              >
+                <div className="nd-card-viz">
+                  <img className="nd-card-viz-img" src={CARD_PLACEHOLDER_IMG} alt="" aria-hidden="true" loading="lazy" />
+                  {canDelete(design.status) && (
+                    <button
+                      type="button"
+                      className="nd-card-delete"
+                      title="Delete design"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(design);
+                      }}
+                      disabled={deletingId === design.id}
+                    >
+                      <Trash2 size={15} />
+                    </button>
                   )}
+                </div>
 
-                  <div className="dh-card-actions">
-                    <Link className="dh-action-link" to={`/shop/designs/${design.id}`}>
-                      <Eye size={13} /> View Design
-                    </Link>
-                    {design.quoteId && (
-                      <Link className="dh-action-link" to={`/shop/quotes/${design.quoteId}`}>
-                        <ReceiptText size={13} /> Quote
-                      </Link>
-                    )}
-                    {design.orderId && (
-                      <Link className="dh-action-link" to={`/shop/orders/${design.orderId}`}>
-                        <ShoppingCart size={13} /> Order
-                      </Link>
-                    )}
-                    {canDelete(design.status) && (
-                      <button
-                        type="button"
-                        className="dh-action-link dh-action-danger"
-                        onClick={() => onDelete(design)}
-                        disabled={deletingId === design.id}
-                      >
-                        <Trash2 size={13} /> {deletingId === design.id ? 'Deleting…' : 'Delete'}
-                      </button>
-                    )}
+                <div className="nd-card-body">
+                  <div className="nd-card-head">
+                    <span className={`nd-status nd-status-${status.tone}`}>{status.label}</span>
+                    <span className="nd-date">{formatDate(design.createdAt)}</span>
                   </div>
-                </article>
-              ))}
-            </div>
-          </div>
 
-          <div className="dh-side-col">
-            <div className="dh-side-card">
-              <div className="dh-section-label">
-                <FileText size={14} />
-                Submitted Requests
-              </div>
-              {submittedDesigns.length === 0 && (
-                <p className="mini-note">No submitted requests yet. Submit a design to start status tracking.</p>
-              )}
-              <div className="dh-submitted-list">
-                {submittedDesigns.slice(0, 6).map((design) => (
-                  <Link key={design.id} to={`/shop/designs/${design.id}`} className="dh-submitted-item">
-                    <div className="dh-submitted-name">{design.designName || design.id.slice(0, 8)}</div>
-                    <div className="dh-submitted-meta">
-                      {getStatusBadge(design.status)}
-                      <span className="mini-note">{design.lead?.companyName || ''}</span>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
+                  <h3 className="nd-card-title">{design.designName || `Design ${design.id.slice(0, 8)}`}</h3>
 
-            <div className="dh-side-card">
-              <div className="dh-section-label">
-                <Zap size={14} />
-                Quick Actions
-              </div>
-              <div className="dh-quick-actions">
-                <Link className="dh-quick-link" to="/shop/designs/new">
-                  <Plus size={14} /> Generate New Design
-                </Link>
-                <Link className="dh-quick-link" to="/shop/dashboard">
-                  <Eye size={14} /> Back to Dashboard
-                </Link>
-              </div>
-            </div>
-          </div>
+                  <div className="nd-meta">
+                    <span className="nd-meta-item"><Wifi size={15} /> {design.apCount} APs</span>
+                    <span className="nd-meta-item"><Network size={15} /> {design.switchCount} sw</span>
+                    <span className="nd-meta-item nd-meta-company">
+                      <MapPin size={15} /> {design.lead?.companyName || 'No company'}
+                    </span>
+                  </div>
+
+                  <div className="nd-card-divider" />
+
+                  <div className="nd-capex">
+                    <span className="nd-capex-label">Est. CapEx</span>
+                    <span className="nd-capex-value">{formatCapex(design.estimatedCapex)}</span>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
+
       <BusinessIntakeModal open={intakeOpen} onClose={() => setIntakeOpen(false)} />
     </section>
   );

@@ -1,45 +1,16 @@
-import smtplib
 import logging
-import httpx
-from email.message import EmailMessage
+import resend
 from app.core.config import get_settings
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+resend.api_key = (settings.resend_api_key or '').strip()
 
 
 class EmailService:
     @staticmethod
-    def _smtp_enabled() -> bool:
-        return bool(settings.smtp_host and settings.smtp_from_email)
-
-    @staticmethod
-    def _send_smtp_message(message: EmailMessage) -> None:
-        logger.warning(
-            '[SMTP SEND ATTEMPT] to=%s subject=%s host=%s port=%s ssl=%s tls=%s auth=%s',
-            message.get('To'),
-            message.get('Subject'),
-            settings.smtp_host,
-            settings.smtp_port,
-            settings.smtp_use_ssl,
-            settings.smtp_use_tls,
-            bool(settings.smtp_username),
-        )
-        if settings.smtp_use_ssl:
-            with smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=15) as server:
-                if settings.smtp_username:
-                    server.login(settings.smtp_username, settings.smtp_password)
-                server.send_message(message)
-            logger.warning('[SMTP SEND SUCCESS] to=%s subject=%s', message.get('To'), message.get('Subject'))
-            return
-
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
-            if settings.smtp_use_tls:
-                server.starttls()
-            if settings.smtp_username:
-                server.login(settings.smtp_username, settings.smtp_password)
-            server.send_message(message)
-        logger.warning('[SMTP SEND SUCCESS] to=%s subject=%s', message.get('To'), message.get('Subject'))
+    def _resend_enabled() -> bool:
+        return bool((settings.resend_api_key or '').strip())
 
     @staticmethod
     def _mask_secret(value: str) -> str:
@@ -51,64 +22,40 @@ class EmailService:
         return f'{clean[:4]}...{clean[-4:]}'
 
     @staticmethod
-    def _send_via_sendgrid(
+    def _send_via_resend(
         *,
         to_emails: list[str],
         subject: str,
         text_content: str,
         html_content: str,
-    ) -> None:
-        api_key = (settings.sendgrid_api_key or '').strip()
-        if not api_key:
-            raise RuntimeError('SENDGRID_API_KEY is not configured')
-
-        from_email = (settings.sendgrid_from_email or settings.smtp_from_email or '').strip()
+    ) -> str | None:
+        if not EmailService._resend_enabled():
+            raise RuntimeError('RESEND_API_KEY is not configured')
+        from_email = (settings.resend_from_email or '').strip()
         if not from_email:
-            raise RuntimeError('SENDGRID_FROM_EMAIL (or SMTP_FROM_EMAIL) is required for order notifications')
-
-        from_name = (settings.sendgrid_from_name or settings.smtp_from_name or 'SecureOffice2').strip()
+            raise RuntimeError('RESEND_FROM_EMAIL is required')
+        from_name = (settings.resend_from_name or 'SecureOffice2').strip()
         logger.warning(
-            '[SENDGRID ATTEMPT] recipients_count=%d from_email=%s from_name=%s api_key_mask=%s',
-            len(to_emails),
-            from_email,
-            from_name,
-            EmailService._mask_secret(api_key),
+            '[RESEND ATTEMPT] recipients_count=%d from=%s <%s> subject=%s',
+            len(to_emails), from_name, from_email, subject,
         )
-        payload = {
-            'personalizations': [{'to': [{'email': email} for email in to_emails]}],
-            'from': {'email': from_email, 'name': from_name},
+        resp = resend.Emails.send({
+            'from': f'{from_name} <{from_email}>',
+            'to': to_emails,
             'subject': subject,
-            'content': [
-                {'type': 'text/plain', 'value': text_content},
-                {'type': 'text/html', 'value': html_content},
-            ],
-        }
-        response = httpx.post(
-            'https://api.sendgrid.com/v3/mail/send',
-            json=payload,
-            headers={
-                'Authorization': f'Bearer {api_key}',
-                'Content-Type': 'application/json',
-            },
-            timeout=20,
-        )
-        message_id = response.headers.get('x-message-id') or response.headers.get('X-Message-Id')
-        if response.status_code < 200 or response.status_code >= 300:
-            excerpt = response.text[:500] if response.text else ''
-            logger.error(
-                '[SENDGRID ERROR] status_code=%s message_id=%s response_excerpt=%s',
-                response.status_code,
-                message_id,
-                excerpt,
-            )
-            raise RuntimeError(f'SendGrid delivery failed ({response.status_code}): {excerpt}')
-        logger.warning('[SENDGRID SUCCESS] status_code=%s message_id=%s', response.status_code, message_id)
+            'html': html_content,
+            'text': text_content,
+        })
+        # SDK returns a dict-like with 'id'
+        msg_id = resp.get('id') if isinstance(resp, dict) else getattr(resp, 'id', None)
+        logger.warning('[RESEND SUCCESS] message_id=%s recipients_count=%d', msg_id, len(to_emails))
+        return msg_id
 
     @staticmethod
     def _compose_otp_text(*, otp: str, purpose: str) -> str:
         return '\n'.join(
             [
-                'Your SecureOffice2 one-time password is:',
+                'Your Secure AI Office one-time password is:',
                 '',
                 f'  {otp}',
                 '',
@@ -122,7 +69,7 @@ class EmailService:
         return (
             '<html><body style="font-family:Arial, sans-serif; background:#f3eef4; padding:40px 0;">'
             '<div style="max-width:480px; margin:0 auto; background:#ffffff; border-radius:8px; padding:40px; text-align:center;">'
-            '<h2 style="margin:0 0 8px; color:#152844;">SecureOffice2</h2>'
+            '<h2 style="margin:0 0 8px; color:#152844;">Secure AI Office</h2>'
             f'<p style="color:#617089; margin:0 0 24px;">Your one-time password for <strong>{purpose}</strong></p>'
             f'<div style="font-size:32px; font-weight:700; letter-spacing:6px; color:#e1067d; '
             f'background:#f3dce8; border-radius:8px; padding:16px; margin:0 auto 24px; display:inline-block;">{otp}</div>'
@@ -132,98 +79,141 @@ class EmailService:
         )
 
     @staticmethod
-    def _compose_otp_message(*, to_email: str, otp: str, purpose: str) -> EmailMessage:
-        msg = EmailMessage()
-        from_name = settings.smtp_from_name.strip() or 'SecureOffice2'
-        msg['From'] = f'{from_name} <{settings.smtp_from_email}>'
-        msg['To'] = to_email
-        msg['Subject'] = f'SecureOffice2 OTP for {purpose}'
-        msg.set_content(EmailService._compose_otp_text(otp=otp, purpose=purpose))
-        return msg
-
-    @staticmethod
     def send_otp_email(*, to_email: str, otp: str, purpose: str) -> None:
-        sendgrid_configured = bool((settings.sendgrid_api_key or '').strip())
-        smtp_configured = EmailService._smtp_enabled()
-
-        if not sendgrid_configured and not smtp_configured:
-            print(f'[MOCK OTP DELIVERY] email={to_email} otp={otp} purpose={purpose}')
-            return
-
-        subject = f'SecureOffice2 OTP for {purpose}'
+        subject = f'Secure AI Office OTP for {purpose}'
         text_body = EmailService._compose_otp_text(otp=otp, purpose=purpose)
         html_body = EmailService._compose_otp_html(otp=otp, purpose=purpose)
-
-        # SendGrid first, fall back to SMTP (same pattern as order emails)
-        if sendgrid_configured:
-            try:
-                EmailService._send_via_sendgrid(
-                    to_emails=[to_email],
-                    subject=subject,
-                    text_content=text_body,
-                    html_content=html_body,
-                )
-                logger.warning('[OTP EMAIL COMPLETED] to=%s channel=sendgrid purpose=%s', to_email, purpose)
-                return
-            except Exception as exc:
-                logger.exception('[SENDGRID OTP ERROR] to=%s purpose=%s error=%s', to_email, purpose, exc)
-
-        if not smtp_configured:
-            logger.warning('[MOCK OTP DELIVERY] to=%s otp=%s reason=sendgrid_failed_no_smtp_fallback purpose=%s', to_email, otp, purpose)
+        if not EmailService._resend_enabled():
+            print(f'[MOCK OTP DELIVERY] email={to_email} otp={otp} purpose={purpose}')
             return
-
-        logger.warning('[OTP EMAIL FALLBACK] to=%s channel=smtp reason=sendgrid_unavailable_or_failed purpose=%s', to_email, purpose)
-        message = EmailService._compose_otp_message(to_email=to_email, otp=otp, purpose=purpose)
-        EmailService._send_smtp_message(message)
-        logger.warning('[OTP EMAIL COMPLETED] to=%s channel=smtp purpose=%s', to_email, purpose)
+        EmailService._send_via_resend(
+            to_emails=[to_email],
+            subject=subject,
+            text_content=text_body,
+            html_content=html_body,
+        )
+        logger.warning('[OTP EMAIL COMPLETED] to=%s channel=resend purpose=%s', to_email, purpose)
 
     @staticmethod
-    def _compose_design_submission_message(*, to_email: str, payload: dict) -> EmailMessage:
-        lead = payload.get('lead') or {}
-        msg = EmailMessage()
-        from_name = settings.smtp_from_name.strip() or 'SecureOffice2'
-        msg['From'] = f'{from_name} <{settings.smtp_from_email}>'
-        msg['To'] = to_email
-        msg['Subject'] = f"Design Submission: {payload.get('design_name') or payload.get('design_id')}"
-        msg.set_content(
-            '\n'.join(
-                [
-                    'A new SMB network design was submitted for demo handoff.',
-                    '',
-                    f"Design ID: {payload.get('design_id')}",
-                    f"Design Name: {payload.get('design_name')}",
-                    f"Status: {payload.get('status')}",
-                    f"Submitted At: {payload.get('submitted_at')}",
-                    '',
-                    'Lead Contact:',
-                    f"  Name: {lead.get('full_name') or ''}",
-                    f"  Email: {lead.get('email') or ''}",
-                    f"  Company: {lead.get('company_name') or ''}",
-                    f"  Phone: {lead.get('phone') or ''}",
-                    f"  Notes: {lead.get('notes') or ''}",
-                    '',
-                    'Estimate Summary:',
-                    f"  Estimated CapEx: ${float(payload.get('estimated_capex') or 0):,.2f}",
-                    f"  AP Count: {int(payload.get('ap_count') or 0)}",
-                    f"  Switch Count: {int(payload.get('switch_count') or 0)}",
-                ]
-            )
+    def _compose_invite_text(*, org_name: str, invited_by: str | None, login_url: str) -> str:
+        lines = [
+            f'You have been invited to join {org_name} on Secure AI Office.',
+            '',
+            f'Sign in here: {login_url}',
+            'Use this email address — we will send you a one-time code to log in.',
+        ]
+        if invited_by:
+            lines += ['', f'Invited by {invited_by}.']
+        return '\n'.join(lines)
+
+    @staticmethod
+    def _compose_invite_html(*, org_name: str, invited_by: str | None, login_url: str) -> str:
+        invited_line = (
+            f'<p style="color:#617089; font-size:13px; margin:18px 0 0;">Invited by {invited_by}.</p>'
+            if invited_by else ''
         )
-        return msg
+        return (
+            '<html><body style="font-family:Arial, sans-serif; background:#f3eef4; padding:40px 0;">'
+            '<div style="max-width:480px; margin:0 auto; background:#ffffff; border-radius:8px; padding:40px; text-align:center;">'
+            '<h2 style="margin:0 0 8px; color:#152844;">Secure AI Office</h2>'
+            f'<p style="color:#617089; margin:0 0 24px;">You have been invited to join <strong>{org_name}</strong>.</p>'
+            f'<a href="{login_url}" style="display:inline-block; background:#e1067d; color:#ffffff; '
+            'text-decoration:none; font-weight:700; padding:14px 28px; border-radius:8px; margin:0 auto 24px;">Sign in</a>'
+            '<p style="color:#617089; font-size:14px; margin:0;">Use this email address — we will send you a '
+            'one-time code to log in.</p>'
+            f'{invited_line}'
+            '</div></body></html>'
+        )
+
+    @staticmethod
+    def send_invite_email(*, to_email: str, org_name: str, invited_by: str | None, login_url: str) -> None:
+        subject = f'You have been invited to {org_name} on Secure AI Office'
+        text_body = EmailService._compose_invite_text(org_name=org_name, invited_by=invited_by, login_url=login_url)
+        html_body = EmailService._compose_invite_html(org_name=org_name, invited_by=invited_by, login_url=login_url)
+        if not EmailService._resend_enabled():
+            print(f'[MOCK INVITE DELIVERY] email={to_email} login_url={login_url}')
+            return
+        EmailService._send_via_resend(
+            to_emails=[to_email],
+            subject=subject,
+            text_content=text_body,
+            html_content=html_body,
+        )
+        logger.warning('[INVITE EMAIL COMPLETED] to=%s channel=resend org=%s', to_email, org_name)
+
+    @staticmethod
+    def _compose_design_submission_text(payload: dict) -> str:
+        lead = payload.get('lead') or {}
+        return '\n'.join(
+            [
+                'A new SMB network design was submitted for demo handoff.',
+                '',
+                f"Design ID: {payload.get('design_id')}",
+                f"Design Name: {payload.get('design_name')}",
+                f"Status: {payload.get('status')}",
+                f"Submitted At: {payload.get('submitted_at')}",
+                '',
+                'Lead Contact:',
+                f"  Name: {lead.get('full_name') or ''}",
+                f"  Email: {lead.get('email') or ''}",
+                f"  Company: {lead.get('company_name') or ''}",
+                f"  Phone: {lead.get('phone') or ''}",
+                f"  Notes: {lead.get('notes') or ''}",
+                '',
+                'Estimate Summary:',
+                f"  Estimated CapEx: ${float(payload.get('estimated_capex') or 0):,.2f}",
+                f"  AP Count: {int(payload.get('ap_count') or 0)}",
+                f"  Switch Count: {int(payload.get('switch_count') or 0)}",
+            ]
+        )
+
+    @staticmethod
+    def _compose_design_submission_html(payload: dict) -> str:
+        lead = payload.get('lead') or {}
+        return (
+            '<html><body style="font-family:Arial, sans-serif;">'
+            '<h2 style="margin-bottom:8px;">New SMB Network Design Submission</h2>'
+            '<p style="margin-top:0;">A new SMB network design was submitted for demo handoff.</p>'
+            '<h3>Design</h3>'
+            '<ul>'
+            f"<li><strong>Design ID:</strong> {payload.get('design_id')}</li>"
+            f"<li><strong>Design Name:</strong> {payload.get('design_name')}</li>"
+            f"<li><strong>Status:</strong> {payload.get('status')}</li>"
+            f"<li><strong>Submitted At:</strong> {payload.get('submitted_at')}</li>"
+            '</ul>'
+            '<h3>Lead Contact</h3>'
+            '<ul>'
+            f"<li><strong>Name:</strong> {lead.get('full_name') or ''}</li>"
+            f"<li><strong>Email:</strong> {lead.get('email') or ''}</li>"
+            f"<li><strong>Company:</strong> {lead.get('company_name') or ''}</li>"
+            f"<li><strong>Phone:</strong> {lead.get('phone') or ''}</li>"
+            f"<li><strong>Notes:</strong> {lead.get('notes') or ''}</li>"
+            '</ul>'
+            '<h3>Estimate Summary</h3>'
+            '<ul>'
+            f"<li><strong>Estimated CapEx:</strong> ${float(payload.get('estimated_capex') or 0):,.2f}</li>"
+            f"<li><strong>AP Count:</strong> {int(payload.get('ap_count') or 0)}</li>"
+            f"<li><strong>Switch Count:</strong> {int(payload.get('switch_count') or 0)}</li>"
+            '</ul>'
+            '</body></html>'
+        )
 
     @staticmethod
     def send_design_submission_handoff(payload: dict) -> None:
-        mailbox = (settings.design_handoff_email or settings.smtp_from_email or '').strip()
-        if not mailbox:
-            print(f'[MOCK DESIGN HANDOFF] {payload}')
-            return
-
-        if not EmailService._smtp_enabled():
+        mailbox = (settings.design_handoff_email or '').strip()
+        if not EmailService._resend_enabled() or not mailbox:
             print(f'[MOCK DESIGN HANDOFF] to={mailbox} payload={payload}')
             return
 
-        message = EmailService._compose_design_submission_message(to_email=mailbox, payload=payload)
-        EmailService._send_smtp_message(message)
+        subject = f"Design Submission: {payload.get('design_name') or payload.get('design_id')}"
+        text_body = EmailService._compose_design_submission_text(payload)
+        html_body = EmailService._compose_design_submission_html(payload)
+        EmailService._send_via_resend(
+            to_emails=[mailbox],
+            subject=subject,
+            text_content=text_body,
+            html_content=html_body,
+        )
 
     @staticmethod
     def _compose_order_capture_text(payload: dict) -> str:
@@ -325,59 +315,34 @@ class EmailService:
         )
 
     @staticmethod
-    def _compose_order_capture_message(*, recipients: list[str], payload: dict) -> EmailMessage:
-        msg = EmailMessage()
-        from_name = settings.smtp_from_name.strip() or 'SecureOffice2'
-        msg['From'] = f'{from_name} <{settings.smtp_from_email}>'
-        msg['To'] = ', '.join(recipients)
-        msg['Subject'] = f"Order Captured: {payload.get('order_id')}"
-        text_body = EmailService._compose_order_capture_text(payload)
-        html_body = EmailService._compose_order_capture_html(payload)
-        msg.set_content(text_body)
-        msg.add_alternative(html_body, subtype='html')
-        return msg
-
-    @staticmethod
     def send_order_capture_handoff(*, payload: dict, recipients: list[str]) -> None:
         target_emails = [str(email).strip().lower() for email in recipients if str(email).strip()]
+        # dedupe while preserving order
+        seen: set[str] = set()
+        target_emails = [e for e in target_emails if not (e in seen or seen.add(e))]
         order_id = payload.get('order_id')
-        sendgrid_configured = bool((settings.sendgrid_api_key or '').strip())
-        smtp_configured = EmailService._smtp_enabled()
         logger.warning(
-            '[ORDER EMAIL START] order_id=%s recipients_count=%d sendgrid_configured=%s smtp_configured=%s sendgrid_from_email=%s smtp_from_email=%s',
+            '[ORDER EMAIL START] order_id=%s recipients_count=%d resend_configured=%s resend_from_email=%s',
             order_id,
             len(target_emails),
-            sendgrid_configured,
-            smtp_configured,
-            (settings.sendgrid_from_email or '').strip() or None,
-            (settings.smtp_from_email or '').strip() or None,
+            EmailService._resend_enabled(),
+            (settings.resend_from_email or '').strip() or None,
         )
-        if not target_emails:
-            logger.warning('[MOCK ORDER HANDOFF] order_id=%s reason=no_recipients', order_id)
+        if not target_emails or not EmailService._resend_enabled():
+            logger.warning(
+                '[MOCK ORDER HANDOFF] order_id=%s reason=%s',
+                order_id,
+                'no_recipients' if not target_emails else 'resend_not_configured',
+            )
             return
 
         subject = f"Order Captured: {payload.get('order_id')}"
         text_body = EmailService._compose_order_capture_text(payload)
         html_body = EmailService._compose_order_capture_html(payload)
-
-        if (settings.sendgrid_api_key or '').strip():
-            try:
-                EmailService._send_via_sendgrid(
-                    to_emails=target_emails,
-                    subject=subject,
-                    text_content=text_body,
-                    html_content=html_body,
-                )
-                logger.warning('[ORDER EMAIL COMPLETED] order_id=%s channel=sendgrid recipients=%s', order_id, target_emails)
-                return
-            except Exception as exc:
-                logger.exception('[SENDGRID ORDER HANDOFF ERROR] order_id=%s error=%s', order_id, exc)
-
-        if not EmailService._smtp_enabled():
-            logger.warning('[MOCK ORDER HANDOFF] order_id=%s reason=no_smtp_fallback recipients=%s', order_id, target_emails)
-            return
-
-        logger.warning('[ORDER EMAIL FALLBACK] order_id=%s channel=smtp reason=sendgrid_unavailable_or_failed', order_id)
-        message = EmailService._compose_order_capture_message(recipients=target_emails, payload=payload)
-        EmailService._send_smtp_message(message)
-        logger.warning('[ORDER EMAIL COMPLETED] order_id=%s channel=smtp recipients=%s', order_id, target_emails)
+        EmailService._send_via_resend(
+            to_emails=target_emails,
+            subject=subject,
+            text_content=text_body,
+            html_content=html_body,
+        )
+        logger.warning('[ORDER EMAIL COMPLETED] order_id=%s channel=resend recipients=%s', order_id, target_emails)

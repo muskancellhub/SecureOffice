@@ -5,7 +5,9 @@ import { VerifyOtpPage } from '../pages/VerifyOtpPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { OAuthSuccessPage } from '../pages/OAuthSuccessPage';
 import { ProtectedRoute } from '../components/ProtectedRoute';
+import { RequireSuperAdmin } from '../components/RequireSuperAdmin';
 import { ShopProvider } from '../context/ShopContext';
+import { TenantProvider } from '../context/TenantContext';
 import { ShopShell } from '../components/shop/ShopShell';
 import { ShopLandingPage } from '../pages/ShopLandingPage';
 import { RoutersCatalogPage } from '../pages/RoutersCatalogPage';
@@ -16,12 +18,12 @@ import { OrderDetailsPage } from '../pages/OrderDetailsPage';
 import { CartPage } from '../pages/CartPage';
 import { AdminCatalogSyncPage } from '../pages/AdminCatalogSyncPage';
 import { AdminManagedServicesPage } from '../pages/AdminManagedServicesPage';
+import { AdminProductsPage } from '../pages/AdminProductsPage';
+import { AdminFinancingPage } from '../pages/AdminFinancingPage';
 import { AdminUserManagementPage } from '../pages/AdminUserManagementPage';
 import { AdminOrderNotificationsPage } from '../pages/AdminOrderNotificationsPage';
 import { BillingPage } from '../pages/BillingPage';
-import { LifecyclePage } from '../pages/LifecyclePage';
 import { CustomerDashboardPage } from '../pages/CustomerDashboardPage';
-import { SolutionFlowPage } from '../pages/SolutionFlowPage';
 import { IntroHomePage } from '../pages/IntroHomePage';
 import { OnboardingPage } from '../pages/OnboardingPage';
 import { ManagedServicesCatalogPage } from '../pages/ManagedServicesCatalogPage';
@@ -61,9 +63,11 @@ export const AppRouter = () => (
     <Route
       element={
         <ProtectedRoute>
-          <ShopProvider>
-            <ShopShell />
-          </ShopProvider>
+          <TenantProvider>
+            <ShopProvider>
+              <ShopShell />
+            </ShopProvider>
+          </TenantProvider>
         </ProtectedRoute>
       }
     >
@@ -74,7 +78,6 @@ export const AppRouter = () => (
       <Route path="/shop/designs" element={<DesignHistoryPage />} />
       <Route path="/shop/designs/new" element={<NetworkDesignBuilderPage />} />
       <Route path="/shop/designs/:designId" element={<DesignDetailPage />} />
-      <Route path="/shop/solution-flow" element={<SolutionFlowPage />} />
       <Route path="/shop/routers" element={<RoutersCatalogPage />} />
       <Route path="/shop/routers/:itemId" element={<RouterDetailsPage />} />
       <Route path="/shop/services" element={<ManagedServicesCatalogPage />} />
@@ -82,15 +85,16 @@ export const AppRouter = () => (
       <Route path="/shop/orders" element={<OrdersPage />} />
       <Route path="/shop/quotes/:quoteId" element={<QuoteDetailsPage />} />
       <Route path="/shop/quote/:quoteId" element={<LegacyQuoteRedirect />} />
-      <Route path="/shop/lifecycle" element={<LifecyclePage />} />
       <Route path="/shop/billing" element={<BillingPage />} />
       <Route path="/shop/cart" element={<CartPage />} />
       <Route path="/shop/orders/:orderId" element={<OrderDetailsPage />} />
-      <Route path="/shop/admin/catalog-sync" element={<AdminCatalogSyncPage />} />
-      <Route path="/shop/admin/managed-services" element={<AdminManagedServicesPage />} />
+      <Route path="/shop/admin/products" element={<RequireSuperAdmin><AdminProductsPage /></RequireSuperAdmin>} />
+      <Route path="/shop/admin/financing" element={<RequireSuperAdmin><AdminFinancingPage /></RequireSuperAdmin>} />
+      <Route path="/shop/admin/catalog-sync" element={<RequireSuperAdmin><AdminCatalogSyncPage /></RequireSuperAdmin>} />
+      <Route path="/shop/admin/managed-services" element={<RequireSuperAdmin><AdminManagedServicesPage /></RequireSuperAdmin>} />
       <Route path="/shop/admin/user-access" element={<AdminUserManagementPage />} />
       <Route path="/shop/admin/order-notifications" element={<AdminOrderNotificationsPage />} />
-      <Route path="/shop/admin/design-submissions" element={<AdminDesignSubmissionsPage />} />
+      <Route path="/shop/admin/design-submissions" element={<RequireSuperAdmin><AdminDesignSubmissionsPage /></RequireSuperAdmin>} />
     </Route>
 
     <Route

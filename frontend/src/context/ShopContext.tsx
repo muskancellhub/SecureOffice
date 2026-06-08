@@ -3,6 +3,7 @@ import * as commerceApi from '../api/commerceApi';
 import type { Cart, CatalogItem } from '../types/commerce';
 import { useAuth } from './AuthContext';
 import { extractApiError } from '../utils/extractApiError';
+import { toast } from '../utils/toast';
 
 interface ShopContextValue {
   cart: Cart | null;
@@ -65,12 +66,14 @@ export const ShopProvider = ({ children }: { children: React.ReactNode }) => {
     if (!accessToken) return;
     const data = await commerceApi.addCartLine(accessToken, { catalog_item_id: catalogItemId, quantity });
     setCart(data);
+    toast.success('Added to cart');
   }, [accessToken]);
 
   const addServiceToCart = useCallback(async (catalogItemId: string, quantity = 1) => {
     if (!accessToken) return;
     const data = await commerceApi.addCartLine(accessToken, { catalog_item_id: catalogItemId, quantity });
     setCart(data);
+    toast.success('Service added to cart');
   }, [accessToken]);
 
   const attachManagedService = useCallback(async (serviceCatalogItemId: string, routerLineId: string) => {
@@ -81,24 +84,28 @@ export const ShopProvider = ({ children }: { children: React.ReactNode }) => {
       applies_to_line_id: routerLineId,
     });
     setCart(data);
+    toast.success('Managed service attached');
   }, [accessToken]);
 
   const changeServiceTier = useCallback(async (serviceLineId: string, newServiceCatalogItemId: string) => {
     if (!accessToken) return;
     const data = await commerceApi.updateCartLine(accessToken, serviceLineId, { catalog_item_id: newServiceCatalogItemId });
     setCart(data);
+    toast.success('Service tier updated');
   }, [accessToken]);
 
   const updateLineQuantity = useCallback(async (lineId: string, quantity: number) => {
     if (!accessToken) return;
     const data = await commerceApi.updateCartLine(accessToken, lineId, { quantity });
     setCart(data);
+    toast.success(quantity <= 0 ? 'Removed from cart' : 'Cart updated');
   }, [accessToken]);
 
   const removeLine = useCallback(async (lineId: string) => {
     if (!accessToken) return;
     const data = await commerceApi.removeCartLine(accessToken, lineId);
     setCart(data);
+    toast.success('Removed from cart');
   }, [accessToken]);
 
   const value = useMemo(

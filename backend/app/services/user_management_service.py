@@ -1,5 +1,8 @@
+import logging
+import secrets
 import uuid
 from sqlalchemy.orm import Session
+from app.core.config import get_settings
 from app.core.exceptions import AppError, ForbiddenError, NotFoundError
 from app.core.permissions import (
     PERMISSION_CATALOG,
@@ -15,7 +18,10 @@ from app.core.security import hash_value
 from app.models import AuthProvider, UserRole
 from app.repositories.tenant_repository import TenantRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas.users import CreateUserRequest
+from app.schemas.users import CreateUserRequest, InviteUserRequest
+from app.services.email_service import EmailService
+
+logger = logging.getLogger(__name__)
 
 
 class UserManagementService:
@@ -128,6 +134,49 @@ class UserManagementService:
         self.db.commit()
         self.db.refresh(user)
         return user
+
+    def invite_user(self, actor: dict, payload: InviteUserRequest):
+        """Create a user from an email invite and send them a sign-in email.
+
+        Reuses create_user (which enforces all role/permission checks). The
+        invitee logs in passwordlessly via OTP, so we set a random password
+        they never need to use.
+        """
+        name = payload.name or payload.email.split('@')[0]
+        create_req = CreateUserRequest(
+            email=payload.email,
+            name=name,
+            password=secrets.token_urlsafe(24),
+            role=payload.role,
+            tenant_id=payload.tenant_id,
+        )
+        user = self.create_user(actor, create_req)
+
+        # Send the invite email. The account is already created, so an email
+        # failure must not roll it back — but we DO report it back to the caller
+        # so the UI can tell the admin the invite mail didn't actually go out
+        # (e.g. Resend quota exhausted / sandbox key / unverified recipient).
+        email_sent = False
+        email_error: str | None = None
+        try:
+            tenant = self.tenant_repo.get_by_id(user.tenant_id)
+            org_name = getattr(tenant, 'name', None) or 'your team'
+            inviter = self.user_repo.get_by_id(actor['user_id'])
+            invited_by = getattr(inviter, 'name', None) or getattr(inviter, 'email', None)
+            settings = get_settings()
+            login_url = f"{(settings.frontend_url or '').rstrip('/')}/login"
+            EmailService.send_invite_email(
+                to_email=user.email,
+                org_name=org_name,
+                invited_by=invited_by,
+                login_url=login_url,
+            )
+            email_sent = True
+        except Exception as exc:  # noqa: BLE001
+            email_error = str(exc) or exc.__class__.__name__
+            logger.exception('[INVITE EMAIL FAILED] to=%s', user.email)
+
+        return user, email_sent, email_error
 
     def list_users(self, actor: dict, tenant_id: str | None = None):
         actor_role = self._actor_role(actor)

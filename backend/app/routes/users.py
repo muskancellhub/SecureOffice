@@ -7,6 +7,8 @@ from app.repositories.user_repository import UserRepository
 from app.schemas.auth import MeResponse
 from app.schemas.users import (
     CreateUserRequest,
+    InviteUserRequest,
+    InviteUserResponse,
     PermissionCatalogResponse,
     UpdateUserPermissionsRequest,
     UpdateUserRoleRequest,
@@ -74,6 +76,12 @@ def list_permission_catalog(current_user: dict = Depends(get_current_user), db: 
 def create_user(payload: CreateUserRequest, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     user = UserManagementService(db).create_user(current_user, payload)
     return _to_user_response(user)
+
+
+@router.post('/invite', response_model=InviteUserResponse)
+def invite_user(payload: InviteUserRequest, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    user, email_sent, email_error = UserManagementService(db).invite_user(current_user, payload)
+    return InviteUserResponse(user=_to_user_response(user), email_sent=email_sent, email_error=email_error)
 
 
 @router.get('', response_model=list[UserSummaryResponse])

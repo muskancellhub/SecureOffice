@@ -472,14 +472,33 @@ export const NetworkDesignBuilderPage = () => {
   };
 
   return (
-    <section className="content-wrap fade-in">
-      <div className="content-head row-between">
-        <div>
-          <h1>Network Design Builder</h1>
-          <p className="lead">BOM and topology generated automatically from your intake and calculator data.</p>
+    <section className="content-wrap fade-in dnb-page">
+      <header className="apx-header">
+        <div className="apx-header-text">
+          <Link to="/shop/designs" className="dnb-back"><ArrowLeft size={15} /> Back to designs</Link>
+          <input
+            className="dnb-name-input"
+            value={designName}
+            onChange={(e) => setDesignName(e.target.value)}
+            placeholder="Design name"
+            aria-label="Design name"
+          />
+          <p className="apx-subtitle">Generated bill of materials and network topology from your intake.</p>
+          <div className="apx-scope">
+            <span className={`dnb-status-chip ${savedDesign ? 'reviewed' : 'draft'}`}>{savedDesign ? 'Reviewed' : 'Draft'}</span>
+            <span className="apx-scope-meta">{bom?.line_items?.length || 0} BOM lines · {eligibleCatalogLines.length} orderable</span>
+          </div>
         </div>
-        <Link to="/shop/designs" className="ghost-link">Back to Design History</Link>
-      </div>
+        {calculatorResult && (
+          <button
+            className="apx-add-btn dnb-order-btn"
+            onClick={onAddAllToCart}
+            disabled={addingAllToCart || eligibleCatalogLines.length === 0}
+          >
+            <ShoppingCart size={18} /> {addingAllToCart ? 'Adding…' : 'Order this design'}
+          </button>
+        )}
+      </header>
 
       {!calculatorResult && (
         <article className="ndb-empty-state">
@@ -494,113 +513,84 @@ export const NetworkDesignBuilderPage = () => {
       {notice && <div className="toast-notice">{notice}</div>}
 
       {calculatorResult && (
-        <section className="dashboard-grid">
-          {/* Request Summary */}
-          <article className="dashboard-panel">
-            <h3>Request Summary</h3>
-            <div className="ndb-design-name-wrap" style={{ marginBottom: 10 }}>
-              <input
-                className="ndb-design-name-input"
-                value={designName}
-                onChange={(e) => setDesignName(e.target.value)}
-                placeholder="Design Name"
-              />
-              {savedDesign && <span className="mini-note">Saved</span>}
-            </div>
-            <p className="mini-note">Status: <span className="badge">{savedDesign ? 'Reviewed' : 'Draft'}</span></p>
-            <div className="dashboard-kpi-grid">
-              <div>
-                <span>Estimated CapEx</span>
-                <strong>{formatCurrency(estimateCapex)}</strong>
-              </div>
-              <div>
-                <span>AP Count</span>
-                <strong>{recommendedApCount}</strong>
-              </div>
-              <div>
-                <span>Switch Count</span>
-                <strong>{recommendedSwitchCount}</strong>
-              </div>
-            </div>
-            <div className="dashboard-link-row">
-              <button className="ghost-btn" onClick={onRegenerate} disabled={loading}>
-                <RefreshCw size={14} className={loading ? 'spin-icon' : ''} />
-                {loading ? 'Generating...' : 'Regenerate'}
-              </button>
-              <button className="ghost-btn" onClick={onSaveDesign} disabled={saving || loading}>
-                <Save size={14} />
-                {saving ? 'Saving...' : 'Save'}
-              </button>
-              <button className="ghost-btn" onClick={() => navigate('/business-intake')}>
-                <Pencil size={14} /> Edit Requirements
-              </button>
-              <button className="ghost-btn" onClick={() => navigate('/shop/cart')}>
-                <ShoppingCart size={14} /> Cart
-              </button>
-            </div>
-          </article>
+        <>
+          {/* Action toolbar */}
+          <div className="dnb-toolbar">
+            <button className="dnb-tool-btn" onClick={onRegenerate} disabled={loading}>
+              <RefreshCw size={15} className={loading ? 'spin-icon' : ''} /> {loading ? 'Generating…' : 'Regenerate'}
+            </button>
+            <button className="dnb-tool-btn" onClick={onSaveDesign} disabled={saving || loading}>
+              <Save size={15} /> {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button className="dnb-tool-btn" onClick={() => navigate('/business-intake')}>
+              <Pencil size={15} /> Edit requirements
+            </button>
+          </div>
 
-          {/* BOM Lines KPI */}
-          <article className="dashboard-panel">
-            <h3>Design Overview</h3>
-            <p className="mini-note">BOM Lines: <strong>{bom?.line_items?.length || 0}</strong></p>
-            <p className="mini-note">Catalog-linked items: <strong>{eligibleCatalogLines.length}</strong></p>
-            {quoteRequiredCount > 0 && (
-              <p className="mini-note">{quoteRequiredCount} price-on-request pending final quote.</p>
-            )}
-            <div className="dashboard-link-row" style={{ marginTop: 12 }}>
-              <button className="primary-btn" onClick={onAddAllToCart} disabled={addingAllToCart || eligibleCatalogLines.length === 0}>
-                <Plus size={14} />
-                {addingAllToCart ? 'Adding...' : `Add All to Cart (${eligibleCatalogLines.length})`}
-              </button>
-            </div>
-          </article>
+          {/* Stats */}
+          <div className="apx-stats dnb-stats">
+            <article className="apx-stat">
+              <div className="apx-stat-head"><span>Estimated CapEx</span><span className="apx-stat-icon green"><DollarSign size={16} /></span></div>
+              <div className="apx-stat-value">{formatCurrency(estimateCapex)}</div>
+            </article>
+            <article className="apx-stat">
+              <div className="apx-stat-head"><span>Access points</span><span className="apx-stat-icon blue"><Wifi size={16} /></span></div>
+              <div className="apx-stat-value">{recommendedApCount}</div>
+            </article>
+            <article className="apx-stat">
+              <div className="apx-stat-head"><span>Switches</span><span className="apx-stat-icon violet"><Network size={16} /></span></div>
+              <div className="apx-stat-value">{recommendedSwitchCount}</div>
+            </article>
+            <article className="apx-stat">
+              <div className="apx-stat-head"><span>BOM lines</span><span className="apx-stat-icon amber"><Layers size={16} /></span></div>
+              <div className="apx-stat-value">{bom?.line_items?.length || 0}</div>
+            </article>
+          </div>
 
-          {/* Diagram / Topology Reference */}
-          <article className="dashboard-panel full-width" id="design-diagram">
-            <h3>Diagram / Topology Reference</h3>
-            <p className="mini-note">
-              Topology lines represent connectivity relationships rather than literal cable routing paths:
-              Wired link, Wireless link, and Managed connection.
-            </p>
-            <div className="integration-grid">
-              <div className="integration-card">
-                <div className="row-between">
-                  <strong>Topology Nodes</strong>
-                  <span className="badge">{topologyArtifact?.summary?.nodeCount || 0}</span>
-                </div>
-              </div>
-              <div className="integration-card">
-                <div className="row-between">
-                  <strong>Topology Edges</strong>
-                  <span className="badge">{topologyArtifact?.summary?.edgeCount || 0}</span>
-                </div>
+          {/* Diagram — shown first, the main artifact */}
+          <div className="apx-table-card dnb-diagram-card" id="design-diagram">
+            <div className="dnb-card-head">
+              <h3 className="apx-modal-title" style={{ margin: 0 }}>Network diagram</h3>
+              <div className="dnb-diagram-meta">
+                <span>{topologyArtifact?.summary?.nodeCount || 0} nodes</span>
+                <span>{topologyArtifact?.summary?.edgeCount || 0} edges</span>
               </div>
             </div>
-            {topologyArtifact?.drawioXml && (
+            {topologyArtifact?.drawioXml ? (
               <DrawioDiagramViewer
                 xml={topologyArtifact.drawioXml}
                 title={`${designName || 'SMB Network Design'} Diagram Preview`}
-                initialHeight={700}
+                initialHeight={640}
               />
+            ) : (
+              <div className="dnb-diagram-empty">
+                <Network size={30} strokeWidth={1.3} />
+                <p>Diagram will appear here once the design is generated.</p>
+              </div>
             )}
-          </article>
+          </div>
 
-          {/* Equipment / BOM Table */}
-          <article className="dashboard-panel full-width" id="design-bom">
-            <h3>Equipment / BOM Snapshot</h3>
-            {bom?.summary && <p className="mini-note" style={{ marginBottom: 10 }}>{bom.summary}</p>}
-            {!!bom?.line_items?.length && (
-              <table className="cart-table">
+          {/* Bill of materials */}
+          <div className="apx-table-card dnb-bom-card" id="design-bom">
+            <div className="dnb-card-head">
+              <h3 className="apx-modal-title" style={{ margin: 0 }}>Bill of materials</h3>
+              {quoteRequiredCount > 0 && (
+                <span className="dnb-quote-note">{quoteRequiredCount} price-on-request</span>
+              )}
+            </div>
+            {bom?.summary && <p className="dnb-bom-summary">{bom.summary}</p>}
+
+            {!!bom?.line_items?.length ? (
+              <table className="dnb-bom">
                 <thead>
                   <tr>
-                    <th>Name</th>
+                    <th>Item</th>
                     <th>Category</th>
-                    <th>Qty</th>
-                    <th>Unit Price</th>
-                    <th>Total</th>
-                    <th>Managed Service</th>
-                    <th></th>
+                    <th className="dnb-num">Qty</th>
+                    <th className="dnb-num">Unit</th>
+                    <th className="dnb-num">Total</th>
+                    <th className="dnb-num">Managed / mo</th>
+                    <th />
                   </tr>
                 </thead>
                 <tbody>
@@ -612,38 +602,37 @@ export const NetworkDesignBuilderPage = () => {
                     return (
                       <tr key={line.line_id}>
                         <td>
-                          <div>{line.name}</div>
-                          <div className="mini-note">{vendorDisplayName(line.vendor)}</div>
+                          <div className="dnb-bom-name">{line.name}</div>
+                          <div className="dnb-bom-sub">{vendorDisplayName(line.vendor)}</div>
                           {(line.connectivity || line.cable_type) && (
-                            <div className="mini-note">
+                            <div className="dnb-bom-sub">
                               {line.cable_type && line.cable_length_meters
-                                ? `${line.cable_type} • ${Math.round(line.cable_length_meters)}m estimated • $${Number(line.price_per_meter || 0).toFixed(2)}/m`
+                                ? `${line.cable_type} • ${Math.round(line.cable_length_meters)}m • $${Number(line.price_per_meter || 0).toFixed(2)}/m`
                                 : connectivityLabel(line.connectivity)}
                             </div>
                           )}
                         </td>
-                        <td>{humanizeCategory(line.category)}</td>
-                        <td>{line.quantity}</td>
-                        <td>{formatBomMoney(line, 'unit')}</td>
-                        <td>{formatBomMoney(line, 'total')}</td>
-                        <td>
+                        <td><span className="dnb-cat-tag">{humanizeCategory(line.category)}</span></td>
+                        <td className="dnb-num">{line.quantity}</td>
+                        <td className="dnb-num">{formatBomMoney(line, 'unit')}</td>
+                        <td className="dnb-num dnb-total">{formatBomMoney(line, 'total')}</td>
+                        <td className="dnb-num">
                           {hasMsPrice ? (
                             <label className="ms-inline-check">
                               <input
                                 type="checkbox"
                                 checked={msIncluded}
-                                disabled={false}
                                 onChange={() => toggleMsForDevice(msDevice.itemId, !msDevice.excluded ? false : true)}
                               />
                               <span className={msIncluded ? 'ms-inline-price' : 'ms-inline-price ms-inline-excluded'}>
-                                ${msDevice.managedServicePrice.toFixed(2)}/mo
+                                ${msDevice.managedServicePrice.toFixed(2)}
                               </span>
                             </label>
                           ) : (
-                            <span className="mini-note">—</span>
+                            <span className="dnb-dash">—</span>
                           )}
                         </td>
-                        <td>
+                        <td className="dnb-bom-action">
                           {canAdd ? (() => {
                             const cl = cartLineByItemId.get(line.item_id as string);
                             if (cl) {
@@ -667,18 +656,12 @@ export const NetworkDesignBuilderPage = () => {
                               );
                             }
                             return (
-                              <button
-                                className="secondary-btn"
-                                style={{ fontSize: '0.78rem', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 4 }}
-                                onClick={() => onAddLineToCart(line)}
-                                disabled={addingLineId === line.line_id}
-                              >
-                                <ShoppingCart size={13} />
-                                {addingLineId === line.line_id ? 'Adding...' : 'Add to Cart'}
+                              <button className="dnb-add-line" onClick={() => onAddLineToCart(line)} disabled={addingLineId === line.line_id}>
+                                <ShoppingCart size={14} /> {addingLineId === line.line_id ? 'Adding…' : 'Add'}
                               </button>
                             );
                           })() : (
-                            <span className="mini-note">—</span>
+                            <span className="dnb-dash">—</span>
                           )}
                         </td>
                       </tr>
@@ -687,24 +670,19 @@ export const NetworkDesignBuilderPage = () => {
                 </tbody>
                 {msTotalMonthly > 0 && (
                   <tfoot>
-                    <tr className="ms-total-row">
-                      <td colSpan={5} style={{ textAlign: 'right', fontWeight: 600 }}>
-                        Total Managed Services
-                      </td>
-                      <td className="ms-inline-total">
-                        {formatCurrency(msTotalMonthly)}/mo
-                      </td>
-                      <td></td>
+                    <tr className="dnb-bom-foot">
+                      <td colSpan={5} className="dnb-num">Total managed services</td>
+                      <td className="dnb-num dnb-total">{formatCurrency(msTotalMonthly)}/mo</td>
+                      <td />
                     </tr>
                   </tfoot>
                 )}
               </table>
+            ) : (
+              <p className="mini-note">No BOM lines found. Click “Regenerate” to generate.</p>
             )}
-            {(!bom?.line_items?.length) && (
-              <p className="mini-note">No BOM lines found. Click "Regenerate" to generate.</p>
-            )}
-          </article>
-        </section>
+          </div>
+        </>
       )}
     </section>
   );

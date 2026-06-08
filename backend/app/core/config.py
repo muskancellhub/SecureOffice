@@ -48,21 +48,21 @@ class Settings(BaseSettings):
     # cuts email cost, without punishing a legit user who simply mistyped.
     otp_resend_cooldown_seconds: int = 60
 
-    smtp_host: str = ''
-    smtp_port: int = 587
-    smtp_username: str = ''
-    smtp_password: str = ''
-    smtp_from_email: str = ''
-    smtp_from_name: str = 'SecureOffice2'
-    smtp_use_tls: bool = True
-    smtp_use_ssl: bool = False
     design_handoff_email: str = Field(default='', alias='DESIGN_HANDOFF_EMAIL')
-    sendgrid_api_key: str = Field(default='', alias='SENDGRID_API_KEY')
-    sendgrid_from_email: str = Field(default='', alias='SENDGRID_FROM_EMAIL')
-    sendgrid_from_name: str = Field(default='SecureOffice2', alias='SENDGRID_FROM_NAME')
+    resend_api_key: str = Field(default='', alias='RESEND_API_KEY')
+    resend_from_email: str = Field(default='', alias='RESEND_FROM_EMAIL')
+    resend_from_name: str = Field(default='SecureOffice2', alias='RESEND_FROM_NAME')
 
     default_tenant_id: str | None = None
     bootstrap_super_admin_email: str = 'muskan.d@cellhubms.com'
+
+    # Multi-tenant Phase 4: Postgres Row-Level Security hardening. OFF by default —
+    # app-layer guards (Phases 0–3) already scope queries; RLS is defense-in-depth.
+    # When True, runtime migrations ENABLE+FORCE RLS with a tenant-isolation policy
+    # on every tenant-scoped table, and each request sets app.current_tenant_id.
+    # When False, the migration reverts (drops policy + disables RLS) — a kill switch.
+    # Requires the app's DB role to be a NON-superuser owner (superusers bypass RLS).
+    enable_rls: bool = Field(default=False, alias='ENABLE_RLS')
 
     frontend_url: str = 'http://localhost:5173'
 

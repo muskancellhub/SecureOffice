@@ -7,6 +7,7 @@ from app.core.exceptions import AppError, ForbiddenError, NotFoundError, Unautho
 from app.models.catalog import BillingCycle, CatalogItem, CatalogItemType
 from app.models.order import OrderStatus
 from app.models.quote import BillingInterval, BillingType, QuoteLineType, QuoteStatus
+from app.models.product import Bundle, ComponentType, Product, ProductComponent
 from app.models.user import UserRole
 from app.repositories.cart_repository import CartRepository
 from app.repositories.order_repository import OrderRepository
@@ -16,9 +17,19 @@ from app.services.lifecycle_service import LifecycleService
 from app.services.onboarding_service import OnboardingService
 from app.services.order_notification_service import OrderNotificationService
 from app.services.managed_service_pricing_service import ManagedServicePricingService
+from app.services.component_pricing_service import ComponentPricingService
+from app.services.capacity_service import check_capacity, format_violations
 from app.services.pricing_service import PricingService
 
 logger = logging.getLogger(__name__)
+
+# Component types that cannot stand alone — they must attach to a DEVICE line
+# (spec §5 "requires-a-device"). Enforced server-side at assembly time.
+REQUIRES_DEVICE_TYPES = {
+    ComponentType.LINE_CHARGE.value,
+    ComponentType.SIM.value,
+    ComponentType.BACKUP_SIM.value,
+}
 
 
 class QuoteService:
@@ -381,6 +392,275 @@ class QuoteService:
         self.db.commit()
         return self.quote_repo.get_by_id(str(quote.id))
 
+    # ── Component-driven quotes (Phase 3) ────────────────────────────────────
+    @staticmethod
+    def _billing_from_engine_line(line: dict) -> tuple[BillingType, BillingInterval | None]:
+        billing = BillingType.RECURRING if line['billing'] == 'RECURRING' else BillingType.ONE_TIME
+        interval = None
+        if line.get('interval') == 'MONTH':
+            interval = BillingInterval.MONTH
+        elif line.get('interval') == 'YEAR':
+            interval = BillingInterval.YEAR
+        return billing, interval
+
+    def _check_capacity(self, product, result: dict) -> None:
+        """Block over-subscription of a device's capacity (§5, block + warn)."""
+        from sqlalchemy import select
+        comp_ids = [self._parse_uuid(l['component_id'], field_name='component_id') for l in result['lines']]
+        if not comp_ids:
+            return
+        comps = {
+            str(c.id): c
+            for c in self.db.scalars(select(ProductComponent).where(ProductComponent.id.in_(comp_ids)))
+        }
+        provided = (product.attributes or {}).get('capacity') or {}
+        consumers = [
+            ((comps[l['component_id']].attributes or {}).get('consumes'), l['qty'])
+            for l in result['lines'] if l['component_id'] in comps
+        ]
+        violations = check_capacity(provided, consumers)
+        if violations:
+            raise AppError(f'Device capacity exceeded — {format_violations(violations)}', 409)
+
+    @staticmethod
+    def _validate_requires_device(result: dict) -> None:
+        """A LINE_CHARGE / SIM cannot stand alone — it needs a DEVICE line (§5)."""
+        has_device = any(l['component_type'] == ComponentType.DEVICE.value for l in result['lines'])
+        if has_device:
+            return
+        for line in result['lines']:
+            if line['component_type'] in REQUIRES_DEVICE_TYPES:
+                raise AppError(
+                    f"{line['component_type']} requires a device line in the same quote", 400
+                )
+
+    def _component_line_kwargs(self, quote_id, product, financial_model, result, line, parent_line_id):
+        billing_type, interval = self._billing_from_engine_line(line)
+        line_type = QuoteLineType.DEVICE if line['component_type'] == ComponentType.DEVICE.value else QuoteLineType.SERVICE
+        leasing = None
+        term = None
+        if line['financed']:
+            leasing = product.leasing_pct if product.leasing_pct is not None else result['annual_rate_pct']
+            term = result['term_months']
+        return {
+            'quote_id': quote_id,
+            'line_type': line_type,
+            'catalog_item_id': None,
+            'name_snapshot': line['label'],
+            'sku_snapshot': line['vendor_component_sku'],
+            'vendor_snapshot': product.vendor,
+            'qty': int(line['qty']),
+            'list_price_snapshot': float(line['unit_price']),  # cost-plus: no separate list price
+            'final_unit_price_snapshot': float(line['unit_price']),
+            'billing_type': billing_type,
+            'interval': interval,
+            'metadata_json': {
+                'margin_source': line['margin_source'],
+                'financed': line['financed'],
+                'source': 'component_engine',
+            },
+            'parent_line_id': parent_line_id,
+            'component_type': line['component_type'],
+            'financial_model': financial_model,
+            'product_id': product.id,
+            'component_id': self._parse_uuid(line['component_id'], field_name='component_id'),
+            'cost_snapshot': line['vendor_cost'],
+            'margin_pct_snapshot': line['margin_pct'],
+            'leasing_pct_snapshot': leasing,
+            'term_months': term,
+        }
+
+    def _write_component_lines(self, quote, product, result, financial_model) -> None:
+        """Append one product's computed tree to a quote (device parent first)."""
+        ordered = sorted(result['lines'], key=lambda l: 0 if l['component_type'] == ComponentType.DEVICE.value else 1)
+        quote_line_id_by_component_id: dict[str, str] = {}
+        for line in ordered:
+            parent_line_id = None
+            parent_cid = line.get('parent_component_id')
+            if parent_cid:
+                parent_line_id = quote_line_id_by_component_id.get(parent_cid)
+            created = self.quote_repo.add_line(
+                **self._component_line_kwargs(quote.id, product, financial_model, result, line, parent_line_id)
+            )
+            quote_line_id_by_component_id[line['component_id']] = str(created.id)
+
+    def _persist_component_tree(self, quote, product, result, financial_model) -> None:
+        """Replace the quote's component lines with one product's computed tree."""
+        for line in list(quote.lines):
+            if line.component_id is not None:
+                self.db.delete(line)
+        self.db.flush()
+        self._write_component_lines(quote, product, result, financial_model)
+        quote.one_time_total = result['one_time_total']
+        quote.monthly_total = result['monthly_total']
+        quote.projected_12_month_cost = self.pricing_service._quantize_money(
+            result['one_time_total'] + result['monthly_total'] * Decimal('12')
+        )
+        quote.financial_model = result['financial_model']
+        quote.subscription_interval = result['interval']
+
+    def _resolve_financial_model(self, current_user: dict, financial_model: str) -> str:
+        """Apply the (manual, Phase 3) OPEX-eligibility gate."""
+        financial_model = (financial_model or 'CAPEX').upper()
+        if financial_model == 'OPEX':
+            customer_pricing = self.pricing_service.get_or_create_customer_pricing(current_user['tenant_id'])
+            if not customer_pricing.opex_eligible:
+                raise ForbiddenError('OPEX financing is not enabled for this customer')
+        return financial_model
+
+    def create_component_quote(self, current_user: dict, payload: dict):
+        """Assemble a quote from a product + component selections (à-la-carte)."""
+        self._assert_user_exists(current_user)
+        if not self.onboarding_service.is_onboarding_complete(current_user['tenant_id']):
+            raise AppError('Complete onboarding before creating a procurement request', 400)
+
+        payload = payload or {}
+        product_id = payload.get('product_id')
+        if not product_id:
+            raise AppError('product_id is required', 400)
+        financial_model = self._resolve_financial_model(current_user, payload.get('financial_model'))
+        interval = (payload.get('interval') or 'MONTH').upper()
+        selections = {str(k): int(v) for k, v in (payload.get('selections') or {}).items()}
+
+        product = self.db.get(Product, self._parse_uuid(str(product_id), field_name='product_id'))
+        if product is None or not product.is_active:
+            raise NotFoundError('Product not found')
+
+        result = ComponentPricingService(self.db).price_product(
+            product.id, financial_model=financial_model, interval=interval,
+            selections=selections, tenant_id=current_user['tenant_id'],
+        )
+        self._validate_requires_device(result)
+        self._check_capacity(product, result)
+
+        quote = self.quote_repo.create(
+            tenant_id=self._parse_uuid(current_user['tenant_id'], field_name='tenant_id'),
+            created_by_user_id=self._parse_uuid(current_user['user_id'], field_name='user_id'),
+            status=QuoteStatus.DRAFT,
+            one_time_total=result['one_time_total'],
+            monthly_total=result['monthly_total'],
+            projected_12_month_cost=self.pricing_service._quantize_money(
+                result['one_time_total'] + result['monthly_total'] * Decimal('12')
+            ),
+            currency='USD',
+        )
+        self.pricing_service.get_or_create_deal_pricing(quote)
+        self._persist_component_tree(quote, product, result, financial_model)
+        self.db.commit()
+        return self.quote_repo.get_by_id(str(quote.id))
+
+    def add_component_line(self, current_user: dict, quote_id: str, payload: dict):
+        """Add / change quantity of a component on a draft component-quote ("2 → 3 lines").
+
+        Re-prices the whole product from the updated selections so totals and the
+        OPEX/annual treatment stay consistent. qty=0 removes the component.
+        """
+        quote = self.get_quote(current_user, quote_id)
+        if quote.status != QuoteStatus.DRAFT:
+            raise AppError('Can only modify a draft quote', 400)
+
+        payload = payload or {}
+        component_id = payload.get('component_id')
+        if not component_id:
+            raise AppError('component_id is required', 400)
+        qty = int(payload.get('qty', 1))
+
+        component = self.db.get(ProductComponent, self._parse_uuid(str(component_id), field_name='component_id'))
+        if component is None or not component.is_active:
+            raise NotFoundError('Component not found')
+        product = self.db.get(Product, component.product_id)
+
+        # Reconstruct current selections from the quote's existing component lines.
+        selections: dict[str, int] = {}
+        for line in quote.lines:
+            if line.component_id is not None and str(line.product_id) == str(product.id):
+                selections[str(line.component_id)] = line.qty
+        if qty <= 0:
+            selections.pop(str(component.id), None)
+        else:
+            selections[str(component.id)] = qty
+
+        financial_model = self._resolve_financial_model(current_user, quote.financial_model or 'CAPEX')
+        interval = quote.subscription_interval or 'MONTH'
+        result = ComponentPricingService(self.db).price_product(
+            product.id, financial_model=financial_model, interval=interval,
+            selections=selections, tenant_id=current_user['tenant_id'],
+        )
+        self._validate_requires_device(result)
+        self._check_capacity(product, result)
+        self._persist_component_tree(quote, product, result, financial_model)
+        self.db.commit()
+        return self.quote_repo.get_by_id(str(quote.id))
+
+    def create_bundle_quote(self, current_user: dict, payload: dict):
+        """Expand a bundle into a multi-product quote (Phase 5).
+
+        Each non-optional bundle item is priced (required components) and its tree
+        appended under the quote; per-product capacity is validated. Optional items
+        are included when their product_id appears in payload['include'].
+        Note: each bundle item is priced at qty 1 (multi-unit bundle items deferred).
+        """
+        self._assert_user_exists(current_user)
+        if not self.onboarding_service.is_onboarding_complete(current_user['tenant_id']):
+            raise AppError('Complete onboarding before creating a procurement request', 400)
+
+        payload = payload or {}
+        bundle_id = payload.get('bundle_id')
+        if not bundle_id:
+            raise AppError('bundle_id is required', 400)
+        financial_model = self._resolve_financial_model(current_user, payload.get('financial_model'))
+        interval = (payload.get('interval') or 'MONTH').upper()
+        include = {str(x) for x in (payload.get('include') or [])}
+
+        bundle = self.db.get(Bundle, self._parse_uuid(str(bundle_id), field_name='bundle_id'))
+        if bundle is None or not bundle.is_active:
+            raise NotFoundError('Bundle not found')
+        items = sorted(bundle.items, key=lambda i: i.sort_order)
+        if not items:
+            raise AppError('Bundle has no items', 400)
+
+        quote = self.quote_repo.create(
+            tenant_id=self._parse_uuid(current_user['tenant_id'], field_name='tenant_id'),
+            created_by_user_id=self._parse_uuid(current_user['user_id'], field_name='user_id'),
+            status=QuoteStatus.DRAFT, one_time_total=Decimal('0'), monthly_total=Decimal('0'),
+            projected_12_month_cost=Decimal('0'), currency='USD',
+        )
+        self.pricing_service.get_or_create_deal_pricing(quote)
+
+        cps = ComponentPricingService(self.db)
+        one_time_total = Decimal('0')
+        monthly_total = Decimal('0')
+        priced_any = False
+        for item in items:
+            if item.is_optional and str(item.product_id) not in include:
+                continue
+            product = self.db.get(Product, item.product_id)
+            if product is None or not product.is_active:
+                continue
+            result = cps.price_product(
+                product.id, financial_model=financial_model, interval=interval,
+                selections={}, tenant_id=current_user['tenant_id'],
+            )
+            self._validate_requires_device(result)
+            self._check_capacity(product, result)
+            self._write_component_lines(quote, product, result, financial_model)
+            one_time_total += result['one_time_total']
+            monthly_total += result['monthly_total']
+            priced_any = True
+
+        if not priced_any:
+            raise AppError('Bundle expanded to no active products', 400)
+
+        quote.one_time_total = self.pricing_service._quantize_money(one_time_total)
+        quote.monthly_total = self.pricing_service._quantize_money(monthly_total)
+        quote.projected_12_month_cost = self.pricing_service._quantize_money(
+            one_time_total + monthly_total * Decimal('12')
+        )
+        quote.financial_model = financial_model
+        quote.subscription_interval = interval
+        self.db.commit()
+        return self.quote_repo.get_by_id(str(quote.id))
+
     def list_quotes(self, current_user: dict):
         self._assert_user_exists(current_user)
         if self._is_admin(current_user.get('role')):
@@ -428,6 +708,9 @@ class QuoteService:
             quote_id=quote.id,
             status=OrderStatus.SUBMITTED,
         )
+        # Carry the quote's financial model onto the order header.
+        order.financial_model = quote.financial_model
+        order.subscription_interval = quote.subscription_interval
 
         sorted_lines = sorted(
             quote.lines,
@@ -454,6 +737,16 @@ class QuoteService:
                 interval=quote_line.interval,
                 metadata_json=quote_line.metadata_json or {},
                 parent_line_id=parent_line_id,
+                # Component-pricing snapshots (spec §4.8) — without these the
+                # financial model is lost when a quote converts to an order.
+                component_type=quote_line.component_type,
+                financial_model=quote_line.financial_model,
+                product_id=quote_line.product_id,
+                component_id=quote_line.component_id,
+                cost_snapshot=quote_line.cost_snapshot,
+                margin_pct_snapshot=quote_line.margin_pct_snapshot,
+                leasing_pct_snapshot=quote_line.leasing_pct_snapshot,
+                term_months=quote_line.term_months,
             )
             order_line_id_by_quote_line_id[str(quote_line.id)] = str(order_line.id)
 

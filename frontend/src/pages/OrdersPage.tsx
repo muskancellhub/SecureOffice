@@ -1,4 +1,4 @@
-import { ArrowUpRight, Clock3, PackageCheck, PackageSearch } from 'lucide-react';
+import { ArrowUpRight, CalendarClock, CheckCircle2, Clock3, Package, Plus } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
@@ -6,185 +6,127 @@ import { useAuth } from '../context/AuthContext';
 import type { OrderSummary } from '../types/commerce';
 import { extractApiError } from '../utils/extractApiError';
 
-const statusSteps = ['Ordered', 'Supplier', 'QC', 'Shipped', 'Delivered'] as const;
-const statusStepIndex: Record<string, number> = {
-  SUBMITTED: 0,
-  PROCESSING: 2,
-  VENDOR_ORDERED: 2,
-  SHIPPED: 3,
-  DELIVERED: 4,
-  ACTIVE: 4,
+const formatDateTime = (value?: string | null) => (value ? new Date(value).toLocaleString() : '—');
+
+const statusTone = (status: string): string => {
+  if (['DELIVERED', 'ACTIVE'].includes(status)) return 'good';
+  if (['SHIPPED', 'PROCESSING', 'SUBMITTED', 'VENDOR_ORDERED'].includes(status)) return 'progress';
+  return 'muted';
 };
+
+const prettyStatus = (status: string): string =>
+  status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
 export const OrdersPage = () => {
   const { accessToken } = useAuth();
   const navigate = useNavigate();
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!accessToken) return;
+    setLoading(true);
     commerceApi
       .listOrders(accessToken)
       .then(setOrders)
-      .catch((err: any) => setError(extractApiError(err, 'Failed to load orders')));
+      .catch((err: any) => setError(extractApiError(err, 'Failed to load orders')))
+      .finally(() => setLoading(false));
   }, [accessToken]);
 
   const sortedOrders = useMemo(
     () => [...orders].sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)),
     [orders],
   );
-  const featuredOrder = useMemo(() => sortedOrders[0] || null, [sortedOrders]);
-  const activeStepIndex = useMemo(() => {
-    if (!featuredOrder) return 2;
-    return statusStepIndex[featuredOrder.status] ?? 2;
-  }, [featuredOrder]);
-  const inProgressCount = useMemo(
-    () => sortedOrders.filter((order) => ['SUBMITTED', 'PROCESSING', 'SHIPPED'].includes(order.status)).length,
-    [sortedOrders],
-  );
-  const deliveredCount = useMemo(
-    () => sortedOrders.filter((order) => ['DELIVERED', 'ACTIVE'].includes(order.status)).length,
-    [sortedOrders],
-  );
-  const awaitingConfirmedCount = useMemo(
-    () => sortedOrders.filter((order) => !order.confirmed_delivery_date).length,
-    [sortedOrders],
-  );
 
-  const formatDateTime = (value?: string | null) => (value ? new Date(value).toLocaleString() : '-');
-  const statusTone = (status: string) => {
-    if (['DELIVERED', 'ACTIVE'].includes(status)) return 'is-good';
-    if (['SHIPPED', 'PROCESSING', 'SUBMITTED'].includes(status)) return 'is-progress';
-    return 'is-muted';
-  };
+  const stats = useMemo(() => ({
+    total: sortedOrders.length,
+    inProgress: sortedOrders.filter((o) => ['SUBMITTED', 'PROCESSING', 'SHIPPED', 'VENDOR_ORDERED'].includes(o.status)).length,
+    delivered: sortedOrders.filter((o) => ['DELIVERED', 'ACTIVE'].includes(o.status)).length,
+    awaiting: sortedOrders.filter((o) => !o.confirmed_delivery_date).length,
+  }), [sortedOrders]);
 
   return (
-    <section className="content-wrap fade-in orders-page">
-      <div className="content-head row-between orders-hero">
-        <div>
-          <p className="orders-eyebrow">Operations</p>
-          <h1>Order Tracker</h1>
-          <p className="lead">Track supplier, QC, shipping, and delivery milestones from one enterprise view.</p>
+    <section className="content-wrap fade-in ord-page">
+      <header className="apx-header">
+        <div className="apx-header-text">
+          <h1>Orders</h1>
+          <p className="apx-subtitle">Track every order from supplier and QC through shipping and delivery.</p>
         </div>
-        <button className="primary-btn" onClick={() => navigate('/shop/designs/new')}>
-          New Request
+        <button className="apx-add-btn" onClick={() => navigate('/shop/designs/new')}>
+          <Plus size={18} /> New request
         </button>
-      </div>
+      </header>
 
       {error && <div className="error-text">{error}</div>}
 
-      <section className="orders-overview-grid">
-        <article className="order-status-card orders-feature-card">
-          <div className="orders-feature-top row-between">
-            <div>
-              <div className="orders-id-row">
-                <PackageSearch size={17} />
-                <h3>Order #{featuredOrder ? featuredOrder.public_id : 'No Orders Yet'}</h3>
-              </div>
-              <div className="orders-meta-row">
-                <span className="orders-meta-pill">
-                  <Clock3 size={13} />
-                  Created {featuredOrder ? formatDateTime(featuredOrder.created_at) : '-'}
-                </span>
-                <span className="orders-meta-pill">
-                  ETA {featuredOrder?.estimated_delivery_date || 'TBD'}
-                </span>
-                <span className="orders-meta-pill">
-                  Confirmed {featuredOrder?.confirmed_delivery_date || 'Pending'}
-                </span>
-              </div>
-            </div>
-            <span className={`badge orders-status-badge ${statusTone(featuredOrder?.status || 'PROCESSING')}`}>
-              {featuredOrder?.status || 'PROCESSING'}
-            </span>
-          </div>
-          <div className="status-track orders-status-track">
-            {statusSteps.map((step, index) => {
-              const stateClass = index < activeStepIndex ? 'done' : index === activeStepIndex ? 'active' : '';
-              return (
-                <div key={step} className={`track-step ${stateClass}`}>
-                  <span className="dot" />
-                  <span>{step.replace('_', ' ')}</span>
-                </div>
-              );
-            })}
-          </div>
+      <div className="apx-stats">
+        <article className="apx-stat">
+          <div className="apx-stat-head"><span>Total orders</span><span className="apx-stat-icon blue"><Package size={16} /></span></div>
+          <div className="apx-stat-value">{stats.total}</div>
         </article>
+        <article className="apx-stat">
+          <div className="apx-stat-head"><span>In progress</span><span className="apx-stat-icon amber"><Clock3 size={16} /></span></div>
+          <div className="apx-stat-value">{stats.inProgress}</div>
+        </article>
+        <article className="apx-stat">
+          <div className="apx-stat-head"><span>Delivered</span><span className="apx-stat-icon green"><CheckCircle2 size={16} /></span></div>
+          <div className="apx-stat-value">{stats.delivered}</div>
+        </article>
+        <article className="apx-stat">
+          <div className="apx-stat-head"><span>Awaiting confirmed date</span><span className="apx-stat-icon violet"><CalendarClock size={16} /></span></div>
+          <div className="apx-stat-value">{stats.awaiting}</div>
+        </article>
+      </div>
 
-        <aside className="orders-kpi-panel">
-          <div className="orders-kpi-card">
-            <span>Total orders</span>
-            <strong>{sortedOrders.length}</strong>
+      <div className="apx-table-card ord-table-card">
+        <div className="ord-table">
+          <div className="ord-thead">
+            <span>Order ID</span>
+            <span>Created</span>
+            <span>Status</span>
+            <span>Fulfillment</span>
+            <span />
           </div>
-          <div className="orders-kpi-card">
-            <span>In progress</span>
-            <strong>{inProgressCount}</strong>
-          </div>
-          <div className="orders-kpi-card">
-            <span>Delivered</span>
-            <strong>{deliveredCount}</strong>
-          </div>
-          <div className="orders-kpi-card">
-            <span>Awaiting confirmed date</span>
-            <strong>{awaitingConfirmedCount}</strong>
-          </div>
-        </aside>
-      </section>
 
-      <section className="orders-list-card">
-        <div className="row-between orders-list-head">
-          <h3>All Orders</h3>
-          <span className="mini-note">Click any order to view line-level workflow.</span>
+          {loading && <div className="apx-empty">Loading orders…</div>}
+          {!loading && sortedOrders.length === 0 && (
+            <div className="ord-empty">
+              <span className="ord-empty-icon"><Package size={26} strokeWidth={1.3} /></span>
+              <p>No orders yet. Convert an accepted quote or start a new design to create one.</p>
+              <button className="apx-add-btn" onClick={() => navigate('/shop/designs/new')}>
+                <Plus size={17} /> Start new request
+              </button>
+            </div>
+          )}
+
+          {sortedOrders.map((order) => (
+            <div
+              key={order.id}
+              className="ord-row"
+              role="button"
+              tabIndex={0}
+              onClick={() => navigate(`/shop/orders/${order.id}`)}
+              onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/shop/orders/${order.id}`); }}
+            >
+              <span className="ord-id">{order.public_id}</span>
+              <span className="ord-created">{formatDateTime(order.created_at)}</span>
+              <span>
+                <span className={`ord-status ord-status-${statusTone(order.status)}`}>{prettyStatus(order.status)}</span>
+              </span>
+              <span className="ord-fulfillment">
+                <span>ETA: {order.estimated_delivery_date || '—'}</span>
+                <span>Confirmed: {order.confirmed_delivery_date || '—'}</span>
+              </span>
+              <span className="ord-row-action">
+                <Link className="ord-open" to={`/shop/orders/${order.id}`} onClick={(e) => e.stopPropagation()}>
+                  Open <ArrowUpRight size={15} />
+                </Link>
+              </span>
+            </div>
+          ))}
         </div>
-
-        <div className="table-wrap orders-table-wrap">
-          <table className="cart-table orders-table">
-            <thead>
-              <tr>
-                <th>Order ID</th>
-                <th>Created</th>
-                <th>Status</th>
-                <th>Fulfillment</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedOrders.map((order) => (
-                <tr key={order.id}>
-                  <td>
-                    <strong>{order.public_id}</strong>
-                  </td>
-                  <td>{formatDateTime(order.created_at)}</td>
-                  <td>
-                    <span className={`badge orders-status-badge ${statusTone(order.status)}`}>{order.status}</span>
-                  </td>
-                  <td className="orders-fulfillment-cell">
-                    <span>ETA: {order.estimated_delivery_date || '-'}</span>
-                    <span>Confirmed: {order.confirmed_delivery_date || '-'}</span>
-                  </td>
-                  <td>
-                    <Link className="ghost-link orders-open-link" to={`/shop/orders/${order.id}`}>
-                      Open <ArrowUpRight size={14} />
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-              {sortedOrders.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="mini-note">
-                    No orders yet. Convert an accepted quote to create one.
-                    {' '}
-                    <button className="secondary-btn" onClick={() => navigate('/shop/designs/new')}>
-                      Start new request
-                    </button>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      </div>
     </section>
   );
 };

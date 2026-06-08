@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -37,6 +37,19 @@ class CustomerPricing(Base):
         primary_key=True,
     )
     default_discount_pct: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.30)
+    # Cost-plus-margin model (spec §4.5) — coexists with the legacy discount model above.
+    default_margin_pct: Mapped[float] = mapped_column(
+        Numeric(6, 4), nullable=False, default=0.20, server_default='0.2000'
+    )
+    credit_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default='PENDING', server_default='PENDING'
+    )
+    credit_limit: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    opex_eligible: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text('FALSE')
+    )
+    credit_checked_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    credit_bureau_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
     updated_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

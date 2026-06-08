@@ -43,6 +43,29 @@ class CreateUserRequest(BaseModel):
         return validate_phone(v)
 
 
+class InviteUserRequest(BaseModel):
+    email: EmailStr
+    name: str | None = Field(default=None, max_length=255)
+    role: UserRole = UserRole.USER
+    tenant_id: str | None = None
+
+    @field_validator('email')
+    @classmethod
+    def check_email(cls, v: str) -> str:
+        return validate_email(v)
+
+    @field_validator('name', mode='before')
+    @classmethod
+    def strip_name(cls, v: str | None) -> str | None:
+        return v.strip() if isinstance(v, str) else v
+
+
+class InviteUserResponse(BaseModel):
+    user: UserSummaryResponse
+    email_sent: bool
+    email_error: str | None = None
+
+
 class UpdateUserRoleRequest(BaseModel):
     role: UserRole
 

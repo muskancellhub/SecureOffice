@@ -45,6 +45,11 @@ class Order(Base):
     )
     estimated_delivery_date: Mapped[Date | None] = mapped_column(Date, nullable=True)
     confirmed_delivery_date: Mapped[Date | None] = mapped_column(Date, nullable=True)
+    # Financial model parity with Quote (spec §4.8).
+    financial_model: Mapped[str] = mapped_column(
+        String(8), nullable=False, default='CAPEX', server_default='CAPEX'
+    )
+    subscription_interval: Mapped[str | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True),
@@ -95,6 +100,20 @@ class OrderLine(Base):
         ForeignKey('order_lines.id', ondelete='SET NULL'),
         nullable=True,
     )
+    # Component-pricing snapshots (spec §4.8) — mirror QuoteLine so convert_quote
+    # carries the financial model through to the order.
+    component_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    financial_model: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    product_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey('products.id', ondelete='SET NULL'), nullable=True
+    )
+    component_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey('product_components.id', ondelete='SET NULL'), nullable=True
+    )
+    cost_snapshot: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False, default=0, server_default='0')
+    margin_pct_snapshot: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0, server_default='0')
+    leasing_pct_snapshot: Mapped[float | None] = mapped_column(Numeric(6, 4), nullable=True)
+    term_months: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     # Backward-compatible aliases for existing frontend serializers.

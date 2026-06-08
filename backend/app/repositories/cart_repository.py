@@ -69,11 +69,17 @@ class CartRepository:
             stmt = stmt.where(CartLine.applies_to_line_id == applies_to_line_id)
         return self.db.scalar(stmt)
 
-    def get_line_by_id(self, line_id: str) -> CartLine | None:
+    def get_line_by_id(self, line_id) -> CartLine | None:
+        # line_id may arrive as a uuid.UUID (Pydantic coerces the
+        # applies_to_line_id: UUID request field) or as a plain string (internal
+        # callers). Calling uuid.UUID() on an existing UUID raises AttributeError,
+        # which slipped past the except below and surfaced as a 500 on every
+        # service-attach request. Normalise both forms here.
         try:
-            return self.db.get(CartLine, uuid.UUID(line_id))
-        except (ValueError, TypeError):
+            key = line_id if isinstance(line_id, uuid.UUID) else uuid.UUID(line_id)
+        except (ValueError, TypeError, AttributeError):
             return None
+        return self.db.get(CartLine, key)
 
     def delete_line(self, line: CartLine) -> None:
         self.db.delete(line)

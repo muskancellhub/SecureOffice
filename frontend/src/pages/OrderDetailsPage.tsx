@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { ArrowLeft, ArrowUpRight, CalendarClock, Check, CreditCard, Layers, Package, RefreshCw } from 'lucide-react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
 import { startOrderCheckout } from '../api/billingApi';
 import { useAuth } from '../context/AuthContext';
@@ -8,17 +9,24 @@ import { extractApiError } from '../utils/extractApiError';
 
 const timelineSteps = ['Ordered', 'Supplier', 'QC', 'Shipped', 'Delivered'] as const;
 const statusStepIndex: Record<string, number> = {
-  SUBMITTED: 0,
-  PROCESSING: 2,
-  VENDOR_ORDERED: 2,
-  SHIPPED: 3,
-  DELIVERED: 4,
-  ACTIVE: 4,
+  SUBMITTED: 0, PROCESSING: 2, VENDOR_ORDERED: 2, SHIPPED: 3, DELIVERED: 4, ACTIVE: 4,
+};
+
+const money = (v: number): string =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(v || 0);
+const fmtIso = (d?: string | null): string => (d ? String(d).slice(0, 10) : '—');
+const prettyStatus = (s: string): string => s.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+const statusTone = (s: string): string => {
+  const u = (s || '').toUpperCase();
+  if (['DELIVERED', 'ACTIVE', 'COMPLETED'].includes(u)) return 'good';
+  if (['SHIPPED', 'PROCESSING', 'SUBMITTED', 'VENDOR_ORDERED'].includes(u)) return 'progress';
+  return 'muted';
 };
 
 export const OrderDetailsPage = () => {
   const { orderId } = useParams();
   const { accessToken } = useAuth();
+  const navigate = useNavigate();
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [workflow, setWorkflow] = useState<WorkflowInstance | null>(null);
   const [error, setError] = useState('');
@@ -39,9 +47,7 @@ export const OrderDetailsPage = () => {
     }
   };
 
-  useEffect(() => {
-    load();
-  }, [accessToken, orderId]);
+  useEffect(() => { load(); }, [accessToken, orderId]);
 
   const onPayWithCard = async () => {
     if (!orderId) return;
@@ -93,81 +99,131 @@ export const OrderDetailsPage = () => {
     return [...devices, ...services];
   }, [order?.lines]);
 
-  return (
-    <section className="content-wrap fade-in">
-      <div className="content-head row-between">
-        <h1>Order Details</h1>
-        <Link to="/shop/orders" className="ghost-link">Back to Orders</Link>
-      </div>
+  const totals = useMemo(() => {
+    let oneTime = 0;
+    let recurring = 0;
+    (order?.lines || []).forEach((line) => {
+      const amt = (line.unit_price || 0) * (line.qty || 1);
+      if (line.billing === 'RECURRING') recurring += amt;
+      else oneTime += amt;
+    });
+    return { oneTime, recurring, items: (order?.lines || []).length };
+  }, [order?.lines]);
 
+  return (
+    <section className="content-wrap fade-in odx-page">
       {error && <div className="error-text">{error}</div>}
 
       {order && (
         <>
-          <section className="order-status-card">
-            <div className="row-between">
-              <div>
-                <h3>Order #{order.public_id}</h3>
-                <p className="mini-note">
-                  Status: {order.status}
-                  {order.quote_public_id ? ` | Quote: ${order.quote_public_id}` : ''}
-                  {workflow ? ` | Workflow: ${workflow.status}` : ''}
-                </p>
-              </div>
-              <div className="row-between" style={{ gap: '0.75rem' }}>
-                <span className="order-status-pill">{order.status}</span>
-                {isPayable && (
-                  <button className="primary-btn" onClick={onPayWithCard} disabled={payingWithCard}>
-                    {payingWithCard ? 'Redirecting...' : 'Pay with Card'}
+          <header className="apx-header">
+            <div className="apx-header-text">
+              <Link to="/shop/orders" className="dnb-back"><ArrowLeft size={15} /> Back to orders</Link>
+              <h1>Order {order.public_id}</h1>
+              <p className="apx-subtitle">Track this order from supplier and QC through shipping and delivery.</p>
+              <div className="apx-scope">
+                <span className={`ord-status ord-status-${statusTone(order.status)}`}>{prettyStatus(order.status)}</span>
+                {order.quote_public_id && (
+                  <button type="button" className="dnb-meta-link" onClick={() => navigate(`/shop/orders`)}>
+                    Quote {order.quote_public_id} <ArrowUpRight size={13} />
                   </button>
                 )}
+                {workflow && <span className="apx-scope-meta">Workflow {prettyStatus(workflow.status)}</span>}
               </div>
             </div>
-            <div className="status-track">
+            {isPayable && (
+              <button className="apx-add-btn" onClick={onPayWithCard} disabled={payingWithCard}>
+                <CreditCard size={18} /> {payingWithCard ? 'Redirecting…' : 'Pay with card'}
+              </button>
+            )}
+          </header>
+
+          <div className="apx-stats odx-stats">
+            <article className="apx-stat">
+              <div className="apx-stat-head"><span>One-time total</span><span className="apx-stat-icon green"><CreditCard size={16} /></span></div>
+              <div className="apx-stat-value">{money(totals.oneTime)}</div>
+            </article>
+            <article className="apx-stat">
+              <div className="apx-stat-head"><span>Recurring / mo</span><span className="apx-stat-icon violet"><RefreshCw size={16} /></span></div>
+              <div className="apx-stat-value">{money(totals.recurring)}</div>
+            </article>
+            <article className="apx-stat">
+              <div className="apx-stat-head"><span>Line items</span><span className="apx-stat-icon blue"><Layers size={16} /></span></div>
+              <div className="apx-stat-value">{totals.items}</div>
+            </article>
+            <article className="apx-stat">
+              <div className="apx-stat-head"><span>Est. delivery</span><span className="apx-stat-icon amber"><CalendarClock size={16} /></span></div>
+              <div className="apx-stat-value apx-stat-text">{fmtIso(order.estimated_delivery_date)}</div>
+            </article>
+          </div>
+
+          {/* Fulfillment timeline */}
+          <div className="apx-table-card odx-track-card">
+            <div className="dnb-card-head"><h3 className="apx-modal-title" style={{ margin: 0 }}>Fulfillment</h3></div>
+            <div className="dbx-track odx-track">
               {timelineLabels.map((step, index) => {
-                const stateClass = index < activeStepIndex ? 'done' : index === activeStepIndex ? 'active' : '';
+                const state = index < activeStepIndex ? 'done' : index === activeStepIndex ? 'active' : '';
                 return (
-                  <div key={step} className={`track-step ${stateClass}`}>
-                    <span className="dot" />
-                    <span>{step}</span>
+                  <div key={step} className={`dbx-track-step ${state}`}>
+                    <span className="dbx-track-ico">{index < activeStepIndex ? <Check size={16} /> : index + 1}</span>
+                    <span className="dbx-track-lbl">{step}</span>
+                    {index < timelineLabels.length - 1 && <span className="dbx-track-line" />}
                   </div>
                 );
               })}
             </div>
-          </section>
+          </div>
 
-          <div className="table-wrap">
-            <table className="cart-table">
-              <thead>
-                <tr>
-                  <th>Line</th>
-                  <th>Type</th>
-                  <th>Qty</th>
-                  <th>Unit</th>
-                  <th>Billing</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedLines.map((line) => (
-                  <tr key={line.id}>
-                    <td>
-                      {line.parent_line_id ? `↳ ${line.name} (attached to ${parentNameById.get(line.parent_line_id) || 'Device'})` : line.name}
-                    </td>
-                    <td>{line.line_type}</td>
-                    <td>{line.qty}</td>
-                    <td>${line.unit_price.toFixed(2)}</td>
-                    <td>{line.billing === 'RECURRING' ? `Recurring ${line.interval || ''}`.trim() : 'One-time'}</td>
-                  </tr>
-                ))}
-                {sortedLines.length === 0 && (
+          {/* Order lines */}
+          <div className="apx-table-card dnb-bom-card">
+            <div className="dnb-card-head"><h3 className="apx-modal-title" style={{ margin: 0 }}>Order lines</h3></div>
+            {sortedLines.length > 0 ? (
+              <table className="dnb-bom">
+                <thead>
                   <tr>
-                    <td colSpan={5} className="mini-note">No order lines found.</td>
+                    <th>Line</th>
+                    <th>Type</th>
+                    <th className="dnb-num">Qty</th>
+                    <th className="dnb-num">Unit</th>
+                    <th className="dnb-num">Total</th>
+                    <th>Billing</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {sortedLines.map((line) => (
+                    <tr key={line.id}>
+                      <td>
+                        {line.parent_line_id ? (
+                          <>
+                            <div className="dnb-bom-name">↳ {line.name}</div>
+                            <div className="dnb-bom-sub">attached to {parentNameById.get(line.parent_line_id) || 'device'}</div>
+                          </>
+                        ) : (
+                          <div className="dnb-bom-name">{line.name}</div>
+                        )}
+                      </td>
+                      <td><span className="dnb-cat-tag">{prettyStatus(line.line_type)}</span></td>
+                      <td className="dnb-num">{line.qty}</td>
+                      <td className="dnb-num">{money(line.unit_price)}</td>
+                      <td className="dnb-num dnb-total">{money(line.unit_price * (line.qty || 1))}</td>
+                      <td>
+                        <span className="odx-billing">
+                          {line.billing === 'RECURRING' ? `Recurring${line.interval ? ` / ${line.interval.toLowerCase()}` : ''}` : 'One-time'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="mini-note">No order lines found.</p>
+            )}
           </div>
         </>
+      )}
+
+      {!order && !error && (
+        <div className="odx-loading"><Package size={26} strokeWidth={1.3} /> Loading order…</div>
       )}
     </section>
   );

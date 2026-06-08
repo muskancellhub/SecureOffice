@@ -9,7 +9,14 @@ class TenantRepository:
         self.db = db
 
     def get_by_id(self, tenant_id: str) -> Tenant | None:
-        return self.db.get(Tenant, uuid.UUID(tenant_id))
+        try:
+            tid = uuid.UUID(str(tenant_id))
+        except (ValueError, TypeError):
+            return None
+        return self.db.get(Tenant, tid)
 
     def get_first(self) -> Tenant | None:
         return self.db.scalar(select(Tenant).order_by(Tenant.created_at.asc()))
+
+    def list_all(self) -> list[Tenant]:
+        return list(self.db.scalars(select(Tenant).order_by(Tenant.name.asc())))

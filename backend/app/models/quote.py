@@ -54,6 +54,11 @@ class Quote(Base):
     one_time_total: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     monthly_total: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     projected_12_month_cost: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+    # Financial model for the quote (spec §4.8). CAPEX|OPEX|MIXED.
+    financial_model: Mapped[str] = mapped_column(
+        String(8), nullable=False, default='CAPEX', server_default='CAPEX'
+    )
+    subscription_interval: Mapped[str | None] = mapped_column(String(16), nullable=True)
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default='USD')
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[DateTime] = mapped_column(
@@ -105,6 +110,21 @@ class QuoteLine(Base):
         ForeignKey('quote_lines.id', ondelete='SET NULL'),
         nullable=True,
     )
+    # Component-pricing snapshots (spec §4.8) — keep a quote reproducible if the
+    # catalog / margins change later. component_type & financial_model stay loose
+    # VARCHAR snapshots (matching the existing *_snapshot convention).
+    component_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    financial_model: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    product_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey('products.id', ondelete='SET NULL'), nullable=True
+    )
+    component_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey('product_components.id', ondelete='SET NULL'), nullable=True
+    )
+    cost_snapshot: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False, default=0, server_default='0')
+    margin_pct_snapshot: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0, server_default='0')
+    leasing_pct_snapshot: Mapped[float | None] = mapped_column(Numeric(6, 4), nullable=True)
+    term_months: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     # Backward-compatible aliases for existing frontend serializers.

@@ -1,17 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Building2, Clock, Mail, Plus, Save, X } from 'lucide-react';
 import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
-import { extractApiError } from '../utils/extractApiError';
+import { extractApiError, isValidEmail } from '../utils/extractApiError';
 
-const parseRecipientInput = (value: string): string[] =>
-  Array.from(
-    new Set(
-      value
-        .split(/[\n,;]+/g)
-        .map((row) => row.trim().toLowerCase())
-        .filter(Boolean),
-    ),
-  );
+const normalizeEmail = (value: string): string => value.trim().toLowerCase();
 
 export const AdminOrderNotificationsPage = () => {
   const { accessToken, user } = useAuth();
@@ -21,8 +14,10 @@ export const AdminOrderNotificationsPage = () => {
     [isAdmin, user?.effective_permissions],
   );
 
-  const [input, setInput] = useState('');
-  const [currentRecipients, setCurrentRecipients] = useState<string[]>([]);
+  const [recipients, setRecipients] = useState<string[]>([]);
+  const [original, setOriginal] = useState<string[]>([]);
+  const [orgName, setOrgName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
   const [updatedAt, setUpdatedAt] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -30,19 +25,19 @@ export const AdminOrderNotificationsPage = () => {
   const [notice, setNotice] = useState('');
 
   const load = async () => {
-    if (!accessToken || !canManage) {
-      setCurrentRecipients([]);
-      setInput('');
-      return;
-    }
-
+    if (!accessToken || !canManage) { setRecipients([]); setOriginal([]); return; }
     setLoading(true);
     setError('');
     try {
-      const data = await commerceApi.getOrderNotificationRecipients(accessToken);
-      setCurrentRecipients(data.recipients || []);
-      setInput((data.recipients || []).join('\n'));
+      const [data, profile] = await Promise.all([
+        commerceApi.getOrderNotificationRecipients(accessToken),
+        commerceApi.getOnboardingProfile(accessToken).catch(() => null),
+      ]);
+      const list = data.recipients || [];
+      setRecipients(list);
+      setOriginal(list);
       setUpdatedAt(data.updated_at);
+      setOrgName(profile?.organization_name || '');
     } catch (err: any) {
       setError(extractApiError(err, 'Failed to load order notification recipients'));
     } finally {
@@ -50,9 +45,7 @@ export const AdminOrderNotificationsPage = () => {
     }
   };
 
-  useEffect(() => {
-    load();
-  }, [accessToken, canManage]);
+  useEffect(() => { load(); }, [accessToken, canManage]);
 
   useEffect(() => {
     if (!notice) return;
@@ -60,17 +53,38 @@ export const AdminOrderNotificationsPage = () => {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  const dirty = useMemo(() => {
+    if (recipients.length !== original.length) return true;
+    const a = [...recipients].sort();
+    const b = [...original].sort();
+    return a.some((v, i) => v !== b[i]);
+  }, [recipients, original]);
+
+  const addRecipient = () => {
+    const email = normalizeEmail(newEmail);
+    if (!email) return;
+    if (!isValidEmail(email)) { setError('Please enter a valid email address'); return; }
+    if (recipients.includes(email)) { setError('That email is already in the list'); return; }
+    setError('');
+    setRecipients((prev) => [...prev, email]);
+    setNewEmail('');
+  };
+
+  const removeRecipient = (email: string) => {
+    setRecipients((prev) => prev.filter((e) => e !== email));
+  };
+
   const onSave = async () => {
     if (!accessToken || !canManage) return;
-    const recipients = parseRecipientInput(input);
     setSaving(true);
     setError('');
     try {
       const data = await commerceApi.updateOrderNotificationRecipients(accessToken, recipients);
-      setCurrentRecipients(data.recipients || []);
-      setInput((data.recipients || []).join('\n'));
+      const list = data.recipients || [];
+      setRecipients(list);
+      setOriginal(list);
       setUpdatedAt(data.updated_at);
-      setNotice('Recipient list updated.');
+      setNotice('Recipient list saved.');
     } catch (err: any) {
       setError(extractApiError(err, 'Failed to update recipients'));
     } finally {
@@ -78,58 +92,82 @@ export const AdminOrderNotificationsPage = () => {
     }
   };
 
-  const previewRecipients = parseRecipientInput(input);
+  if (!isAdmin) {
+    return <section className="content-wrap fade-in"><div className="error-text">Admin access required.</div></section>;
+  }
 
   return (
-    <section className="content-wrap fade-in">
-      {!isAdmin && <div className="error-text">Admin access required.</div>}
-      {isAdmin && (
-        <>
-          <div className="content-head">
-            <h1>Order Notifications</h1>
-            <p className="lead">Define recipient emails for fulfillment handoff when an order is captured.</p>
+    <section className="content-wrap fade-in order-emails-page">
+      <header className="apx-header">
+        <div className="apx-header-text">
+          <span className="apx-eyebrow"><Mail size={15} /> Admin</span>
+          <h1>Order emails</h1>
+          <p className="apx-subtitle">Recipients notified when an order is captured for fulfillment handoff.</p>
+          <div className="apx-scope">
+            <span className="apx-scope-chip"><Building2 size={14} /> Scope: {orgName || 'All tenants'}</span>
+            <span className="apx-scope-meta">{recipients.length} recipient{recipients.length === 1 ? '' : 's'}</span>
+          </div>
+        </div>
+      </header>
+
+      {!canManage && <div className="error-text">Missing permission: `manage_lifecycle`.</div>}
+      {error && <div className="error-text">{error}</div>}
+      {notice && <div className="toast-notice">{notice}</div>}
+      {loading && <div className="mini-note">Loading recipient settings…</div>}
+
+      {canManage && (
+        <div className="apx-table-card oe-card">
+          <div className="oe-card-head">
+            <h3 className="apx-modal-title" style={{ margin: 0 }}>Fulfillment recipients</h3>
+            {updatedAt && (
+              <span className="oe-updated"><Clock size={14} /> Updated {new Date(updatedAt).toLocaleString()}</span>
+            )}
           </div>
 
-          {!canManage && <div className="error-text">Missing permission: `manage_lifecycle`.</div>}
-          {error && <div className="error-text">{error}</div>}
-          {notice && <div className="toast-notice">{notice}</div>}
-          {loading && <div className="mini-note">Loading recipient settings...</div>}
-
-          {canManage && (
-            <article className="dashboard-panel">
-              <h3>Fulfillment Recipient Emails</h3>
-              <p className="mini-note">Enter one email per line (comma and semicolon separators are also supported).</p>
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                rows={10}
-                placeholder="ops@company.com&#10;vendor-queue@partner.com"
+          <div className="oe-add-row">
+            <div className="apx-search oe-input">
+              <Mail size={16} />
+              <input
+                type="email"
+                placeholder="ops@company.com"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addRecipient(); } }}
               />
-              <div className="mini-note" style={{ marginTop: '0.75rem' }}>
-                Active recipients: {previewRecipients.length}
-              </div>
-              <div className="line-actions" style={{ marginTop: '1rem' }}>
-                <button className="primary-btn" onClick={onSave} disabled={saving}>
-                  {saving ? 'Saving...' : 'Save Recipients'}
-                </button>
-              </div>
+            </div>
+            <button className="apx-add-btn" onClick={addRecipient} disabled={!newEmail.trim()}>
+              <Plus size={17} /> Add recipient
+            </button>
+          </div>
 
-              <div style={{ marginTop: '1rem' }}>
-                <h4>Configured List</h4>
-                {currentRecipients.length > 0 ? (
-                  <ul>
-                    {currentRecipients.map((email) => (
-                      <li key={email}>{email}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mini-note">No recipients configured yet. Order emails will be skipped until saved.</p>
-                )}
-                {updatedAt && <p className="mini-note">Last updated: {new Date(updatedAt).toLocaleString()}</p>}
-              </div>
-            </article>
+          {recipients.length === 0 ? (
+            <div className="oe-empty">
+              <span className="oe-empty-icon"><Mail size={26} strokeWidth={1.3} /></span>
+              <p>No recipients yet. Order emails will be skipped until at least one is saved.</p>
+            </div>
+          ) : (
+            <ul className="oe-list">
+              {recipients.map((email) => (
+                <li key={email} className="oe-row">
+                  <span className="oe-avatar"><Mail size={16} /></span>
+                  <span className="oe-email">{email}</span>
+                  <button className="oe-remove" aria-label={`Remove ${email}`} title="Remove" onClick={() => removeRecipient(email)}>
+                    <X size={16} />
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
-        </>
+
+          <div className="oe-foot">
+            <span className="oe-foot-note">
+              {dirty ? 'Unsaved changes' : 'All changes saved'}
+            </span>
+            <button className="apx-add-btn" onClick={onSave} disabled={saving || !dirty}>
+              <Save size={15} /> {saving ? 'Saving…' : 'Save changes'}
+            </button>
+          </div>
+        </div>
       )}
     </section>
   );

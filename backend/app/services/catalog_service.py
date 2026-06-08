@@ -385,6 +385,16 @@ class CatalogService:
         self.db.commit()
         return upserted
 
+    def seed_mix_products(self) -> dict:
+        """Idempotently seed the MIX Networks component catalog (Phase 1).
+
+        Writes to products / product_components (not catalog_items). Delegates to
+        app.services.mix_seed; returns a {'products','components','financing_terms'}
+        summary. Safe to call on every startup.
+        """
+        from app.services.mix_seed import seed_mix_products as _seed
+        return _seed(self.db)
+
     PAPI_PRODUCT_TYPE_CATEGORY = {
         'phones': 'phone',
         'phone': 'phone',

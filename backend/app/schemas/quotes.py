@@ -38,6 +38,31 @@ class PreviewQuoteRequest(BaseModel):
     draft_solution: DraftSolutionInput
 
 
+class ComponentQuoteRequest(BaseModel):
+    """Phase 3 — assemble a quote from a product + component selections."""
+
+    product_id: str
+    financial_model: str = Field(default='CAPEX', pattern='^(CAPEX|OPEX)$')
+    interval: str = Field(default='MONTH', pattern='^(MONTH|YEAR)$')
+    selections: dict[str, int] = Field(default_factory=dict)
+
+
+class AddComponentRequest(BaseModel):
+    """Add / change quantity of a component on a draft quote (qty=0 removes it)."""
+
+    component_id: str
+    qty: int = Field(default=1, ge=0)
+
+
+class BundleQuoteRequest(BaseModel):
+    """Phase 5 — expand a bundle into a multi-product quote."""
+
+    bundle_id: str
+    financial_model: str = Field(default='CAPEX', pattern='^(CAPEX|OPEX)$')
+    interval: str = Field(default='MONTH', pattern='^(MONTH|YEAR)$')
+    include: list[str] = Field(default_factory=list)  # optional bundle-item product_ids to add
+
+
 class QuoteLineResponse(BaseModel):
     id: str
     quote_id: str

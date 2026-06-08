@@ -4,6 +4,9 @@ from app.core.database import get_db
 from app.middleware.dependencies import get_current_user
 from app.schemas.orders import OrderDetailResponse, OrderLineResponse
 from app.schemas.quotes import (
+    AddComponentRequest,
+    BundleQuoteRequest,
+    ComponentQuoteRequest,
     CreateQuoteRequest,
     PreviewQuoteRequest,
     QuoteDetailResponse,
@@ -122,6 +125,40 @@ def create_quote(
 ):
     quote = QuoteService(db).create_quote(current_user, payload.model_dump() if payload else None)
     return QuoteIdResponse(quote_id=str(quote.id), quote_public_id=quote.public_id)
+
+
+@router.post('/component', response_model=QuoteDetailResponse)
+def create_component_quote(
+    payload: ComponentQuoteRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Assemble a quote from a product + component selections (Phase 3 à-la-carte)."""
+    quote = QuoteService(db).create_component_quote(current_user, payload.model_dump())
+    return _serialize_quote(db, quote)
+
+
+@router.post('/bundle', response_model=QuoteDetailResponse)
+def create_bundle_quote(
+    payload: BundleQuoteRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Expand a bundle into a multi-product quote (Phase 5)."""
+    quote = QuoteService(db).create_bundle_quote(current_user, payload.model_dump())
+    return _serialize_quote(db, quote)
+
+
+@router.post('/{quote_id}/add-component', response_model=QuoteDetailResponse)
+def add_component_to_quote(
+    quote_id: str,
+    payload: AddComponentRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Add or change quantity of a component on a draft quote ("2 -> 3 lines")."""
+    quote = QuoteService(db).add_component_line(current_user, quote_id, payload.model_dump())
+    return _serialize_quote(db, quote)
 
 
 @router.post('/generate', response_model=QuoteIdResponse)

@@ -8,6 +8,8 @@ import { extractApiError, isValidEmail } from '../utils/extractApiError';
 
 const validationOptions: ValidationStatus[] = ['PENDING', 'VERIFIED', 'FAILED'];
 
+const prettyVal = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+
 export const OnboardingPage = () => {
   const navigate = useNavigate();
   const { accessToken, refreshMe } = useAuth();
@@ -124,174 +126,142 @@ export const OnboardingPage = () => {
   };
 
   return (
-    <section className="content-wrap fade-in onboarding-page">
-      <div className="onboarding-hero row-between">
-        <div className="onboarding-hero-copy">
-          <p className="onboarding-eyebrow">Enterprise Setup</p>
-          <h1>Organization Onboarding</h1>
-          <p className="lead">Configure compliance, billing, and admin ownership before procurement workflows go live.</p>
+    <section className="content-wrap fade-in onb-page">
+      <header className="apx-header">
+        <div className="apx-header-text">
+          <span className="apx-eyebrow"><ShieldCheck size={15} /> Workspace setup</span>
+          <h1>Organization onboarding</h1>
+          <p className="apx-subtitle">Configure compliance, billing, and admin ownership before procurement goes live.</p>
         </div>
-        <div className="onboarding-stats">
-          <div className="onboarding-stat">
-            <span>Completion</span>
-            <strong>{completionPct}%</strong>
-          </div>
-          <div className="onboarding-stat">
-            <span>Missing Checks</span>
-            <strong>{missingCount}</strong>
-          </div>
-          <div className="onboarding-stat">
-            <span>Status</span>
-            <strong>{profile?.onboarding_completed ? 'Ready' : 'Pending'}</strong>
-          </div>
-        </div>
-      </div>
+      </header>
 
-      {loading && <div className="onboarding-alert info">Loading onboarding data...</div>}
+      {loading && <div className="onboarding-alert info">Loading onboarding data…</div>}
       {error && <div className="onboarding-alert error">{error}</div>}
       {notice && <div className="onboarding-alert success">{notice}</div>}
 
       {!loading && (
-        <form className="onboarding-grid" onSubmit={onSave}>
-          <article className="onboarding-card">
-            <div className="onboarding-card-head">
-              <h3><Building2 size={16} /> Company Setup</h3>
-              <span className="section-step">Step 1</span>
-            </div>
-            <div className="onboarding-input-grid">
-              <label className="field-label">
-                Organization Name
-                <input value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} placeholder="Secure AI Office LLC" required />
-              </label>
-              <label className="field-label">
-                Admin Name
-                <input value={adminName} onChange={(e) => setAdminName(e.target.value)} placeholder="Primary admin contact" required />
-              </label>
-            </div>
-            <div className="onboarding-input-grid">
-              <label className="field-label">
-                Admin Email
-                <input type="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} placeholder="admin@company.com" required />
-              </label>
-              <label className="field-label">
-                Admin Phone
-                <input value={adminPhone} onChange={(e) => setAdminPhone(e.target.value)} placeholder="+1..." />
-              </label>
-            </div>
-            <label className="toggle-row">
-              <input type="checkbox" checked={companySetupCompleted} onChange={(e) => setCompanySetupCompleted(e.target.checked)} />
-              <span>Basic company setup completed</span>
-            </label>
-          </article>
+        <>
+          <div className="apx-stats onb-stats">
+            <article className="apx-stat">
+              <div className="apx-stat-head"><span>Completion</span><span className="apx-stat-icon green"><CheckCircle2 size={16} /></span></div>
+              <div className="apx-stat-value">{completionPct}%</div>
+            </article>
+            <article className="apx-stat">
+              <div className="apx-stat-head"><span>Missing checks</span><span className="apx-stat-icon amber"><FileCheck2 size={16} /></span></div>
+              <div className="apx-stat-value">{missingCount}</div>
+            </article>
+            <article className="apx-stat">
+              <div className="apx-stat-head"><span>Status</span><span className="apx-stat-icon blue"><ShieldCheck size={16} /></span></div>
+              <div className="apx-stat-value apx-stat-text">{profile?.onboarding_completed ? 'Ready' : 'Pending'}</div>
+            </article>
+          </div>
 
-          <article className="onboarding-card">
-            <div className="onboarding-card-head">
-              <h3><FileCheck2 size={16} /> Compliance Validation</h3>
-              <span className="section-step">Step 2</span>
-            </div>
-            <div className="onboarding-input-grid">
-              <label className="field-label">
-                DUNS Number
-                <input value={dunsNumber} onChange={(e) => setDunsNumber(e.target.value)} placeholder="Optional if Tax ID exists" />
+          <form className="onb-grid" onSubmit={onSave}>
+            <article className="apx-table-card onb-card">
+              <div className="onb-card-head">
+                <h3><Building2 size={17} /> Company setup</h3>
+                <span className="onb-step">Step 1</span>
+              </div>
+              <div className="onb-fields">
+                <label className="apx-field"><span>Organization name</span>
+                  <input value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} placeholder="Secure AI Office LLC" required /></label>
+                <label className="apx-field"><span>Admin name</span>
+                  <input value={adminName} onChange={(e) => setAdminName(e.target.value)} placeholder="Primary admin contact" required /></label>
+                <label className="apx-field"><span>Admin email</span>
+                  <input type="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} placeholder="admin@company.com" required /></label>
+                <label className="apx-field"><span>Admin phone</span>
+                  <input value={adminPhone} onChange={(e) => setAdminPhone(e.target.value)} placeholder="+1…" /></label>
+              </div>
+              <label className="onb-toggle">
+                <input type="checkbox" checked={companySetupCompleted} onChange={(e) => setCompanySetupCompleted(e.target.checked)} />
+                <span>Basic company setup completed</span>
               </label>
-              <label className="field-label">
-                Tax ID
-                <input value={taxId} onChange={(e) => setTaxId(e.target.value)} placeholder="Optional if DUNS exists" />
-              </label>
-            </div>
-            <div className="onboarding-input-grid">
-              <label className="field-label">
-                Credit Validation
-                <select value={creditStatus} onChange={(e) => setCreditStatus(e.target.value as ValidationStatus)}>
-                  {validationOptions.map((status) => (
-                    <option key={status} value={status}>{status}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="field-label">
-                DUNS / Tax Validation
-                <select value={taxStatus} onChange={(e) => setTaxStatus(e.target.value as ValidationStatus)}>
-                  {validationOptions.map((status) => (
-                    <option key={status} value={status}>{status}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </article>
+            </article>
 
-          <article className="onboarding-card">
-            <div className="onboarding-card-head">
-              <h3><CreditCard size={16} /> Payment Setup</h3>
-              <span className="section-step">Step 3</span>
-            </div>
-            <label className="toggle-row">
-              <input type="checkbox" checked={paymentMethodSetup} onChange={(e) => setPaymentMethodSetup(e.target.checked)} />
-              <span>Payment method captured during onboarding</span>
-            </label>
-            <div className="onboarding-input-grid">
-              <label className="field-label">
-                Method Type
-                <select value={paymentMethodType} onChange={(e) => setPaymentMethodType(e.target.value as any)}>
-                  <option value="CARD">Card</option>
-                  <option value="BANK_TRANSFER">Bank Transfer</option>
-                  <option value="MANUAL">Manual</option>
-                </select>
-              </label>
-              <label className="field-label">
-                Last 4 (optional)
-                <input value={paymentLast4} onChange={(e) => setPaymentLast4(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="1234" />
-              </label>
-            </div>
-            <button type="button" className="secondary-btn" onClick={onValidatePayment} disabled={validatingPayment}>
-              {validatingPayment ? 'Validating...' : 'Validate Payment for Checkout'}
-            </button>
-            <div className="onboarding-status-strip">
-              <span className={`status-chip ${(profile?.payment_validation_status || 'PENDING').toLowerCase()}`}>
-                Payment: {profile?.payment_validation_status || 'PENDING'}
-              </span>
-              <span className={`status-chip ${creditStatus.toLowerCase()}`}>Credit: {creditStatus}</span>
-              <span className={`status-chip ${taxStatus.toLowerCase()}`}>Tax: {taxStatus}</span>
-            </div>
-          </article>
+            <article className="apx-table-card onb-card">
+              <div className="onb-card-head">
+                <h3><FileCheck2 size={17} /> Compliance validation</h3>
+                <span className="onb-step">Step 2</span>
+              </div>
+              <div className="onb-fields">
+                <label className="apx-field"><span>DUNS number</span>
+                  <input value={dunsNumber} onChange={(e) => setDunsNumber(e.target.value)} placeholder="Optional if Tax ID exists" /></label>
+                <label className="apx-field"><span>Tax ID</span>
+                  <input value={taxId} onChange={(e) => setTaxId(e.target.value)} placeholder="Optional if DUNS exists" /></label>
+                <label className="apx-field"><span>Credit validation</span>
+                  <select value={creditStatus} onChange={(e) => setCreditStatus(e.target.value as ValidationStatus)}>
+                    {validationOptions.map((s) => <option key={s} value={s}>{prettyVal(s)}</option>)}
+                  </select></label>
+                <label className="apx-field"><span>DUNS / Tax validation</span>
+                  <select value={taxStatus} onChange={(e) => setTaxStatus(e.target.value as ValidationStatus)}>
+                    {validationOptions.map((s) => <option key={s} value={s}>{prettyVal(s)}</option>)}
+                  </select></label>
+              </div>
+            </article>
 
-          <article className="onboarding-card full">
-            <div className="onboarding-card-head">
-              <h3><ShieldCheck size={16} /> Completion Status</h3>
-              <span className="section-step">Final</span>
-            </div>
-            <p className="mini-note">
-              {profile?.onboarding_completed ? 'Onboarding complete' : 'Onboarding incomplete. Missing requirements are listed below.'}
-            </p>
-            <ul className="plain-bullets">
-              {(profile?.missing_requirements || []).map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-              {(profile?.missing_requirements || []).length === 0 && (
-                <li><CheckCircle2 size={14} /> All onboarding requirements satisfied.</li>
-              )}
-            </ul>
-            <div className="step-nav-row onboarding-actions">
-              <button className="primary-btn" type="submit" disabled={saving}>
-                {saving ? 'Saving...' : 'Save Onboarding'}
+            <article className="apx-table-card onb-card">
+              <div className="onb-card-head">
+                <h3><CreditCard size={17} /> Payment setup</h3>
+                <span className="onb-step">Step 3</span>
+              </div>
+              <label className="onb-toggle">
+                <input type="checkbox" checked={paymentMethodSetup} onChange={(e) => setPaymentMethodSetup(e.target.checked)} />
+                <span>Payment method captured during onboarding</span>
+              </label>
+              <div className="onb-fields">
+                <label className="apx-field"><span>Method type</span>
+                  <select value={paymentMethodType} onChange={(e) => setPaymentMethodType(e.target.value as any)}>
+                    <option value="CARD">Card</option>
+                    <option value="BANK_TRANSFER">Bank transfer</option>
+                    <option value="MANUAL">Manual</option>
+                  </select></label>
+                <label className="apx-field"><span>Last 4 (optional)</span>
+                  <input value={paymentLast4} onChange={(e) => setPaymentLast4(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="1234" /></label>
+              </div>
+              <button type="button" className="dnb-tool-btn" onClick={onValidatePayment} disabled={validatingPayment}>
+                {validatingPayment ? 'Validating…' : 'Validate payment for checkout'}
               </button>
-              {profile?.onboarding_completed && (
-                <button className="secondary-btn" type="button" onClick={() => navigate('/shop/dashboard')}>
-                  Go to Dashboard
+              <div className="onb-chips">
+                <span className={`onb-chip ${(profile?.payment_validation_status || 'PENDING').toLowerCase()}`}>Payment: {prettyVal(profile?.payment_validation_status || 'PENDING')}</span>
+                <span className={`onb-chip ${creditStatus.toLowerCase()}`}>Credit: {prettyVal(creditStatus)}</span>
+                <span className={`onb-chip ${taxStatus.toLowerCase()}`}>Tax: {prettyVal(taxStatus)}</span>
+              </div>
+            </article>
+
+            <article className="apx-table-card onb-card onb-card-full">
+              <div className="onb-card-head">
+                <h3><ShieldCheck size={17} /> Completion status</h3>
+                <span className="onb-step">Final</span>
+              </div>
+              <p className="apx-modal-sub" style={{ marginTop: 0 }}>
+                {profile?.onboarding_completed ? 'Onboarding complete — your workspace is ready.' : 'Onboarding incomplete. Remaining requirements are listed below.'}
+              </p>
+              <ul className="onb-reqs">
+                {(profile?.missing_requirements || []).map((item) => (
+                  <li key={item} className="missing"><span className="onb-req-dot" /> {item}</li>
+                ))}
+                {(profile?.missing_requirements || []).length === 0 && (
+                  <li className="done"><CheckCircle2 size={15} /> All onboarding requirements satisfied.</li>
+                )}
+              </ul>
+              <div className="onb-actions">
+                <button className="apx-add-btn" type="submit" disabled={saving}>
+                  {saving ? 'Saving…' : 'Save onboarding'}
                 </button>
-              )}
-              <button
-                className="ghost-btn"
-                type="button"
-                onClick={() => {
-                  window.localStorage.setItem('so2_onboarding_skip', '1');
-                  navigate('/shop/dashboard');
-                }}
-              >
-                Skip to Dashboard
-              </button>
-            </div>
-          </article>
-        </form>
+                {profile?.onboarding_completed && (
+                  <button className="dnb-tool-btn" type="button" onClick={() => navigate('/shop/dashboard')}>Go to dashboard</button>
+                )}
+                <button
+                  className="dnb-tool-btn"
+                  type="button"
+                  onClick={() => { window.localStorage.setItem('so2_onboarding_skip', '1'); navigate('/shop/dashboard'); }}
+                >
+                  Skip for now
+                </button>
+              </div>
+            </article>
+          </form>
+        </>
       )}
     </section>
   );

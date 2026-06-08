@@ -20,3 +20,13 @@ class DealPricingResponse(BaseModel):
 
 class UpdateDealPricingRequest(BaseModel):
     incremental_discount_pct: float = Field(ge=0.0, le=0.95)
+
+
+class ComponentPreviewRequest(BaseModel):
+    """Phase 2 component-pricing preview (no persistence)."""
+
+    product_id: str
+    financial_model: str = Field(default='CAPEX', pattern='^(CAPEX|OPEX)$')
+    interval: str = Field(default='MONTH', pattern='^(MONTH|YEAR)$')
+    # {component_id: qty} — optional components to include; also overrides required qty.
+    selections: dict[str, int] = Field(default_factory=dict)

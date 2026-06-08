@@ -171,6 +171,10 @@ class AuthService:
             tenant_id=vendor_tenant.id,
         )
 
+        # Clone-on-onboard: give the new tenant its own config set (Phase 1).
+        from app.services.tenant_provisioning_service import TenantProvisioningService
+        TenantProvisioningService(self.db).provision(vendor_tenant.id)
+
         self._issue_otp_for_user(user=user, purpose='vendor signup verification')
         self.db.commit()
         return user

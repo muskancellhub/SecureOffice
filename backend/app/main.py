@@ -27,7 +27,11 @@ from app.routes.lifecycle import router as lifecycle_router
 from app.routes.onboarding import router as onboarding_router
 from app.routes.orders import router as orders_router
 from app.routes.pricing import router as pricing_router
+from app.routes.products import router as products_router
+from app.routes.bundles import router as bundles_router
 from app.routes.quotes import router as quotes_router
+from app.routes.tenants import router as tenants_router
+from app.routes.tenant_settings import router as tenant_settings_router
 from app.routes.users import router as users_router
 from app.services.catalog_service import CatalogService
 from app.services.oauth_service import register_oauth_clients
@@ -82,6 +86,7 @@ def startup() -> None:
     with SessionLocal() as db:
         CatalogService(db).seed_managed_services()
         CatalogService(db).seed_partner_devices()
+        CatalogService(db).seed_mix_products()
         try:
             result = CatalogService(db).upsert_network_vendor_catalog()
             logger.info(
@@ -157,6 +162,8 @@ def startup() -> None:
                     tenant_id=vendor_tenant.id,
                 )
                 db.add(vendor_user)
+                from app.services.tenant_provisioning_service import TenantProvisioningService
+                TenantProvisioningService(db).provision(vendor_tenant.id)
                 db.commit()
                 logger.info('[dev] seeded demo vendor: vendor@gmail.com / vendor123 (APP_ENV=%s)', settings.app_env)
 
@@ -232,6 +239,8 @@ def health_check():
 
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(tenants_router)
+app.include_router(tenant_settings_router)
 app.include_router(onboarding_router)
 app.include_router(integrations_router)
 app.include_router(catalog_router)
@@ -240,6 +249,8 @@ app.include_router(cart_router)
 app.include_router(quotes_router)
 app.include_router(orders_router)
 app.include_router(pricing_router)
+app.include_router(products_router)
+app.include_router(bundles_router)
 app.include_router(lifecycle_router)
 app.include_router(billing_router)
 

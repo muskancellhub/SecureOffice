@@ -10,8 +10,20 @@ from app.models.integration_log import IntegrationSyncLog, SyncStatus
 from app.models.quote import Quote, QuoteStatus, QuoteLine, QuoteLineType, BillingType, BillingInterval
 from app.models.order import Order, OrderStatus, OrderLine
 from app.models.pricing import ListPrice, CustomerPricing, DealPricing
+from app.models.product import (
+    Product,
+    ProductComponent,
+    Bundle,
+    BundleItem,
+    CustomerPriceOverride,
+    ComponentType,
+    FinancialModel,
+    ComponentUom,
+)
+from app.models.financing import FinancingTerms
 from app.models.onboarding import TenantOnboarding
 from app.models.order_notification import TenantOrderNotificationSettings
+from app.models.tenant_settings import TenantSettings
 from app.models.lifecycle import (
     Contract,
     ContractStatus,
@@ -62,8 +74,18 @@ __all__ = [
     'ListPrice',
     'CustomerPricing',
     'DealPricing',
+    'Product',
+    'ProductComponent',
+    'Bundle',
+    'BundleItem',
+    'CustomerPriceOverride',
+    'ComponentType',
+    'FinancialModel',
+    'ComponentUom',
+    'FinancingTerms',
     'TenantOnboarding',
     'TenantOrderNotificationSettings',
+    'TenantSettings',
     'Contract',
     'ContractStatus',
     'Subscription',

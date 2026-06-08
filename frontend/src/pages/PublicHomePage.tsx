@@ -1,4 +1,4 @@
-import { ArrowRight, BadgeCheck, Boxes, Building2, ClipboardList, LogIn, ShieldCheck, Truck } from 'lucide-react';
+import { ArrowRight, Boxes, Building2, Check, ClipboardList, LogIn, ShieldCheck, Truck } from 'lucide-react';
 import { Suspense, useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -6,69 +6,49 @@ import NetworkScene3D from '../components/NetworkScene3D';
 import { SceneErrorBoundary } from '../components/SceneErrorBoundary';
 import { BusinessIntakeModal } from '../components/BusinessIntakeModal';
 
-function Typewriter({ text, speed = 50, delay = 400, pauseMs = 2000 }: { text: string; speed?: number; delay?: number; pauseMs?: number }) {
-  const [displayed, setDisplayed] = useState('');
-  const [phase, setPhase] = useState<'wait' | 'typing' | 'pause' | 'deleting'>('wait');
-
-  useEffect(() => {
-    const timer = setTimeout(() => setPhase('typing'), delay);
-    return () => clearTimeout(timer);
-  }, [delay]);
-
-  useEffect(() => {
-    if (phase === 'wait') return;
-
-    if (phase === 'typing') {
-      if (displayed.length >= text.length) {
-        const timer = setTimeout(() => setPhase('deleting'), pauseMs);
-        return () => clearTimeout(timer);
-      }
-      const timer = setTimeout(() => setDisplayed(text.slice(0, displayed.length + 1)), speed);
-      return () => clearTimeout(timer);
-    }
-
-    if (phase === 'deleting') {
-      if (displayed.length === 0) {
-        const timer = setTimeout(() => setPhase('typing'), 400);
-        return () => clearTimeout(timer);
-      }
-      const timer = setTimeout(() => setDisplayed(displayed.slice(0, -1)), speed / 2);
-      return () => clearTimeout(timer);
-    }
-  }, [phase, displayed, text, speed, pauseMs]);
-
-  return (
-    <>
-      {displayed}
-      <span className="typewriter-cursor">|</span>
-    </>
-  );
-}
-
 const offerCards = [
   {
-    title: 'Requirements to Design',
-    body: 'Capture your business environment once, then instantly generate BOM and deployment visuals.',
+    title: 'Requirements → Design',
+    body: 'Capture your business environment once. We instantly size the network and generate a BOM and topology.',
     icon: ClipboardList,
+    tone: 'pink',
   },
   {
     title: 'Unified Product Catalog',
-    body: 'Business-ready hardware bundles for SMB rollout planning and procurement.',
+    body: 'Real SKUs from Meraki, Extreme, InHand & T-Mobile — bundled and priced for SMB rollout.',
     icon: Boxes,
+    tone: 'violet',
   },
   {
     title: 'Operations-Ready Output',
-    body: 'Quote-ready material list and handoff payloads for fast sales-to-ops execution.',
+    body: 'Quote-ready material lists and handoff payloads for fast sales-to-ops execution.',
     icon: Truck,
+    tone: 'green',
   },
+] as const;
+
+const steps = [
+  { n: '01', title: 'Business intake', body: 'Tell us your space, headcount, devices and throughput needs.' },
+  { n: '02', title: 'Deterministic sizing', body: 'Our calculator computes APs, switches, power and failover.' },
+  { n: '03', title: 'BOM + topology', body: 'We pick compatible SKUs and draw the network diagram.' },
+  { n: '04', title: 'Order & manage', body: 'Add to cart, track the lifecycle, and layer managed services.' },
 ] as const;
 
 const capabilities = [
   'Business intake with deterministic sizing formulas',
-  'Product selection + BOM generation from unified catalog',
-  'Visual network diagram preview for customer confidence',
-  'Quote/history workflow and lifecycle progress tracking',
+  'Product selection + BOM from a unified vendor catalog',
+  'Visual network diagram for customer confidence',
+  'Quote / history workflow and lifecycle tracking',
 ];
+
+const stats = [
+  { value: '4 min', label: 'Avg. design time' },
+  { value: '12k+', label: 'Vendor SKUs' },
+  { value: '98%', label: 'Sizing accuracy' },
+  { value: '99.9%', label: 'Managed uptime' },
+];
+
+const proofPoints = ['SMB-focused', 'Deterministic sizing', 'Visual BOM + diagram'];
 
 function useScrollReveal() {
   const ref = useRef<HTMLDivElement>(null);
@@ -82,7 +62,7 @@ function useScrollReveal() {
           observer.unobserve(el);
         }
       },
-      { threshold: 0.15 }
+      { threshold: 0.15 },
     );
     observer.observe(el);
     return () => observer.disconnect();
@@ -94,53 +74,58 @@ export const PublicHomePage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const offersRef = useScrollReveal();
-  const capabilityRef = useScrollReveal();
+  const stepsRef = useScrollReveal();
+  const getRef = useScrollReveal();
+  const vendorRef = useScrollReveal();
   const [intakeModalOpen, setIntakeModalOpen] = useState(false);
 
+  const openWorkspace = () => navigate(user ? '/shop/dashboard' : '/login');
+
   return (
-    <section className="content-wrap fade-in intro-home-page marketing-home public-home-page">
-      <header className="public-home-nav">
-        <div className="left-brand">Secure AI Office</div>
+    <section className="content-wrap fade-in intro-home-page marketing-home public-home-page mh-page">
+      <header className="public-home-nav mh-nav">
+        <div className="mh-brand">
+          <span className="mh-brand-mark"><ShieldCheck size={16} /></span>
+          Secure AI Office
+        </div>
         <div className="public-home-nav-actions">
           {!user ? (
             <>
-              <Link to="/login" className="ghost-link">Sign In</Link>
-              <Link to="/signup" className="primary-btn">Sign Up</Link>
+              <Link to="/login" className="mh-nav-ghost">Sign In</Link>
+              <Link to="/signup" className="mh-nav-primary">Sign Up</Link>
             </>
           ) : (
-            <button className="ghost-btn" onClick={() => navigate('/shop/dashboard')}>
-              Open Workspace
-            </button>
+            <button className="mh-nav-primary" onClick={() => navigate('/shop/dashboard')}>Open Workspace</button>
           )}
         </div>
       </header>
 
-      <div className="marketing-hero-grid">
-        <div className="marketing-hero-copy">
-          <div className="intro-pill">
-            <ShieldCheck size={14} />
-            <span>SMB Network Solution Builder</span>
-          </div>
-          <h1>
-            <Typewriter text="Plan your network and build the full design" speed={45} delay={500} />
+      {/* Hero */}
+      <div className="mh-hero">
+        <div className="mh-hero-copy">
+          <span className="mh-pill"><ShieldCheck size={15} /> SMB Network Solution Builder</span>
+          <h1 className="mh-title">
+            Plan your network.<br />
+            <span className="mh-title-accent">Build the full design.</span>
           </h1>
-          <p>
-            Start with a business intake, get a concrete bill of materials, and preview a customer-friendly
-            network diagram before ordering.
+          <p className="mh-sub">
+            Start with a short business intake, get a concrete bill of materials, and preview a
+            customer-friendly network diagram — before you order a single device.
           </p>
-          <div className="marketing-cta-row">
-            <button className="primary-btn" onClick={() => setIntakeModalOpen(true)}>
-              Build Your Design <ArrowRight size={14} />
+          <div className="mh-hero-cta">
+            <button className="mh-btn-primary" onClick={() => setIntakeModalOpen(true)}>
+              Build your design <ArrowRight size={17} />
             </button>
+            <button className="mh-btn-outline" onClick={openWorkspace}>Open workspace</button>
           </div>
-          <div className="marketing-proof-row">
-            <span>SMB-focused</span>
-            <span>Deterministic sizing</span>
-            <span>Visual BOM + diagram</span>
+          <div className="mh-proof">
+            {proofPoints.map((point) => (
+              <span key={point} className="mh-proof-item"><Check size={15} /> {point}</span>
+            ))}
           </div>
         </div>
 
-        <div className="marketing-hero-visual" aria-hidden="true">
+        <div className="mh-hero-visual" aria-hidden="true">
           <SceneErrorBoundary fallback={
             <div className="marketing-image-placeholder" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 340 }}>
               Network visualization unavailable in this browser.
@@ -157,12 +142,13 @@ export const PublicHomePage = () => {
         </div>
       </div>
 
-      <div ref={offersRef} className="intro-card-grid marketing-offers-grid scroll-reveal">
+      {/* Offer cards */}
+      <div ref={offersRef} className="mh-offers scroll-reveal">
         {offerCards.map((card, i) => {
           const Icon = card.icon;
           return (
-            <article key={card.title} className="intro-card marketing-offer-card" style={{ animationDelay: `${i * 0.12}s` }}>
-              <span className="intro-card-icon"><Icon size={16} /></span>
+            <article key={card.title} className="mh-offer-card" style={{ animationDelay: `${i * 0.1}s` }}>
+              <span className={`mh-offer-icon tone-${card.tone}`}><Icon size={24} /></span>
               <h3>{card.title}</h3>
               <p>{card.body}</p>
             </article>
@@ -170,50 +156,67 @@ export const PublicHomePage = () => {
         })}
       </div>
 
-      <section ref={capabilityRef} className="marketing-capability-section scroll-reveal">
-        <div className="row-between">
-          <h2>What You Get</h2>
-          <button className="ghost-btn" onClick={() => setIntakeModalOpen(true)}>
-            Build
+      {/* How it works — four steps */}
+      <section ref={stepsRef} className="mh-steps-section scroll-reveal">
+        <div className="mh-section-head">
+          <div>
+            <span className="mh-eyebrow">How it works</span>
+            <h2>Four steps to a deployed network</h2>
+          </div>
+          <button className="mh-start-btn" onClick={() => setIntakeModalOpen(true)}>
+            Start now <ArrowRight size={16} />
           </button>
         </div>
-        <div className="capability-grid">
-          {capabilities.map((item, i) => (
-            <div key={item} className="capability-item" style={{ animationDelay: `${0.1 + i * 0.1}s` }}>
-              <BadgeCheck size={14} />
-              <span>{item}</span>
+        <div className="mh-steps">
+          {steps.map((step, i) => (
+            <article key={step.n} className="mh-step-card" style={{ animationDelay: `${i * 0.08}s` }}>
+              <span className="mh-step-num">{step.n}</span>
+              <h3>{step.title}</h3>
+              <p>{step.body}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      {/* What you get — dark panel */}
+      <section ref={getRef} className="mh-get scroll-reveal">
+        <div className="mh-get-left">
+          <span className="mh-eyebrow mh-eyebrow-light">What you get</span>
+          <h2>Everything from intake to install, in one place.</h2>
+          <ul className="mh-get-list">
+            {capabilities.map((item) => (
+              <li key={item}><span className="mh-get-check"><Check size={13} /></span> {item}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="mh-get-stats">
+          {stats.map((stat) => (
+            <div key={stat.label} className="mh-stat">
+              <span className="mh-stat-value">{stat.value}</span>
+              <span className="mh-stat-label">{stat.label}</span>
             </div>
           ))}
         </div>
       </section>
 
-      <section className="vendor-cta-section scroll-reveal">
-        <div className="vendor-cta-card">
-          <div className="vendor-cta-content">
-            <div className="vendor-cta-icon">
-              <Building2 size={28} />
-            </div>
-            <h2>Want to become a vendor?</h2>
-            <p>
-              Join the CellHub Marketplace and sell your networking products to businesses across the U.S.
-              Apply as a vendor to get started.
-            </p>
-            <div className="vendor-cta-buttons">
-              <button className="primary-btn" onClick={() => navigate('/vendor/register')}>
-                Apply as Vendor <ArrowRight size={14} />
-              </button>
-              <button className="ghost-btn" onClick={() => navigate('/vendor/login')}>
-                <LogIn size={14} /> Vendor Login
-              </button>
-            </div>
-          </div>
+      {/* Vendor CTA */}
+      <section ref={vendorRef} className="mh-vendor scroll-reveal">
+        <span className="mh-vendor-icon"><Building2 size={26} /></span>
+        <div className="mh-vendor-copy">
+          <h2>Want to become a vendor?</h2>
+          <p>Join the CellHub Marketplace and sell networking products to businesses across the U.S.</p>
+        </div>
+        <div className="mh-vendor-buttons">
+          <button className="mh-btn-primary" onClick={() => navigate('/vendor/register')}>
+            Apply as vendor <ArrowRight size={16} />
+          </button>
+          <button className="mh-btn-outline" onClick={() => navigate('/vendor/login')}>
+            <LogIn size={16} /> Vendor login
+          </button>
         </div>
       </section>
 
-      <BusinessIntakeModal
-        open={intakeModalOpen}
-        onClose={() => setIntakeModalOpen(false)}
-      />
+      <BusinessIntakeModal open={intakeModalOpen} onClose={() => setIntakeModalOpen(false)} />
     </section>
   );
 };

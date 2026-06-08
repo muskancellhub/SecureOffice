@@ -5,13 +5,14 @@ import {
   ArrowUpRight,
   CalendarClock,
   CheckCircle2,
-  Cpu,
+  DollarSign,
   Layers,
   MapPin,
   MessageSquare,
   Network,
   Send,
   Server,
+  ShoppingCart,
   Trash2,
   Wifi,
 } from 'lucide-react';
@@ -181,6 +182,7 @@ export const DesignDetailPage = () => {
   const [msData, setMsData] = useState<ManagedServicesDesignSummary | null>(null);
   const [msSaving, setMsSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [addingAllToCart, setAddingAllToCart] = useState(false);
 
   const loadDesign = async () => {
     if (!accessToken || !designId) return;
@@ -240,6 +242,31 @@ export const DesignDetailPage = () => {
     () => bomLines.filter((line) => isQuoteRequiredLine(line)).length,
     [bomLines],
   );
+
+  const orderableLines = useMemo(() => bomLines.filter((line) => Boolean(line.item_id)), [bomLines]);
+
+  const onAddAllToCart = async () => {
+    if (!accessToken) return;
+    if (orderableLines.length === 0) { setNotice('No catalog-linked BOM items to add.'); return; }
+    setAddingAllToCart(true);
+    setError('');
+    let ok = 0;
+    let fail = 0;
+    for (const line of orderableLines) {
+      try {
+        await commerceApi.addCartLine(accessToken, { catalog_item_id: line.item_id as string, quantity: Math.max(1, line.quantity) });
+        ok += 1;
+      } catch {
+        fail += 1;
+      }
+    }
+    setAddingAllToCart(false);
+    if (ok > 0) {
+      setNotice(`Added ${ok} BOM item${ok > 1 ? 's' : ''} to cart.`);
+      setTimeout(() => navigate('/shop/cart'), 600);
+    }
+    if (fail > 0) setError(`${fail} item${fail > 1 ? 's' : ''} could not be added to cart.`);
+  };
 
   const canSubmit = design?.status === 'draft' || design?.status === 'reviewed';
 
@@ -422,69 +449,63 @@ export const DesignDetailPage = () => {
   const canDelete = design?.status === 'draft' || design?.status === 'reviewed';
 
   return (
-    <section className="content-wrap fade-in design-detail-page">
-      {/* Breadcrumb */}
-      <Link to="/shop/designs" className="dd-back-link">
-        <ArrowLeft size={14} /> Back to Design History
-      </Link>
-
+    <section className="content-wrap fade-in dnb-page design-detail-page">
       {loading && !design && <div className="dd-loading">Loading design…</div>}
       {error && <div className="onboarding-alert error">{error}</div>}
       {notice && <div className="toast-notice">{notice}</div>}
 
       {design && (
         <>
-          {/* ── Hero header ─────────────────────────────────────────── */}
-          <header className="dd-hero">
-            <div className="dd-hero-main">
-              <span className="dd-eyebrow">Network Design</span>
-              <h1 className="dd-title">{designLabel}</h1>
-              <div className="dd-hero-meta">
-                <span className={`dd-status-pill dd-tone-${statusTone}`}>
-                  <span className="dd-status-dot" />
+          {/* ── Header ──────────────────────────────────────────────── */}
+          <header className="apx-header">
+            <div className="apx-header-text">
+              <Link to="/shop/designs" className="dnb-back"><ArrowLeft size={15} /> Back to designs</Link>
+              <h1>{designLabel}</h1>
+              <p className="apx-subtitle">Saved network design — bill of materials and topology.</p>
+              <div className="apx-scope">
+                <span className={`dnb-status-chip ${statusTone === 'success' ? 'reviewed' : statusTone === 'progress' ? 'reviewed' : 'draft'}`}>
                   {formatStatus(design.status)}
                 </span>
-                <span className="dd-meta-sep">·</span>
-                <span>Updated {formatDate(design.statusUpdatedAt || design.updatedAt)}</span>
+                <span className="apx-scope-meta">Updated {formatDate(design.statusUpdatedAt || design.updatedAt)}</span>
                 {design.quoteId && (
-                  <>
-                    <span className="dd-meta-sep">·</span>
-                    <button
-                      type="button"
-                      className="dd-meta-link"
-                      onClick={() => navigate(`/shop/quotes/${design.quoteId}`)}
-                    >
-                      Quote {design.quoteId.slice(0, 8).toUpperCase()} <ArrowUpRight size={12} />
-                    </button>
-                  </>
+                  <button type="button" className="dnb-meta-link" onClick={() => navigate(`/shop/quotes/${design.quoteId}`)}>
+                    Quote {design.quoteId.slice(0, 8).toUpperCase()} <ArrowUpRight size={13} />
+                  </button>
                 )}
                 {design.orderId && (
-                  <>
-                    <span className="dd-meta-sep">·</span>
-                    <button
-                      type="button"
-                      className="dd-meta-link"
-                      onClick={() => navigate(`/shop/orders/${design.orderId}`)}
-                    >
-                      Order {design.orderId.slice(0, 8).toUpperCase()} <ArrowUpRight size={12} />
-                    </button>
-                  </>
+                  <button type="button" className="dnb-meta-link" onClick={() => navigate(`/shop/orders/${design.orderId}`)}>
+                    Order {design.orderId.slice(0, 8).toUpperCase()} <ArrowUpRight size={13} />
+                  </button>
                 )}
               </div>
             </div>
-            <div className="dd-hero-actions">
-              {canSubmit && (
-                <button className="primary-btn dd-primary-cta" onClick={onSubmitDesign} disabled={submitting}>
-                  <Send size={14} /> {submitting ? 'Submitting…' : 'Submit for Review'}
-                </button>
-              )}
-              {design.quoteId && !canSubmit && (
-                <button className="primary-btn dd-primary-cta" onClick={() => navigate(`/shop/quotes/${design.quoteId}`)}>
-                  Open Quote <ArrowUpRight size={14} />
-                </button>
-              )}
-            </div>
+            <button
+              className="apx-add-btn dnb-order-btn"
+              onClick={onAddAllToCart}
+              disabled={addingAllToCart || orderableLines.length === 0}
+            >
+              <ShoppingCart size={18} /> {addingAllToCart ? 'Adding…' : 'Order this design'}
+            </button>
           </header>
+
+          {/* ── Lifecycle toolbar ───────────────────────────────────── */}
+          <div className="dnb-toolbar">
+            {canSubmit && (
+              <button className="dnb-tool-btn" onClick={onSubmitDesign} disabled={submitting}>
+                <Send size={15} /> {submitting ? 'Submitting…' : 'Submit for review'}
+              </button>
+            )}
+            {design.quoteId && (
+              <button className="dnb-tool-btn" onClick={() => navigate(`/shop/quotes/${design.quoteId}`)}>
+                <ArrowUpRight size={15} /> Open quote
+              </button>
+            )}
+            {design.orderId && (
+              <button className="dnb-tool-btn" onClick={() => navigate(`/shop/orders/${design.orderId}`)}>
+                <ArrowUpRight size={15} /> View order
+              </button>
+            )}
+          </div>
 
           {/* ── Next action callout ─────────────────────────────────── */}
           <div className={`dd-callout dd-callout-${statusTone}`}>
@@ -503,70 +524,122 @@ export const DesignDetailPage = () => {
             )}
           </div>
 
-          {/* ── Diagram ─────────────────────────────────────────────── */}
-          <section className="dd-section" id="dd-diagram">
-            <div className="dd-section-head">
-              <h2><Network size={16} /> Network Diagram</h2>
-              <span className="dd-section-sub">
-                {(design.topology?.nodes || []).length} node{(design.topology?.nodes || []).length === 1 ? '' : 's'} ·
-                {' '}
-                {(design.topology?.edges || []).length} link{(design.topology?.edges || []).length === 1 ? '' : 's'}
-              </span>
-            </div>
-            <div className="dd-section-card">
-              {design.drawioXml ? (
-                <DrawioDiagramViewer
-                  xml={design.drawioXml}
-                  title={`${design.designName || 'Network Design'} Diagram`}
-                  initialHeight={700}
-                />
-              ) : (
-                <p className="dd-empty">No diagram has been generated yet.</p>
-              )}
-            </div>
-          </section>
+          {/* ── Stats ───────────────────────────────────────────────── */}
+          <div className="apx-stats dnb-stats">
+            <article className="apx-stat">
+              <div className="apx-stat-head"><span>Estimated CapEx</span><span className="apx-stat-icon green"><DollarSign size={16} /></span></div>
+              <div className="apx-stat-value">{formatCurrency(design.estimatedCapex)}</div>
+            </article>
+            <article className="apx-stat">
+              <div className="apx-stat-head"><span>Access points</span><span className="apx-stat-icon blue"><Wifi size={16} /></span></div>
+              <div className="apx-stat-value">{design.apCount}</div>
+            </article>
+            <article className="apx-stat">
+              <div className="apx-stat-head"><span>Switches</span><span className="apx-stat-icon violet"><Network size={16} /></span></div>
+              <div className="apx-stat-value">{design.switchCount}</div>
+            </article>
+            <article className="apx-stat">
+              <div className="apx-stat-head"><span>{msTotalMonthly > 0 ? 'Managed / mo' : 'BOM lines'}</span><span className="apx-stat-icon amber">{msTotalMonthly > 0 ? <Server size={16} /> : <Layers size={16} />}</span></div>
+              <div className="apx-stat-value">{msTotalMonthly > 0 ? formatCurrency(msTotalMonthly) : bomLines.length}</div>
+            </article>
+          </div>
 
-          {/* ── KPI strip ───────────────────────────────────────────── */}
-          <div className="dd-kpi-strip">
-            <div className="dd-kpi">
-              <div className="dd-kpi-icon"><Layers size={16} /></div>
-              <div>
-                <span className="dd-kpi-label">Estimated CapEx</span>
-                <strong className="dd-kpi-value">{formatCurrency(design.estimatedCapex)}</strong>
+          {/* ── Diagram — shown first, the main artifact ────────────── */}
+          <div className="apx-table-card dnb-diagram-card" id="dd-diagram">
+            <div className="dnb-card-head">
+              <h3 className="apx-modal-title" style={{ margin: 0 }}>Network diagram</h3>
+              <div className="dnb-diagram-meta">
+                <span>{(design.topology?.nodes || []).length} nodes</span>
+                <span>{(design.topology?.edges || []).length} edges</span>
               </div>
             </div>
-            <div className="dd-kpi">
-              <div className="dd-kpi-icon"><Wifi size={16} /></div>
-              <div>
-                <span className="dd-kpi-label">Access Points</span>
-                <strong className="dd-kpi-value">{design.apCount}</strong>
-              </div>
-            </div>
-            <div className="dd-kpi">
-              <div className="dd-kpi-icon"><Network size={16} /></div>
-              <div>
-                <span className="dd-kpi-label">Switches</span>
-                <strong className="dd-kpi-value">{design.switchCount}</strong>
-              </div>
-            </div>
-            {msTotalMonthly > 0 && (
-              <div className="dd-kpi">
-                <div className="dd-kpi-icon"><Server size={16} /></div>
-                <div>
-                  <span className="dd-kpi-label">Managed Services</span>
-                  <strong className="dd-kpi-value">{formatCurrency(msTotalMonthly)}<small>/mo</small></strong>
-                </div>
+            {design.drawioXml ? (
+              <DrawioDiagramViewer
+                xml={design.drawioXml}
+                title={`${design.designName || 'Network Design'} Diagram`}
+                initialHeight={640}
+              />
+            ) : (
+              <div className="dnb-diagram-empty">
+                <Network size={30} strokeWidth={1.3} />
+                <p>No diagram has been generated yet.</p>
               </div>
             )}
           </div>
 
-          {/* ── In-page nav ─────────────────────────────────────────── */}
-          <nav className="dd-section-nav">
-            <a href="#dd-progress">Progress</a>
-            <a href="#dd-bom">Equipment</a>
-            <a href="#dd-diagram">Diagram</a>
-            <a href="#dd-installation">Installation</a>
-          </nav>
+          {/* ── Bill of materials ───────────────────────────────────── */}
+          <div className="apx-table-card dnb-bom-card" id="dd-bom">
+            <div className="dnb-card-head">
+              <h3 className="apx-modal-title" style={{ margin: 0 }}>Bill of materials</h3>
+              {quoteRequiredCount > 0 && <span className="dnb-quote-note">{quoteRequiredCount} price-on-request</span>}
+            </div>
+            {bomLines.length > 0 ? (
+              <table className="dnb-bom">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Category</th>
+                    <th className="dnb-num">Qty</th>
+                    <th className="dnb-num">Unit</th>
+                    <th className="dnb-num">Total</th>
+                    <th className="dnb-num">Managed / mo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bomLines.map((line) => {
+                    const msDevice = line.item_id ? msDeviceMap.get(line.item_id) : undefined;
+                    const hasMsPrice = msDevice && msDevice.managedServicePrice > 0;
+                    const msIncluded = hasMsPrice && msDevice.groupEnabled && !msDevice.excluded;
+                    return (
+                      <tr key={line.line_id}>
+                        <td>
+                          <div className="dnb-bom-name">{line.name}</div>
+                          {(line.connectivity || line.cable_type) && (
+                            <div className="dnb-bom-sub">
+                              {line.cable_type && line.cable_length_meters
+                                ? `${line.cable_type} • ${Math.round(line.cable_length_meters)}m • $${Number(line.price_per_meter || 0).toFixed(2)}/m`
+                                : connectivityLabel(line.connectivity)}
+                            </div>
+                          )}
+                        </td>
+                        <td><span className="dnb-cat-tag">{line.category || '—'}</span></td>
+                        <td className="dnb-num">{line.quantity}</td>
+                        <td className="dnb-num">{formatBomMoney(line, 'unit')}</td>
+                        <td className="dnb-num dnb-total">{formatBomMoney(line, 'total')}</td>
+                        <td className="dnb-num">
+                          {hasMsPrice ? (
+                            <label className="ms-inline-check">
+                              <input
+                                type="checkbox"
+                                checked={msIncluded}
+                                disabled={design.status !== 'draft' && design.status !== 'reviewed'}
+                                onChange={() => toggleMsForDevice(msDevice.itemId, !msDevice.excluded ? false : true)}
+                              />
+                              <span className={msIncluded ? 'ms-inline-price' : 'ms-inline-price ms-inline-excluded'}>
+                                ${msDevice.managedServicePrice.toFixed(2)}
+                              </span>
+                            </label>
+                          ) : (
+                            <span className="dnb-dash">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                {msTotalMonthly > 0 && (
+                  <tfoot>
+                    <tr className="dnb-bom-foot">
+                      <td colSpan={5} className="dnb-num">Total managed services</td>
+                      <td className="dnb-num dnb-total">{formatCurrency(msTotalMonthly)}/mo</td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            ) : (
+              <p className="mini-note">No BOM lines yet.</p>
+            )}
+          </div>
 
           {/* ── Progress section ────────────────────────────────────── */}
           <section className="dd-section" id="dd-progress">
@@ -658,86 +731,6 @@ export const DesignDetailPage = () => {
                   </ul>
                 )}
               </div>
-            </div>
-          </section>
-
-          {/* ── Equipment / BOM ─────────────────────────────────────── */}
-          <section className="dd-section" id="dd-bom">
-            <div className="dd-section-head">
-              <h2><Cpu size={16} /> Equipment & Bill of Materials</h2>
-              <span className="dd-section-sub">
-                {bomLines.length} line{bomLines.length === 1 ? '' : 's'}
-                {quoteRequiredCount > 0 ? ` · ${quoteRequiredCount} price-on-request` : ''}
-              </span>
-            </div>
-            <div className="dd-section-card dd-bom-card">
-              <table className="cart-table dd-bom-table">
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th>Category</th>
-                    <th className="dd-num">Qty</th>
-                    <th className="dd-num">Unit</th>
-                    <th className="dd-num">Total</th>
-                    <th>Managed Service</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bomLines.map((line) => {
-                    const msDevice = line.item_id ? msDeviceMap.get(line.item_id) : undefined;
-                    const hasMsPrice = msDevice && msDevice.managedServicePrice > 0;
-                    const msIncluded = hasMsPrice && msDevice.groupEnabled && !msDevice.excluded;
-                    return (
-                      <tr key={line.line_id}>
-                        <td>
-                          <div className="dd-bom-name">{line.name}</div>
-                          {(line.connectivity || line.cable_type) && (
-                            <div className="dd-bom-sub">
-                              {line.cable_type && line.cable_length_meters
-                                ? `${line.cable_type} • ${Math.round(line.cable_length_meters)}m est. • $${Number(line.price_per_meter || 0).toFixed(2)}/m`
-                                : connectivityLabel(line.connectivity)}
-                            </div>
-                          )}
-                        </td>
-                        <td>{line.category || '—'}</td>
-                        <td className="dd-num">{line.quantity}</td>
-                        <td className="dd-num">{formatBomMoney(line, 'unit')}</td>
-                        <td className="dd-num">{formatBomMoney(line, 'total')}</td>
-                        <td>
-                          {hasMsPrice ? (
-                            <label className="ms-inline-check">
-                              <input
-                                type="checkbox"
-                                checked={msIncluded}
-                                disabled={design.status !== 'draft' && design.status !== 'reviewed'}
-                                onChange={() => toggleMsForDevice(msDevice.itemId, !msDevice.excluded ? false : true)}
-                              />
-                              <span className={msIncluded ? 'ms-inline-price' : 'ms-inline-price ms-inline-excluded'}>
-                                ${msDevice.managedServicePrice.toFixed(2)}/mo
-                              </span>
-                            </label>
-                          ) : (
-                            <span className="dd-bom-sub">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {bomLines.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="dd-empty">No BOM lines yet.</td>
-                    </tr>
-                  )}
-                </tbody>
-                {msTotalMonthly > 0 && (
-                  <tfoot>
-                    <tr className="ms-total-row">
-                      <td colSpan={5} className="dd-bom-total-label">Total Managed Services</td>
-                      <td className="ms-inline-total">{formatCurrency(msTotalMonthly)}/mo</td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
             </div>
           </section>
 

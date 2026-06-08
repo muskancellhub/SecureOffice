@@ -1,10 +1,10 @@
-import { ActivitySquare, CircleHelp, LayoutGrid, LogOut, Mail, MonitorCheck, Package, PanelLeft, PanelRight, ReceiptText, RefreshCcw, Router, ShieldCheck, ShoppingCart, UserCircle2, Users, Workflow, House, Rows3 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Boxes, Inbox, Landmark, LayoutGrid, LogOut, Mail, MonitorCheck, Package, PanelLeft, PencilRuler, ReceiptText, RefreshCcw, Router, ShieldCheck, ShoppingCart, Sparkles, Users } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useShop } from '../../context/ShopContext';
-import { CartDrawer } from './CartDrawer';
 import { ChatBot } from '../ChatBot';
+import { TenantSwitcher } from './TenantSwitcher';
 
 export const ShopShell = () => {
   const { user, logout } = useAuth();
@@ -12,31 +12,23 @@ export const ShopShell = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [solutionBuilderCollapsed, setSolutionBuilderCollapsed] = useState(false);
   const permissionSet = new Set(user?.effective_permissions ?? []);
   const canManageCatalogSync = permissionSet.has('manage_catalog_sync');
+  const canManageProducts = permissionSet.has('manage_products');
+  const canManagePricing = permissionSet.has('manage_pricing');
   const canManageManagedServices = permissionSet.has('manage_managed_services');
   const canManageUserAccess = permissionSet.has('manage_users');
   const canManageLifecycle = permissionSet.has('manage_lifecycle');
-  const canViewLifecycle = permissionSet.has('view_lifecycle');
   const canViewBilling = permissionSet.has('view_billing');
   const onboardingCompleted = Boolean(user?.onboarding_completed);
   const onboardingSkipped = window.localStorage.getItem('so2_onboarding_skip') === '1';
   const profileName = user?.email ? user.email.split('@')[0] : 'Secure AI Office User';
-  const showSolutionBuilder = useMemo(() => {
-    const path = location.pathname;
-    return (
-      path === '/shop/routers'
-      || path.startsWith('/shop/routers/')
-      || path === '/shop/services'
-      || path.startsWith('/shop/solution-flow')
-    );
-  }, [location.pathname]);
-
-  useEffect(() => {
-    if (!showSolutionBuilder) setSolutionBuilderCollapsed(false);
-  }, [showSolutionBuilder]);
-
+  const profileInitials = profileName
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('') || 'U';
   useEffect(() => {
     if (!user) return;
     const path = location.pathname;
@@ -49,18 +41,20 @@ export const ShopShell = () => {
     <div
       className={[
         'shop-page',
+        'no-drawer-layout',
         sidebarCollapsed ? 'sidebar-collapsed' : '',
-        showSolutionBuilder ? '' : 'no-drawer-layout',
-        showSolutionBuilder && solutionBuilderCollapsed ? 'builder-collapsed' : '',
       ].filter(Boolean).join(' ')}
     >
       <aside className={`left-nav ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="sidebar-body">
           <div className="left-brand streamly-brand">
             <span className="brand-mark streamly-mark" aria-hidden="true">
-              <ShieldCheck size={15} />
+              <ShieldCheck size={17} />
             </span>
-            <span className="sidebar-fade-target">Secure AI Office</span>
+            <span className="brand-title-wrap sidebar-fade-target">
+              <span className="brand-name">Secure AI Office</span>
+              <span className="brand-sub">Network · Commerce</span>
+            </span>
             <button
               type="button"
               className="brand-toggle-btn"
@@ -72,125 +66,132 @@ export const ShopShell = () => {
             </button>
           </div>
 
-          <div className="nav-section-label sidebar-fade-target">Menu</div>
+          <div className="nav-section-label sidebar-fade-target">Workspace</div>
           <nav className="main-nav streamly-nav">
             <NavLink to="/shop/dashboard">
-              <Rows3 size={15} />
+              <LayoutGrid size={17} />
               <span className="sidebar-fade-target">Dashboard</span>
             </NavLink>
             <NavLink to="/shop/designs">
-              <LayoutGrid size={15} />
-              <span className="sidebar-fade-target">Design</span>
+              <PencilRuler size={17} />
+              <span className="sidebar-fade-target">Designs</span>
             </NavLink>
             <NavLink to="/shop/onboarding">
-              <LayoutGrid size={15} />
+              <Sparkles size={17} />
               <span className="sidebar-fade-target">Onboarding</span>
-            </NavLink>
-            <NavLink to="/shop/routers">
-              <Router size={15} />
-              <span className="sidebar-fade-target">Catalog</span>
-            </NavLink>
-            <NavLink to="/shop/services">
-              <LayoutGrid size={15} />
-              <span className="sidebar-fade-target">Services</span>
             </NavLink>
           </nav>
 
-          <div className="nav-section-label sidebar-fade-target">Library</div>
+          <div className="nav-section-label sidebar-fade-target">Commerce</div>
           <nav className="main-nav streamly-nav">
+            <NavLink to="/shop/routers">
+              <Router size={17} />
+              <span className="sidebar-fade-target">Catalog</span>
+            </NavLink>
+            <NavLink to="/shop/services">
+              <ShieldCheck size={17} />
+              <span className="sidebar-fade-target">Managed Services</span>
+            </NavLink>
+            <NavLink to="/shop/cart">
+              <ShoppingCart size={17} />
+              <span className="sidebar-fade-target">Cart</span>
+              {(cart?.lines?.length ?? 0) > 0 && (
+                <span className="nav-badge sidebar-fade-target">{cart?.lines?.length}</span>
+              )}
+            </NavLink>
             <NavLink to="/shop/orders">
-              <Package size={15} />
+              <Package size={17} />
               <span className="sidebar-fade-target">Orders</span>
             </NavLink>
-            {canViewLifecycle && (
-              <NavLink to="/shop/lifecycle">
-                <ActivitySquare size={15} />
-                <span className="sidebar-fade-target">Lifecycle</span>
-              </NavLink>
-            )}
+          </nav>
+
+          <div className="nav-section-label sidebar-fade-target">Operate</div>
+          <nav className="main-nav streamly-nav">
             {canViewBilling && (
               <NavLink to="/shop/billing">
-                <ReceiptText size={15} />
+                <ReceiptText size={17} />
                 <span className="sidebar-fade-target">Billing</span>
               </NavLink>
             )}
             <NavLink to="/shop/zabbix">
-              <MonitorCheck size={15} />
-              <span className="sidebar-fade-target">Zabbix</span>
+              <MonitorCheck size={17} />
+              <span className="sidebar-fade-target">Monitoring</span>
             </NavLink>
           </nav>
 
-          <div className="nav-section-label sidebar-fade-target">Admin Access</div>
+          <div className="nav-section-label sidebar-fade-target">Admin</div>
           <nav className="main-nav streamly-nav">
+            {canManageProducts && (
+              <NavLink to="/shop/admin/products">
+                <Boxes size={17} />
+                <span className="sidebar-fade-target">Products & Pricing</span>
+              </NavLink>
+            )}
+            {canManagePricing && (
+              <NavLink to="/shop/admin/financing">
+                <Landmark size={17} />
+                <span className="sidebar-fade-target">Financing</span>
+              </NavLink>
+            )}
             {canManageCatalogSync && (
               <NavLink to="/shop/admin/catalog-sync">
-                <RefreshCcw size={15} />
+                <RefreshCcw size={17} />
                 <span className="sidebar-fade-target">Catalog Sync</span>
               </NavLink>
             )}
             {canManageManagedServices && (
               <NavLink to="/shop/admin/managed-services">
-                <LayoutGrid size={15} />
+                <LayoutGrid size={17} />
                 <span className="sidebar-fade-target">Admin Services</span>
               </NavLink>
             )}
             {canManageUserAccess && (
               <NavLink to="/shop/admin/user-access">
-                <Users size={15} />
+                <Users size={17} />
                 <span className="sidebar-fade-target">User Access</span>
               </NavLink>
             )}
             {canManageLifecycle && (
               <NavLink to="/shop/admin/design-submissions">
-                <Workflow size={15} />
+                <Inbox size={17} />
                 <span className="sidebar-fade-target">Design Ops Queue</span>
               </NavLink>
             )}
             {canManageLifecycle && (
               <NavLink to="/shop/admin/order-notifications">
-                <Mail size={15} />
+                <Mail size={17} />
                 <span className="sidebar-fade-target">Order Emails</span>
               </NavLink>
             )}
           </nav>
 
-          <button
-            className="sidebar-action-btn"
-            onClick={async () => {
-              await logout();
-              navigate('/login', { replace: true });
-            }}
-          >
-            <LogOut size={15} />
-            <span className="sidebar-fade-target">Logout</span>
-          </button>
-
           <div className="sidebar-profile">
-            <span className="avatar-wrap">
-              <UserCircle2 size={20} />
+            <span className="avatar-wrap avatar-initials" aria-hidden="true">
+              {profileInitials}
             </span>
             <div className="profile-copy sidebar-fade-target">
               <strong>{profileName}</strong>
               <span>{user?.email || 'user@secureoffice.com'}</span>
             </div>
-            <CircleHelp size={14} className="sidebar-fade-target" />
           </div>
+
+          <button
+            className="sidebar-action-btn sidebar-signout"
+            onClick={async () => {
+              await logout();
+              navigate('/login', { replace: true });
+            }}
+          >
+            <LogOut size={17} />
+            <span className="sidebar-fade-target">Sign out</span>
+          </button>
         </div>
 
       </aside>
 
       <main className="shop-main">
         <header className="shop-main-topbar">
-          {showSolutionBuilder && (
-            <button
-              className="icon-circle-btn builder-toggle-btn"
-              onClick={() => setSolutionBuilderCollapsed((v) => !v)}
-              aria-label={solutionBuilderCollapsed ? 'Expand solution builder' : 'Collapse solution builder'}
-              title={solutionBuilderCollapsed ? 'Expand solution builder' : 'Collapse solution builder'}
-            >
-              <PanelRight size={16} />
-            </button>
-          )}
+          <TenantSwitcher />
           <button className="icon-circle-btn cart-icon-btn" onClick={() => navigate('/shop/cart')} aria-label="Open cart">
             <ShoppingCart size={16} />
             <span className="cart-badge">{cart?.lines?.length || 0}</span>
@@ -198,9 +199,6 @@ export const ShopShell = () => {
         </header>
         <Outlet />
       </main>
-      {showSolutionBuilder && (
-        <CartDrawer collapsed={solutionBuilderCollapsed} onToggleCollapse={() => setSolutionBuilderCollapsed((v) => !v)} />
-      )}
       <ChatBot />
     </div>
   );

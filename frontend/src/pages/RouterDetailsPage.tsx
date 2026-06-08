@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { Minus, Plus, Trash2 } from 'lucide-react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, Laptop, Minus, Network, Plus, RadioTower, Router as RouterIcon, Server, ShieldCheck, ShoppingCart, Smartphone, Wifi } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
 import { useShop } from '../context/ShopContext';
@@ -8,147 +9,151 @@ import type { CatalogItem } from '../types/commerce';
 import { getRouterImage } from '../utils/productImages';
 import { extractApiError } from '../utils/extractApiError';
 
+const CATEGORY_ICON: Record<string, { icon: LucideIcon; tone: string }> = {
+  router: { icon: RouterIcon, tone: 'blue' }, wifi_ap: { icon: Wifi, tone: 'blue' }, switch: { icon: Network, tone: 'blue' },
+  firewall: { icon: ShieldCheck, tone: 'blue' }, security_appliance: { icon: ShieldCheck, tone: 'blue' },
+  cellular_gateway: { icon: RadioTower, tone: 'amber' }, hotspot: { icon: RadioTower, tone: 'amber' },
+  laptop: { icon: Laptop, tone: 'violet' }, tablet: { icon: Laptop, tone: 'violet' }, phone: { icon: Smartphone, tone: 'violet' },
+};
+
+const money = (v: number): string => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(v || 0);
+const prettyKey = (k: string): string => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
 export const RouterDetailsPage = () => {
   const { itemId } = useParams();
   const { accessToken } = useAuth();
-  const { cart, addRouterToCart, updateLineQuantity, removeLine } = useShop();
-  const [router, setRouter] = useState<CatalogItem | null>(null);
+  const navigate = useNavigate();
+  const { addRouterToCart } = useShop();
+  const [item, setItem] = useState<CatalogItem | null>(null);
   const [qty, setQty] = useState(1);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [addedNotice, setAddedNotice] = useState('');
+  const [imgFailed, setImgFailed] = useState(false);
 
   useEffect(() => {
     if (!accessToken || !itemId) return;
     setLoading(true);
     commerceApi
       .getCatalogItem(accessToken, itemId)
-      .then(setRouter)
-      .catch((err: any) => setError(extractApiError(err, 'Failed to load router details')))
+      .then(setItem)
+      .catch((err: any) => setError(extractApiError(err, 'Failed to load product details')))
       .finally(() => setLoading(false));
   }, [accessToken, itemId]);
 
-  useEffect(() => {
-    if (!addedNotice) return;
-    const timer = window.setTimeout(() => setAddedNotice(''), 1500);
-    return () => window.clearTimeout(timer);
-  }, [addedNotice]);
+  const specEntries = useMemo(() => {
+    if (!item) return [] as [string, string][];
+    const specs = (item.attributes?.specs && typeof item.attributes.specs === 'object') ? item.attributes.specs : null;
+    if (specs && Object.keys(specs).length) {
+      return Object.entries(specs).slice(0, 8).map(([k, v]) => [prettyKey(k), String(v)] as [string, string]);
+    }
+    const fallback: [string, string][] = [];
+    if (item.attributes?.brand) fallback.push(['Brand', String(item.attributes.brand)]);
+    if (item.attributes?.model) fallback.push(['Model', String(item.attributes.model)]);
+    if (item.attributes?.ports != null) fallback.push(['Ports', typeof item.attributes.ports === 'object' ? JSON.stringify(item.attributes.ports) : String(item.attributes.ports)]);
+    if (item.attributes?.wifi_standard) fallback.push(['Wi-Fi standard', String(item.attributes.wifi_standard)]);
+    return fallback;
+  }, [item]);
 
-  const cartLine = useMemo(() => {
-    if (!cart?.lines || !router) return null;
-    return cart.lines.find((l) => l.catalog_item_id === router.id) || null;
-  }, [cart, router]);
-
-  const handleQtyChange = async (newQty: number) => {
-    if (!cartLine) return;
+  const onAdd = async () => {
+    if (!item) return;
     setBusy(true);
     try {
-      if (newQty <= 0) {
-        await removeLine(cartLine.id);
-        setAddedNotice('Removed from cart.');
-      } else {
-        await updateLineQuantity(cartLine.id, newQty);
-      }
-    } catch (err: any) {
-      setError(extractApiError(err, 'Failed to update quantity'));
+      await addRouterToCart(item.id, qty);
     } finally {
       setBusy(false);
     }
   };
 
-  const specs = router?.attributes?.specs || {};
+  const onBuyNow = async () => {
+    if (!item) return;
+    setBusy(true);
+    try {
+      await addRouterToCart(item.id, qty);
+      navigate('/shop/cart');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const viz = item ? (CATEGORY_ICON[item.attributes?.category || ''] || { icon: Server, tone: 'blue' }) : { icon: Server, tone: 'blue' };
+  const Icon = viz.icon;
+  const stockOk = !(item?.availability || 'in_stock').toLowerCase().includes('back');
+  const papiImage = String(item?.attributes?.image_url || '').trim();
+  const imageSrc = item && papiImage && !imgFailed
+    ? getRouterImage({ id: item.id, sku: item.sku, name: item.name, brand: String(item.attributes?.brand || ''), model: String(item.attributes?.model || ''), imageUrl: papiImage })
+    : '';
 
   return (
-    <section className="content-wrap fade-in">
-      <div className="content-head row-between">
-        <h1>Router Details</h1>
-        <Link to="/shop/routers" className="ghost-link">Back to catalog</Link>
-      </div>
+    <section className="content-wrap fade-in cdx-page">
+      <Link to="/shop/routers" className="cdx-back"><ArrowLeft size={16} /> Catalog</Link>
 
-      {loading && <div className="mini-note">Loading details...</div>}
+      {loading && <div className="cat2-note">Loading details…</div>}
       {error && <div className="error-text">{error}</div>}
 
-      {router && (
-        <div className="details-card">
-          <div className="details-image">
-            <img
-              src={getRouterImage({
-                id: router.id,
-                sku: router.sku,
-                name: router.name,
-                brand: String(router.attributes?.brand || ''),
-                model: String(router.attributes?.model || ''),
-                imageUrl: String(router.attributes?.image_url || ''),
-              })}
-              alt={router.name}
-              className="product-image"
-            />
+      {item && (
+        <div className="cdx-layout">
+          <div className="cdx-gallery">
+            <div className={`cdx-viz tone-${viz.tone}`}>
+              {imageSrc ? (
+                <img className="cdx-img" src={imageSrc} alt={item.name} onError={() => setImgFailed(true)} />
+              ) : (
+                <span className="cdx-viz-icon"><Icon size={44} /></span>
+              )}
+            </div>
+            <div className="cdx-thumbs">
+              {[0, 1, 2, 3].map((i) => <span key={i} className="cdx-thumb" />)}
+            </div>
           </div>
-          <div>
-            <h2>{router.name}</h2>
-            <p className="sku">SKU: {router.sku}</p>
-            <p>{router.description || 'No description available.'}</p>
-            <div className="row-between">
-              <strong className="price">${router.price.toFixed(2)} {router.currency}</strong>
-              <span className={`badge ${(router.availability || '').toLowerCase().includes('stock') ? 'ok' : 'warn'}`}>
-                {router.availability || 'Unknown'}
-              </span>
+
+          <div className="cdx-info">
+            <div className="cdx-brand-row">
+              <span className="cdx-brand">{String(item.attributes?.brand || item.vendor || 'Catalog')}</span>
+              {item.attributes?.badge && <span className="cdx-tag">{String(item.attributes.badge)}</span>}
+            </div>
+            <h1 className="cdx-title">{item.name}</h1>
+            <div className="cdx-sku-row">
+              <span className="cdx-sku">SKU {item.sku}</span>
+              <span className={`cdx-stock ${stockOk ? 'green' : 'amber'}`}>{stockOk ? 'In stock' : 'Backorder'}</span>
             </div>
 
-            <h4>Specifications</h4>
-            <ul className="spec-bullets">
-              <li>Brand: {router.attributes?.brand || 'N/A'}</li>
-              <li>Model: {router.attributes?.model || 'N/A'}</li>
-              <li>Ports: {typeof router.attributes?.ports === 'object' ? JSON.stringify(router.attributes?.ports) : (router.attributes?.ports || 'N/A')}</li>
-              <li>Wi-Fi Standard: {router.attributes?.wifi_standard || 'N/A'}</li>
-              {Object.entries(specs).slice(0, 6).map(([k, v]) => <li key={k}>{k}: {String(v)}</li>)}
-            </ul>
+            <div className="cdx-price-row">
+              <span className="cdx-price">{money(item.price)}</span>
+              {item.managed_service_price != null && (
+                <span className="cdx-managed"><ShieldCheck size={14} /> Managed from $ {item.managed_service_price.toFixed(0)} <small>/mo</small></span>
+              )}
+            </div>
 
-            {cartLine ? (
-              <div className="qty-stepper" style={{ marginTop: 16 }}>
-                <button className="qty-stepper-btn" disabled={busy}
-                  onClick={() => cartLine.quantity <= 1
-                    ? handleQtyChange(0)
-                    : handleQtyChange(cartLine.quantity - 1)
-                  }
-                >
-                  {cartLine.quantity <= 1 ? <Trash2 size={13} /> : <Minus size={13} />}
-                </button>
-                <span className="qty-stepper-value">{cartLine.quantity}</span>
-                <button className="qty-stepper-btn" disabled={busy}
-                  onClick={() => handleQtyChange(cartLine.quantity + 1)}
-                >
-                  <Plus size={13} />
-                </button>
-              </div>
-            ) : (
-              <>
-                <div className="inline-fields compact">
-                  <label>Quantity</label>
-                  <select value={qty} onChange={(e) => setQty(Number(e.target.value))}>
-                    {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
-                  </select>
+            {specEntries.length > 0 && (
+              <div className="cdx-specs">
+                <h3>Specifications</h3>
+                <div className="cdx-spec-grid">
+                  {specEntries.map(([k, v]) => (
+                    <div key={k} className="cdx-spec">
+                      <span className="cdx-spec-k">{k}</span>
+                      <span className="cdx-spec-v">{v}</span>
+                    </div>
+                  ))}
                 </div>
-                <button
-                  className="primary-btn"
-                  onClick={async () => {
-                    try {
-                      await addRouterToCart(router.id, qty);
-                      setAddedNotice('Added to cart');
-                    } catch (err: any) {
-                      setError(extractApiError(err, 'Failed to add item to cart'));
-                    }
-                  }}
-                >
-                  Add to cart
-                </button>
-              </>
+              </div>
             )}
+
+            {item.description && <p className="cdx-desc">{item.description}</p>}
+
+            <div className="cdx-buy-row">
+              <div className="cdx-qty">
+                <button className="cdx-qty-btn" aria-label="Decrease" onClick={() => setQty((q) => Math.max(1, q - 1))}><Minus size={15} /></button>
+                <span className="cdx-qty-val">{qty}</span>
+                <button className="cdx-qty-btn" aria-label="Increase" onClick={() => setQty((q) => q + 1)}><Plus size={15} /></button>
+              </div>
+              <button className="cdx-add" onClick={onAdd} disabled={busy}>
+                <ShoppingCart size={17} /> Add to cart · {money(item.price * qty)}
+              </button>
+            </div>
+            <button className="cdx-buynow" onClick={onBuyNow} disabled={busy}>Buy now</button>
           </div>
         </div>
       )}
-      {addedNotice && <div className="toast-notice">{addedNotice}</div>}
     </section>
   );
 };

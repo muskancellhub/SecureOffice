@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, func, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
@@ -27,6 +27,14 @@ class TenantOnboarding(Base):
     payment_method_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     payment_method_last4: Mapped[str | None] = mapped_column(String(8), nullable=True)
     onboarding_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text('FALSE'))
+    # Business-credit inputs (spec §4.7) — no credit card required; consumed by the
+    # future credit layer (Phase 6). Collected now, unused until then.
+    legal_company_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ein: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    business_registration_no: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    business_credit_bureau: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    business_credit_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    credit_check_result: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     metadata_json: Mapped[dict] = mapped_column('metadata', JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[DateTime] = mapped_column(
