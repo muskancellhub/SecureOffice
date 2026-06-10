@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { LoginPage } from '../pages/LoginPage';
 import { SignupPage } from '../pages/SignupPage';
+import { SuperAdminSetPasswordPage } from '../pages/SuperAdminSetPasswordPage';
 import { VerifyOtpPage } from '../pages/VerifyOtpPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { OAuthSuccessPage } from '../pages/OAuthSuccessPage';
@@ -32,7 +33,6 @@ import { CalculatorResultsPage } from '../pages/CalculatorResultsPage';
 import { NetworkDesignBuilderPage } from '../pages/NetworkDesignBuilderPage';
 import { DesignHistoryPage } from '../pages/DesignHistoryPage';
 import { DesignDetailPage } from '../pages/DesignDetailPage';
-import { AdminDesignSubmissionsPage } from '../pages/AdminDesignSubmissionsPage';
 import { PublicHomePage } from '../pages/PublicHomePage';
 import { VendorRegisterPage } from '../pages/VendorRegisterPage';
 import { VendorLoginPage } from '../pages/VendorLoginPage';
@@ -53,6 +53,7 @@ export const AppRouter = () => (
     <Route path="/calculator-results" element={<CalculatorResultsPage />} />
     <Route path="/login" element={<LoginPage />} />
     <Route path="/signup" element={<SignupPage />} />
+    <Route path="/super-admin/set-password" element={<SuperAdminSetPasswordPage />} />
     <Route path="/verify-otp" element={<VerifyOtpPage />} />
     <Route path="/oauth/success" element={<OAuthSuccessPage />} />
     <Route path="/vendor/register" element={<VendorRegisterPage />} />
@@ -94,7 +95,6 @@ export const AppRouter = () => (
       <Route path="/shop/admin/managed-services" element={<RequireSuperAdmin><AdminManagedServicesPage /></RequireSuperAdmin>} />
       <Route path="/shop/admin/user-access" element={<AdminUserManagementPage />} />
       <Route path="/shop/admin/order-notifications" element={<AdminOrderNotificationsPage />} />
-      <Route path="/shop/admin/design-submissions" element={<RequireSuperAdmin><AdminDesignSubmissionsPage /></RequireSuperAdmin>} />
     </Route>
 
     <Route

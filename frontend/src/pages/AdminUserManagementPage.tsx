@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Building2, KeyRound, MoreVertical, Save, ShieldCheck, UserPlus, X } from 'lucide-react';
 import * as usersApi from '../api/usersApi';
 import * as commerceApi from '../api/commerceApi';
+import * as authApi from '../api/authApi';
 import { useAuth } from '../context/AuthContext';
 import { useTenant } from '../context/TenantContext';
 import type { UserRole } from '../types/auth';
@@ -83,6 +84,11 @@ export const AdminUserManagementPage = () => {
   const [inviteRole, setInviteRole] = useState<UserRole>('USER');
   const [inviting, setInviting] = useState(false);
 
+  // super-admin password setup (admin-set: you choose the password)
+  const [saSetupEmail, setSaSetupEmail] = useState('');
+  const [saSetupPassword, setSaSetupPassword] = useState('');
+  const [saSetupSending, setSaSetupSending] = useState(false);
+
   // row menu + edit-access modal
   const [menuUserId, setMenuUserId] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<UserSummary | null>(null);
@@ -126,6 +132,35 @@ export const AdminUserManagementPage = () => {
     const t = window.setTimeout(() => setNotice(''), 2800);
     return () => window.clearTimeout(t);
   }, [notice]);
+
+  const saPasswordError = (pw: string): string | null => {
+    if (pw.length < 12) return 'Password must be at least 12 characters.';
+    if (!/[a-z]/.test(pw)) return 'Password must include a lowercase letter.';
+    if (!/[A-Z]/.test(pw)) return 'Password must include an uppercase letter.';
+    if (!/\d/.test(pw)) return 'Password must include a number.';
+    if (!/[^A-Za-z0-9]/.test(pw)) return 'Password must include a symbol.';
+    return null;
+  };
+
+  const onSetSuperAdminCredentials = async () => {
+    if (!accessToken) return;
+    if (!isValidEmail(saSetupEmail)) { setError('Please enter a valid email address'); return; }
+    const pwErr = saPasswordError(saSetupPassword);
+    if (pwErr) { setError(pwErr); return; }
+    setSaSetupSending(true);
+    setError('');
+    setNotice('');
+    try {
+      await authApi.setSuperAdminCredentials(accessToken, saSetupEmail.trim(), saSetupPassword);
+      setNotice(`Super-admin password set for ${saSetupEmail.trim()}. Share it securely with them.`);
+      setSaSetupEmail('');
+      setSaSetupPassword('');
+    } catch (err: any) {
+      setError(extractApiError(err, 'Failed to set password. The email must be in SUPER_ADMIN_EMAILS.'));
+    } finally {
+      setSaSetupSending(false);
+    }
+  };
 
   const onInvite = async () => {
     if (!accessToken) return;
@@ -230,6 +265,42 @@ export const AdminUserManagementPage = () => {
 
       {error && <div className="error-text">{error}</div>}
       {notice && <div className="toast-notice">{notice}</div>}
+
+      {isSuperAdmin && (
+        <div className="apx-table-card" style={{ padding: 20, marginBottom: 16 }}>
+          <h3 style={{ margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <KeyRound size={16} /> Super-admin password
+          </h3>
+          <p className="apx-subtitle" style={{ marginTop: 0 }}>
+            Set a password for a teammate listed in <code>SUPER_ADMIN_EMAILS</code>, then share it securely with them.
+            Min 12 chars with upper, lower, number, and symbol.
+          </p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              type="email"
+              placeholder="teammate@cellhubms.com"
+              value={saSetupEmail}
+              onChange={(e) => setSaSetupEmail(e.target.value)}
+              style={{ flex: '1 1 240px', minWidth: 220 }}
+            />
+            <input
+              type="text"
+              placeholder="Password to set"
+              value={saSetupPassword}
+              onChange={(e) => setSaSetupPassword(e.target.value)}
+              autoComplete="off"
+              style={{ flex: '1 1 200px', minWidth: 200 }}
+            />
+            <button
+              className="apx-add-btn"
+              onClick={onSetSuperAdminCredentials}
+              disabled={saSetupSending || !saSetupEmail || !saSetupPassword}
+            >
+              {saSetupSending ? 'Setting…' : 'Set password'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {!canManageUsers && (
         <div className="error-text">You do not have `manage_users` permission. Ask a SUPER_ADMIN to update your access.</div>

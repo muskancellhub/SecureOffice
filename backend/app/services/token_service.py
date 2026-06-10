@@ -42,3 +42,26 @@ class TokenService:
             return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
         except JWTError as exc:
             raise UnauthorizedError('Invalid token') from exc
+
+    SUPER_ADMIN_SETUP_TYPE = 'super_admin_pwd_setup'
+
+    @staticmethod
+    def create_super_admin_setup_token(*, email: str, state: str) -> str:
+        """Single-use, short-TTL token for the super-admin password-setup link.
+        `state` binds the token to the account's current password state so it can
+        only be redeemed once (it stops matching after the password is set)."""
+        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.super_admin_setup_ttl_minutes)
+        payload = {
+            'email': email.strip().lower(),
+            'state': state,
+            'type': TokenService.SUPER_ADMIN_SETUP_TYPE,
+            'exp': expire,
+        }
+        return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+    @staticmethod
+    def decode_super_admin_setup_token(token: str) -> dict:
+        payload = TokenService.decode_token(token)
+        if payload.get('type') != TokenService.SUPER_ADMIN_SETUP_TYPE:
+            raise UnauthorizedError('Invalid setup token')
+        return payload

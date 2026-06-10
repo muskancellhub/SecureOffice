@@ -8,6 +8,17 @@ def apply_runtime_migrations() -> None:
         # RBAC permissions column for existing databases.
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSONB NOT NULL DEFAULT '[]'::jsonb"))
 
+        # Company-first signup (PLAN.md §1): membership status + billing-owner flag
+        # on users, and the canonical email-domain key on tenants.
+        conn.execute(text(
+            "DO $$ BEGIN CREATE TYPE user_status AS ENUM ('ACTIVE','PENDING'); "
+            "EXCEPTION WHEN duplicate_object THEN null; END $$;"
+        ))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS status user_status NOT NULL DEFAULT 'ACTIVE'"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_billing_owner BOOLEAN NOT NULL DEFAULT FALSE"))
+        conn.execute(text("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS email_domain VARCHAR(255)"))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_tenants_email_domain ON tenants (email_domain)"))
+
         # Tenant onboarding state.
         conn.execute(
             text(
@@ -51,6 +62,9 @@ def apply_runtime_migrations() -> None:
         conn.execute(text("ALTER TABLE tenant_onboarding ADD COLUMN IF NOT EXISTS payment_method_type VARCHAR(32)"))
         conn.execute(text("ALTER TABLE tenant_onboarding ADD COLUMN IF NOT EXISTS payment_method_last4 VARCHAR(8)"))
         conn.execute(text("ALTER TABLE tenant_onboarding ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN"))
+        conn.execute(text("ALTER TABLE tenant_onboarding ADD COLUMN IF NOT EXISTS operations_address JSONB"))
+        conn.execute(text("ALTER TABLE tenant_onboarding ADD COLUMN IF NOT EXISTS billing_address JSONB"))
+        conn.execute(text("ALTER TABLE tenant_onboarding ADD COLUMN IF NOT EXISTS billing_same_as_operations BOOLEAN"))
         conn.execute(text("ALTER TABLE tenant_onboarding ADD COLUMN IF NOT EXISTS metadata JSONB"))
         conn.execute(text("ALTER TABLE tenant_onboarding ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ"))
         conn.execute(text("ALTER TABLE tenant_onboarding ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ"))
@@ -61,6 +75,9 @@ def apply_runtime_migrations() -> None:
         conn.execute(text("UPDATE tenant_onboarding SET payment_method_setup = FALSE WHERE payment_method_setup IS NULL"))
         conn.execute(text("UPDATE tenant_onboarding SET payment_validation_status = 'PENDING' WHERE payment_validation_status IS NULL"))
         conn.execute(text("UPDATE tenant_onboarding SET onboarding_completed = FALSE WHERE onboarding_completed IS NULL"))
+        conn.execute(text("UPDATE tenant_onboarding SET operations_address = '{}'::jsonb WHERE operations_address IS NULL"))
+        conn.execute(text("UPDATE tenant_onboarding SET billing_address = '{}'::jsonb WHERE billing_address IS NULL"))
+        conn.execute(text("UPDATE tenant_onboarding SET billing_same_as_operations = TRUE WHERE billing_same_as_operations IS NULL"))
         conn.execute(text("UPDATE tenant_onboarding SET metadata = '{}'::jsonb WHERE metadata IS NULL"))
         conn.execute(text("UPDATE tenant_onboarding SET created_at = NOW() WHERE created_at IS NULL"))
         conn.execute(text("UPDATE tenant_onboarding SET updated_at = NOW() WHERE updated_at IS NULL"))
@@ -71,6 +88,9 @@ def apply_runtime_migrations() -> None:
         conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN payment_method_setup SET DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN payment_validation_status SET DEFAULT 'PENDING'"))
         conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN onboarding_completed SET DEFAULT FALSE"))
+        conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN operations_address SET DEFAULT '{}'::jsonb"))
+        conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN billing_address SET DEFAULT '{}'::jsonb"))
+        conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN billing_same_as_operations SET DEFAULT TRUE"))
         conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN metadata SET DEFAULT '{}'::jsonb"))
         conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN created_at SET DEFAULT NOW()"))
         conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN updated_at SET DEFAULT NOW()"))
@@ -81,6 +101,9 @@ def apply_runtime_migrations() -> None:
         conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN payment_method_setup SET NOT NULL"))
         conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN payment_validation_status SET NOT NULL"))
         conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN onboarding_completed SET NOT NULL"))
+        conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN operations_address SET NOT NULL"))
+        conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN billing_address SET NOT NULL"))
+        conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN billing_same_as_operations SET NOT NULL"))
         conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN metadata SET NOT NULL"))
         conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN created_at SET NOT NULL"))
         conn.execute(text("ALTER TABLE tenant_onboarding ALTER COLUMN updated_at SET NOT NULL"))

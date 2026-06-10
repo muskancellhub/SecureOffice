@@ -25,6 +25,15 @@ class UserType(str, enum.Enum):
     COMPANY = 'COMPANY'
 
 
+class UserStatus(str, enum.Enum):
+    # Full member of the tenant. The first user of a company (its founding ADMIN)
+    # and all explicitly-approved members are ACTIVE.
+    ACTIVE = 'ACTIVE'
+    # Auto-joined a pre-existing company (by email domain) and is awaiting an
+    # admin's approval. See docs/plans/onboarding-admin-flow/PLAN.md §1.
+    PENDING = 'PENDING'
+
+
 class User(Base):
     __tablename__ = 'users'
 
@@ -41,6 +50,12 @@ class User(Base):
         Enum(UserType, name='user_type_enum'), nullable=False, default=UserType.CELLHUB,
     )
     permissions: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    status: Mapped[UserStatus] = mapped_column(
+        Enum(UserStatus, name='user_status'), nullable=False, default=UserStatus.ACTIVE,
+    )
+    # The "paying / primary" user — the founding admin who created the company
+    # tenant. Owns billing. (PLAN.md §1/§2.)
+    is_billing_owner: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('tenants.id', ondelete='RESTRICT'), nullable=False)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

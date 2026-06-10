@@ -1,4 +1,4 @@
-import { Boxes, Inbox, Landmark, LayoutGrid, LogOut, Mail, MonitorCheck, Package, PanelLeft, PencilRuler, ReceiptText, RefreshCcw, Router, ShieldCheck, ShoppingCart, Sparkles, Users } from 'lucide-react';
+import { Boxes, Landmark, LayoutGrid, LogOut, Mail, MonitorCheck, Package, PanelLeft, PencilRuler, ReceiptText, RefreshCcw, Router, ShieldCheck, ShoppingCart, Sparkles, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -149,12 +149,6 @@ export const ShopShell = () => {
               <NavLink to="/shop/admin/user-access">
                 <Users size={17} />
                 <span className="sidebar-fade-target">User Access</span>
-              </NavLink>
-            )}
-            {canManageLifecycle && (
-              <NavLink to="/shop/admin/design-submissions">
-                <Inbox size={17} />
-                <span className="sidebar-fade-target">Design Ops Queue</span>
               </NavLink>
             )}
             {canManageLifecycle && (

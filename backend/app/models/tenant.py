@@ -17,6 +17,10 @@ class Tenant(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Canonical company key for company-first signup: the email domain of the
+    # founding admin (e.g. ``acme.com``). Unique across tenants; null for
+    # non-company tenants (CellHub master, vendors, legacy). (PLAN.md §1.)
+    email_domain: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     tenant_type: Mapped[TenantType] = mapped_column(
         Enum(TenantType, name='tenant_type'), nullable=False, default=TenantType.CELLHUB,
     )

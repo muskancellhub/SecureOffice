@@ -71,9 +71,16 @@ export const TenantProvider = ({ children }: { children: React.ReactNode }) => {
   }, [accessToken, isSuperAdmin, user?.tenant_id]);
 
   const setActiveTenantId = useCallback((id: string) => {
-    setActiveTenantIdState(id);
+    if (id === activeTenantId) return; // reselecting the same tenant — no reload
+    // Persist first, then hard-reload so every page re-fetches its data under the
+    // newly selected tenant. Pages fetch on mount and don't react to a tenant
+    // change otherwise, so a reload is the reliable way to re-scope the whole UI.
+    // The session survives the reload (it's restored from the refresh cookie in
+    // AuthContext.ensureSession on load).
     window.localStorage.setItem(STORAGE_KEY, id);
-  }, []);
+    setActiveTenantIdState(id);
+    window.location.reload();
+  }, [activeTenantId]);
 
   // Keep the interceptor's ref current. Done during render (not an effect) so the
   // header is set before any child page's data-fetch effect fires. Only

@@ -55,6 +55,30 @@ class Settings(BaseSettings):
 
     default_tenant_id: str | None = None
     bootstrap_super_admin_email: str = 'muskan.d@cellhubms.com'
+    # Additional super-admin emails (comma-separated), kept in env — NOT the DB.
+    # This env list is the source of truth for *who* is a super admin; the user's
+    # credential row is created only when they set a password via the secure setup
+    # flow. e.g. SUPER_ADMIN_EMAILS=a@x.com,b@x.com
+    super_admin_emails: str = Field(default='', alias='SUPER_ADMIN_EMAILS')
+
+    @property
+    def super_admin_email_set(self) -> set[str]:
+        """Lowercased set of all super-admin emails: the bootstrap admin plus the
+        comma-separated SUPER_ADMIN_EMAILS allowlist."""
+        emails: set[str] = set()
+        if self.bootstrap_super_admin_email:
+            emails.add(self.bootstrap_super_admin_email.strip().lower())
+        for raw in (self.super_admin_emails or '').split(','):
+            e = raw.strip().lower()
+            if e:
+                emails.add(e)
+        return emails
+
+    def is_super_admin_email(self, email: str | None) -> bool:
+        return bool(email) and email.strip().lower() in self.super_admin_email_set
+
+    # Minutes a super-admin password-setup link stays valid (single-use + expiring).
+    super_admin_setup_ttl_minutes: int = Field(default=60, alias='SUPER_ADMIN_SETUP_TTL_MINUTES')
 
     # Multi-tenant Phase 4: Postgres Row-Level Security hardening. OFF by default —
     # app-layer guards (Phases 0–3) already scope queries; RLS is defense-in-depth.

@@ -28,14 +28,15 @@ class SignupRequest(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     mobile: str | None = Field(default=None)
     name: str = Field(min_length=1, max_length=255)
-    tenant_id: str | None = None
+    # Company-first signup: the company name becomes the tenant (PLAN.md §1).
+    company_name: str = Field(min_length=1, max_length=255)
 
     @field_validator('email')
     @classmethod
     def check_email(cls, v: str) -> str:
         return validate_email(v)
 
-    @field_validator('name', mode='before')
+    @field_validator('name', 'company_name', mode='before')
     @classmethod
     def strip_name(cls, v: str) -> str:
         return v.strip() if isinstance(v, str) else v
@@ -44,6 +45,30 @@ class SignupRequest(BaseModel):
     @classmethod
     def check_mobile(cls, v: str | None) -> str | None:
         return validate_phone(v)
+
+
+class SuperAdminPasswordSetupRequest(BaseModel):
+    email: EmailStr
+
+    @field_validator('email')
+    @classmethod
+    def check_email(cls, v: str) -> str:
+        return validate_email(v)
+
+
+class SuperAdminSetPasswordRequest(BaseModel):
+    token: str = Field(min_length=10)
+    password: str = Field(min_length=12, max_length=128)
+
+
+class SuperAdminSetCredentialsRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=12, max_length=128)
+
+    @field_validator('email')
+    @classmethod
+    def check_email(cls, v: str) -> str:
+        return validate_email(v)
 
 
 class VendorSignupRequest(BaseModel):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
@@ -301,12 +302,66 @@ class NetworkDesignService:
         return status
 
     def _assert_design_access(self, current_user: dict, design: NetworkDesign) -> None:
-        if self._is_admin(current_user.get('role')):
+        role = current_user.get('role')
+        # The global CellHub operator (SUPER_ADMIN) may read/manage any tenant's
+        # design — this is what backs the admin design-ops queue and the
+        # full-page navigation into /shop/designs/{id} across tenants.
+        if role == UserRole.SUPER_ADMIN.value:
+            return
+        if self._is_admin(role):
+            # A tenant ADMIN is pinned to their own tenant — cross-tenant designs
+            # are invisible to them (tenant isolation).
             if design.tenant_id and str(design.tenant_id) != current_user['tenant_id']:
                 raise ForbiddenError('Design not found in your tenant')
             return
         if not design.created_by_user_id or str(design.created_by_user_id) != current_user['user_id']:
             raise ForbiddenError('Design not found for current user')
+
+    @staticmethod
+    def _user_initials(current_user: dict | None) -> str:
+        """Two-letter initials from the actor's name, falling back to the email
+        local-part (e.g. ``muskan.d@…`` → ``MD``)."""
+        if not current_user:
+            return 'XX'
+        name = str(current_user.get('name') or '').strip()
+        if not name:
+            email = str(current_user.get('email') or '').strip()
+            name = email.split('@', 1)[0] if email else ''
+        parts = [p for p in re.split(r'[\s._\-]+', name) if p]
+        if not parts:
+            return 'XX'
+        initials = ''.join(p[0] for p in parts[:2]).upper()
+        return initials or 'XX'
+
+    @staticmethod
+    def _slugify_company(name: str | None) -> str:
+        slug = re.sub(r'[^a-zA-Z0-9]+', '', str(name or '')).lower()
+        return slug or 'company'
+
+    def _generate_design_name(self, current_user: dict | None) -> str | None:
+        """Auto-generated design name in the format
+        ``design{N}-{INITIALS}-{company}-{YYYY-MM-DD}`` where N is the next
+        sequential index within the tenant. Used when a design is created
+        without an explicit name (auto-save flow)."""
+        if not current_user:
+            return None
+        tenant_id = current_user.get('tenant_id')
+        seq = 1
+        company = 'company'
+        if tenant_id:
+            try:
+                seq = self.repo.count_for_tenant(tenant_id=tenant_id) + 1
+            except Exception:
+                seq = 1
+            try:
+                tenant = self.db.get(Tenant, self._parse_uuid(tenant_id, field_name='tenant_id'))
+                if tenant and tenant.name:
+                    company = self._slugify_company(tenant.name)
+            except Exception:
+                company = 'company'
+        initials = self._user_initials(current_user)
+        date_str = self._now().strftime('%Y-%m-%d')
+        return f'design{seq}-{initials}-{company}-{date_str}'
 
     def _upsert_lead(
         self,
@@ -905,10 +960,11 @@ class NetworkDesignService:
         )
 
         design_name = self._clean_text(payload.get('design_name') or payload.get('designName'))
-        if not design_name and lead_payload and lead_payload.get('company_name'):
-            design_name = f"{lead_payload.get('company_name')} SMB Network Design"
-
         design_id = payload.get('design_id') or payload.get('designId')
+        # On first create with no explicit name, auto-generate the formatted name
+        # (design{N}-INITIALS-company-YYYY-MM-DD). Existing designs keep their name.
+        if not design_name and not design_id:
+            design_name = self._generate_design_name(current_user)
         if design_id:
             design = self.repo.get_design_by_id(str(design_id))
             if not design:
@@ -1026,15 +1082,26 @@ class NetworkDesignService:
             raise NotFoundError('Design not found after submit')
         return refreshed
 
-    def list_designs(self, current_user: dict, *, submitted_only: bool = False, ops_view: bool = False) -> list[NetworkDesign]:
+    def list_designs(
+        self,
+        current_user: dict,
+        *,
+        submitted_only: bool = False,
+        ops_view: bool = False,
+        effective_tenant_id: str | None = None,
+    ) -> list[NetworkDesign]:
         self._assert_user_exists(current_user)
+        # The effective tenant is the actor's own tenant unless a SUPER_ADMIN
+        # has selected another via X-Tenant-Id (resolved upstream). It is always
+        # the actor's own tenant for non-super-admins, preserving isolation.
+        tenant_id = effective_tenant_id or current_user['tenant_id']
         if ops_view:
             if not self._is_admin(current_user.get('role')):
                 raise ForbiddenError('Ops view is available to ADMIN or SUPER_ADMIN only')
-            return self.repo.list_ops_submissions(tenant_id=current_user['tenant_id'])
+            return self.repo.list_ops_submissions(tenant_id=tenant_id)
 
         if self._is_admin(current_user.get('role')):
-            return self.repo.list_for_tenant(tenant_id=current_user['tenant_id'], submitted_only=submitted_only)
+            return self.repo.list_for_tenant(tenant_id=tenant_id, submitted_only=submitted_only)
         return self.repo.list_for_user(user_id=current_user['user_id'], submitted_only=submitted_only)
 
     def get_design(self, current_user: dict, design_id: str) -> NetworkDesign:
@@ -1076,8 +1143,11 @@ class NetworkDesignService:
         design = self.repo.get_design_by_id(design_id)
         if not design:
             raise NotFoundError('Design not found')
-        if design.tenant_id and str(design.tenant_id) != current_user['tenant_id']:
-            raise ForbiddenError('Design not found in your tenant')
+        # Delegate to the shared access policy so a SUPER_ADMIN may manage any
+        # tenant's design (this backs the admin design-ops board), while a tenant
+        # ADMIN stays pinned to their own tenant. Callers already gate on
+        # _is_admin, so a regular USER never reaches here.
+        self._assert_design_access(current_user, design)
         return design
 
     def update_status(

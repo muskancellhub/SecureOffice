@@ -42,16 +42,38 @@ class OnboardingService:
         return status
 
     @staticmethod
-    def _compute_onboarding_completed(profile) -> bool:
+    def _has_address(addr: dict | None) -> bool:
+        """True when an address dict has the core fields filled."""
+        a = addr or {}
+        return all(str(a.get(k) or '').strip() for k in ('line1', 'city', 'state', 'postal_code'))
+
+    @staticmethod
+    def _clean_address(addr: dict | None) -> dict:
+        """Normalize a validated address dict for storage. A blank address (no
+        core fields) collapses to ``{}`` (i.e. 'not set')."""
+        a = addr or {}
+        keys = ('line1', 'line2', 'city', 'state', 'postal_code', 'country')
+        cleaned = {k: str(a.get(k) or '').strip() for k in keys}
+        if not any(cleaned[k] for k in ('line1', 'city', 'state', 'postal_code')):
+            return {}
+        return {k: v for k, v in cleaned.items() if v}
+
+    @classmethod
+    def _compute_onboarding_completed(cls, profile) -> bool:
         has_org = bool((profile.organization_name or '').strip())
         has_admin = bool((profile.admin_name or '').strip()) and bool((profile.admin_email or '').strip())
         has_identifier = bool((profile.duns_number or '').strip()) or bool((profile.tax_id or '').strip())
         credit_verified = (profile.credit_validation_status or '').upper() == 'VERIFIED'
         tax_verified = (profile.tax_validation_status or '').upper() == 'VERIFIED'
-        return all([has_org, has_admin, has_identifier, credit_verified, tax_verified, bool(profile.company_setup_completed)])
+        has_address = cls._has_address(profile.operations_address)
+        billing_ok = bool(profile.billing_same_as_operations) or cls._has_address(profile.billing_address)
+        return all([
+            has_org, has_admin, has_identifier, credit_verified, tax_verified,
+            bool(profile.company_setup_completed), has_address, billing_ok,
+        ])
 
-    @staticmethod
-    def _missing_requirements(profile) -> list[str]:
+    @classmethod
+    def _missing_requirements(cls, profile) -> list[str]:
         missing: list[str] = []
         if not (profile.organization_name or '').strip():
             missing.append('Organization name')
@@ -67,6 +89,10 @@ class OnboardingService:
             missing.append('DUNS/Tax validation')
         if not profile.company_setup_completed:
             missing.append('Basic company setup')
+        if not cls._has_address(profile.operations_address):
+            missing.append('Operations address')
+        if not profile.billing_same_as_operations and not cls._has_address(profile.billing_address):
+            missing.append('Billing address')
         return missing
 
     def missing_requirements(self, profile) -> list[str]:
@@ -113,6 +139,21 @@ class OnboardingService:
             profile.company_setup_completed = bool(payload.get('company_setup_completed'))
         if 'payment_method_setup' in payload and payload.get('payment_method_setup') is not None:
             profile.payment_method_setup = bool(payload.get('payment_method_setup'))
+
+        # Addresses (PLAN.md §5). The request schema (AddressInput) has already
+        # enforced shape/format; here we persist and reconcile the billing copy.
+        if 'operations_address' in payload:
+            profile.operations_address = self._clean_address(payload.get('operations_address'))
+        if 'billing_same_as_operations' in payload and payload.get('billing_same_as_operations') is not None:
+            profile.billing_same_as_operations = bool(payload.get('billing_same_as_operations'))
+        if 'billing_address' in payload:
+            profile.billing_address = self._clean_address(payload.get('billing_address'))
+        if profile.billing_same_as_operations:
+            # Billing mirrors operations — keep a concrete copy so downstream
+            # billing always has an address regardless of the toggle.
+            profile.billing_address = dict(profile.operations_address or {})
+        elif not self._has_address(profile.billing_address):
+            raise AppError('A billing address is required when it differs from the operations address.', 422)
 
         metadata_patch = payload.get('metadata')
         if isinstance(metadata_patch, dict):

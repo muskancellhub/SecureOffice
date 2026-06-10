@@ -9,10 +9,12 @@ import { extractApiError, isValidEmail } from '../utils/extractApiError';
 const RESEND_COOLDOWN_SECONDS = 60;
 
 export const LoginPage = () => {
-  const { user, loading: authLoading, requestLoginOtp, verifyLoginOtp, startGoogleSSO, startMicrosoftSSO } = useAuth();
+  const { user, loading: authLoading, login, requestLoginOtp, verifyLoginOtp, startGoogleSSO, startMicrosoftSSO } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [mode, setMode] = useState<'otp' | 'password'>('otp');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [otpRequested, setOtpRequested] = useState(false);
   const [error, setError] = useState('');
@@ -56,6 +58,36 @@ export const LoginPage = () => {
       navigate(`/login?next=${encodeURIComponent(nextRoute)}`, { replace: true });
     }
   }, [hasExplicitNext, nextRoute, location.search, navigate]);
+
+  const switchMode = (next: 'otp' | 'password') => {
+    setMode(next);
+    setError('');
+    setNotice('');
+    setOtp('');
+    setPassword('');
+    setOtpRequested(false);
+  };
+
+  const onPasswordLogin = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) return;
+    if (!isValidEmail(email)) { setError('Please enter a valid email address'); return; }
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    setError('');
+    setNotice('');
+    setLoading(true);
+    try {
+      await login({ email, password });
+      localStorage.removeItem('secureOfficePostAuthRedirect');
+      navigate(nextRoute, { replace: true });
+    } catch (err: any) {
+      setError(extractApiError(err, 'Invalid email or password'));
+    } finally {
+      setLoading(false);
+      inFlightRef.current = false;
+    }
+  };
 
   const onRequestOtp = async (e: FormEvent) => {
     e.preventDefault();
@@ -134,14 +166,30 @@ export const LoginPage = () => {
   };
 
   return (
-    <AuthShell title="Welcome Back" subtitle="Sign in with OTP sent to your email">
-      {!otpRequested ? (
+    <AuthShell title="Welcome Back" subtitle={mode === 'password' ? 'Sign in with your password' : 'Sign in with OTP sent to your email'}>
+      {mode === 'password' ? (
+        <form className="auth-form" onSubmit={onPasswordLogin}>
+          <input type="email" placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+          {notice && <div className="mini-note">{notice}</div>}
+          {error && <div className="error-text">{error}</div>}
+          <button className="primary-btn" type="submit" disabled={loading}>
+            {loading ? 'Signing in...' : 'Sign in'}
+          </button>
+          <button className="ghost-btn" type="button" onClick={() => switchMode('otp')} disabled={loading}>
+            Use a one-time code instead
+          </button>
+        </form>
+      ) : !otpRequested ? (
         <form className="auth-form" onSubmit={onRequestOtp}>
           <input type="email" placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)} required />
           {notice && <div className="mini-note">{notice}</div>}
           {error && <div className="error-text">{error}</div>}
           <button className="primary-btn" type="submit" disabled={loading}>
             {loading ? 'Sending OTP...' : 'Send OTP'}
+          </button>
+          <button className="ghost-btn" type="button" onClick={() => switchMode('password')} disabled={loading}>
+            Sign in with a password
           </button>
         </form>
       ) : (

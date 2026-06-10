@@ -68,3 +68,7 @@ id_rsa.pub
 # --- Agent / IDE local config ---
 **/.claude/settings.local.json
 .gstack/
+
+# Database dumps — sensitive (contain password hashes). Never commit.
+*_dump.sql
+*.dump

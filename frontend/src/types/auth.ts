@@ -20,6 +20,7 @@ export interface SignupPayload {
   password: string;
   mobile?: string;
   name: string;
+  company_name: string;
 }
 
 export interface VerifyOtpPayload {

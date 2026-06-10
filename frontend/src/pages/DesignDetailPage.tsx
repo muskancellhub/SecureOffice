@@ -3,14 +3,10 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   ArrowUpRight,
-  CalendarClock,
-  CheckCircle2,
   DollarSign,
   Layers,
   MapPin,
-  MessageSquare,
   Network,
-  Send,
   Server,
   ShoppingCart,
   Trash2,
@@ -19,46 +15,15 @@ import {
 import * as commerceApi from '../api/commerceApi';
 import { DrawioDiagramViewer } from '../components/DrawioDiagramViewer';
 import { useAuth } from '../context/AuthContext';
+import { useShop } from '../context/ShopContext';
 import { extractApiError } from '../utils/extractApiError';
 import type {
   DesignInstallAssistance,
-  DesignStatus,
-  DesignStatusHistoryEntry,
-  DesignUpdate,
   ManagedServicesDesignSummary,
   ManagedServiceDeviceEntry,
   NetworkBomLine,
   NetworkDesignDetail,
-  OnboardingProfile,
 } from '../types/commerce';
-
-const STATUS_FLOW: DesignStatus[] = [
-  'submitted',
-  'in_review',
-  'bom_finalized',
-  'proposal_ready',
-  'approved',
-  'order_decomposed',
-  'fulfillment_in_progress',
-  'installation_scheduled',
-  'installed',
-  'completed',
-];
-
-const STATUS_LABELS: Record<DesignStatus, string> = {
-  draft: 'Draft',
-  reviewed: 'Reviewed',
-  submitted: 'Submitted',
-  in_review: 'In Review',
-  bom_finalized: 'BOM Finalized',
-  proposal_ready: 'Proposal Ready',
-  approved: 'Approved',
-  order_decomposed: 'Order Decomposed',
-  fulfillment_in_progress: 'Fulfillment In Progress',
-  installation_scheduled: 'Installation Scheduled',
-  installed: 'Installed',
-  completed: 'Completed',
-};
 
 const formatCurrency = (value: number): string =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value || 0);
@@ -90,77 +55,6 @@ const formatDate = (value?: string | null): string => {
   return dt.toLocaleString();
 };
 
-const formatStatus = (status: DesignStatus): string => STATUS_LABELS[status] || status;
-
-const STATUS_TONE: Record<DesignStatus, 'neutral' | 'progress' | 'success' | 'warning'> = {
-  draft: 'neutral',
-  reviewed: 'neutral',
-  submitted: 'progress',
-  in_review: 'progress',
-  bom_finalized: 'progress',
-  proposal_ready: 'progress',
-  approved: 'success',
-  order_decomposed: 'progress',
-  fulfillment_in_progress: 'progress',
-  installation_scheduled: 'progress',
-  installed: 'success',
-  completed: 'success',
-};
-
-type NextAction = {
-  label: string;
-  description: string;
-  cta?: string;
-};
-
-const nextActionFor = (status: DesignStatus | undefined): NextAction => {
-  switch (status) {
-    case 'draft':
-    case 'reviewed':
-      return {
-        label: 'Action needed',
-        description: 'Add your contact details below and submit this design for our team to review.',
-        cta: 'Submit for Review',
-      };
-    case 'submitted':
-    case 'in_review':
-      return {
-        label: 'Under review',
-        description: 'Our solutions team is validating the bill of materials. You will be notified when the proposal is ready.',
-      };
-    case 'bom_finalized':
-    case 'proposal_ready':
-      return {
-        label: 'Proposal ready',
-        description: 'A formal quote has been prepared. Open the quote to review pricing and accept the proposal.',
-      };
-    case 'approved':
-    case 'order_decomposed':
-      return {
-        label: 'Approved',
-        description: 'Order has been generated. Track fulfillment progress below.',
-      };
-    case 'fulfillment_in_progress':
-      return {
-        label: 'Fulfillment in progress',
-        description: 'Equipment is being procured and prepared for shipment.',
-      };
-    case 'installation_scheduled':
-      return {
-        label: 'Installation scheduled',
-        description: 'Your installation is on the calendar. Confirm any onsite details with the operations team.',
-      };
-    case 'installed':
-    case 'completed':
-      return {
-        label: 'All set',
-        description: 'Deployment is complete. Reach out if you need any post-installation support.',
-      };
-    default:
-      return { label: 'In progress', description: 'Tracking progress on this design request.' };
-  }
-};
-
 const defaultInstallState: DesignInstallAssistance = {
   installMode: 'self_install',
   preferredInstallDate: '',
@@ -168,14 +62,13 @@ const defaultInstallState: DesignInstallAssistance = {
 };
 
 export const DesignDetailPage = () => {
-  const { accessToken, user } = useAuth();
+  const { accessToken } = useAuth();
+  const { refreshCart } = useShop();
   const navigate = useNavigate();
   const { designId } = useParams();
   const [design, setDesign] = useState<NetworkDesignDetail | null>(null);
-  const [onboarding, setOnboarding] = useState<OnboardingProfile | null>(null);
   const [installAssistance, setInstallAssistance] = useState<DesignInstallAssistance>(defaultInstallState);
   const [loading, setLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [savingInstall, setSavingInstall] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -193,13 +86,6 @@ export const DesignDetailPage = () => {
       setDesign(data);
       // Always fetch managed services via dedicated endpoint for freshest data
       loadManagedServices(data.id);
-      // Pull contact info from onboarding profile so the user doesn't re-enter it
-      try {
-        const profile = await commerceApi.getOnboardingProfile(accessToken);
-        setOnboarding(profile);
-      } catch {
-        setOnboarding(null);
-      }
       setInstallAssistance({
         installMode: data.installAssistance?.installMode || 'self_install',
         preferredInstallDate: data.installAssistance?.preferredInstallDate || '',
@@ -260,6 +146,7 @@ export const DesignDetailPage = () => {
         fail += 1;
       }
     }
+    if (ok > 0) await refreshCart();
     setAddingAllToCart(false);
     if (ok > 0) {
       setNotice(`Added ${ok} BOM item${ok > 1 ? 's' : ''} to cart.`);
@@ -268,7 +155,6 @@ export const DesignDetailPage = () => {
     if (fail > 0) setError(`${fail} item${fail > 1 ? 's' : ''} could not be added to cart.`);
   };
 
-  const canSubmit = design?.status === 'draft' || design?.status === 'reviewed';
 
   // Build per-item lookup from managed services data
   // Handle both camelCase (from dedicated API) and snake_case (from inline detail)
@@ -296,49 +182,61 @@ export const DesignDetailPage = () => {
 
   const msTotalMonthly = msData?.grandTotalMonthly ?? 0;
 
-  const toggleMsForDevice = async (itemId: string, currentlyExcluded: boolean) => {
+  // Toggle managed-service coverage for a SINGLE device. `currentlyIncluded` is
+  // the checkbox's visible checked state (group enabled AND not excluded) — we
+  // key off that, not the raw `excluded` flag, because while a group is disabled
+  // every device reads `excluded:false` yet shows unchecked.
+  const toggleMsForDevice = async (itemId: string, currentlyIncluded: boolean) => {
     if (!accessToken || !designId || !msData) return;
     const config = msData.config || {};
-    const enabledSet = new Set<string>((config as any).enabled_categories || (config as any).enabledCategories || []);
+    const rawEnabled = (config as any).enabled_categories || (config as any).enabledCategories || [];
     const excludedSet = new Set<string>((config as any).excluded_item_ids || (config as any).excludedItemIds || []);
 
-    // Auto-enable the device's category group if not already enabled
+    // The backend treats an EMPTY enabled list as "all categories enabled". Mirror
+    // that here so our notion of "enabled" matches the server's — otherwise, on a
+    // default (all-on) design, re-checking a device would wrongly look like it's
+    // enabling a fresh category and exclude its siblings.
+    const allGroups = msData.categories.map((c) => c.group);
+    const enabledSet = new Set<string>(rawEnabled.length > 0 ? rawEnabled : allGroups);
+
     const deviceInfo = msDeviceMap.get(itemId);
-    if (deviceInfo && !enabledSet.has(deviceInfo.group)) {
-      enabledSet.add(deviceInfo.group);
-    }
+    const group = deviceInfo?.group;
 
-    if (currentlyExcluded) {
-      excludedSet.delete(itemId);
-    } else {
+    if (currentlyIncluded) {
+      // Turn this device OFF — exclude it, leaving the category enabled for others.
       excludedSet.add(itemId);
+    } else {
+      // Turn this device ON. If its category isn't enabled yet, enabling it would
+      // otherwise auto-include every sibling (they default to excluded:false), so
+      // exclude all the other devices in the group first — only this one turns on.
+      if (group && !enabledSet.has(group)) {
+        enabledSet.add(group);
+        for (const [otherId, info] of msDeviceMap) {
+          if (info.group === group && otherId !== itemId) excludedSet.add(otherId);
+        }
+      }
+      excludedSet.delete(itemId);
     }
 
-    // Optimistic update — flip the device locally so only the toggled row changes
+    // Optimistic update — derive each device's excluded + each category's enabled
+    // straight from the recomputed sets so the whole table stays consistent.
     setMsData((prev) => {
       if (!prev) return prev;
-      const newExcluded = !currentlyExcluded;
       return {
         ...prev,
-        categories: prev.categories.map((cat) => ({
-          ...cat,
-          enabled: enabledSet.has(cat.group),
-          devices: cat.devices.map((d) =>
-            d.itemId === itemId ? { ...d, excluded: newExcluded } : d
-          ),
-          appliedCount: cat.devices.reduce((sum, d) => {
-            const exc = d.itemId === itemId ? newExcluded : d.excluded;
-            return sum + (exc ? 0 : d.quantity);
-          }, 0),
-          excludedCount: cat.devices.reduce((sum, d) => {
-            const exc = d.itemId === itemId ? newExcluded : d.excluded;
-            return sum + (exc ? d.quantity : 0);
-          }, 0),
-          monthlyTotal: cat.devices.reduce((sum, d) => {
-            const exc = d.itemId === itemId ? newExcluded : d.excluded;
-            return sum + (exc ? 0 : d.managedServicePrice * d.quantity);
-          }, 0),
-        })),
+        categories: prev.categories.map((cat) => {
+          const enabled = enabledSet.has(cat.group);
+          const devices = cat.devices.map((d) => ({ ...d, excluded: excludedSet.has(d.itemId) }));
+          const isOn = (d: typeof devices[number]) => enabled && !excludedSet.has(d.itemId);
+          return {
+            ...cat,
+            enabled,
+            devices,
+            appliedCount: devices.reduce((sum, d) => sum + (isOn(d) ? d.quantity : 0), 0),
+            excludedCount: devices.reduce((sum, d) => sum + (isOn(d) ? 0 : d.quantity), 0),
+            monthlyTotal: devices.reduce((sum, d) => sum + (isOn(d) ? d.managedServicePrice * d.quantity : 0), 0),
+          };
+        }),
       };
     });
 
@@ -357,22 +255,6 @@ export const DesignDetailPage = () => {
     }
   };
 
-  const activeStepIndex = useMemo(() => {
-    if (!design) return 0;
-    const index = STATUS_FLOW.indexOf(design.status);
-    return index < 0 ? 0 : index;
-  }, [design?.status]);
-
-  const statusHistory: DesignStatusHistoryEntry[] = useMemo(
-    () => (Array.isArray(design?.statusHistory) ? design.statusHistory : []),
-    [design?.statusHistory],
-  );
-
-  const updates: DesignUpdate[] = useMemo(
-    () => (Array.isArray(design?.updates) ? design.updates : []),
-    [design?.updates],
-  );
-
   const onDeleteDesign = async () => {
     if (!accessToken || !design) return;
     const name = design.designName || `Design ${design.id.slice(0, 8)}`;
@@ -386,41 +268,6 @@ export const DesignDetailPage = () => {
     } catch (err: any) {
       setError(extractApiError(err, 'Failed to delete design'));
       setDeleting(false);
-    }
-  };
-
-  const onSubmitDesign = async () => {
-    if (!accessToken || !design) return;
-    // Pull lead info from the design itself first, then from onboarding profile,
-    // then fall back to the authenticated user's email.
-    const fullName = design.lead?.fullName || onboarding?.admin_name || '';
-    const email = design.lead?.email || onboarding?.admin_email || user?.email || '';
-    const companyName = design.lead?.companyName || onboarding?.organization_name || '';
-    const phone = design.lead?.phone || onboarding?.admin_phone || undefined;
-    if (!fullName || !email || !companyName) {
-      setError(
-        'Your contact info is incomplete. Please complete your account onboarding before submitting this design.',
-      );
-      return;
-    }
-    setSubmitting(true);
-    setError('');
-    try {
-      const updated = await commerceApi.submitNetworkDesign(accessToken, design.id, {
-        lead: {
-          fullName,
-          email,
-          companyName,
-          phone,
-          notes: design.lead?.notes || undefined,
-        },
-      });
-      setDesign(updated);
-      setNotice('Design submitted successfully.');
-    } catch (err: any) {
-      setError(extractApiError(err, 'Failed to submit design'));
-    } finally {
-      setSubmitting(false);
     }
   };
 
@@ -443,10 +290,8 @@ export const DesignDetailPage = () => {
     }
   };
 
-  const next = nextActionFor(design?.status);
-  const statusTone = design ? STATUS_TONE[design.status] || 'neutral' : 'neutral';
   const designLabel = design ? (design.designName || `Design ${design.id.slice(0, 8)}`) : '';
-  const canDelete = design?.status === 'draft' || design?.status === 'reviewed';
+  const canDelete = !!design;
 
   return (
     <section className="content-wrap fade-in dnb-page design-detail-page">
@@ -463,9 +308,6 @@ export const DesignDetailPage = () => {
               <h1>{designLabel}</h1>
               <p className="apx-subtitle">Saved network design — bill of materials and topology.</p>
               <div className="apx-scope">
-                <span className={`dnb-status-chip ${statusTone === 'success' ? 'reviewed' : statusTone === 'progress' ? 'reviewed' : 'draft'}`}>
-                  {formatStatus(design.status)}
-                </span>
                 <span className="apx-scope-meta">Updated {formatDate(design.statusUpdatedAt || design.updatedAt)}</span>
                 {design.quoteId && (
                   <button type="button" className="dnb-meta-link" onClick={() => navigate(`/shop/quotes/${design.quoteId}`)}>
@@ -490,11 +332,6 @@ export const DesignDetailPage = () => {
 
           {/* ── Lifecycle toolbar ───────────────────────────────────── */}
           <div className="dnb-toolbar">
-            {canSubmit && (
-              <button className="dnb-tool-btn" onClick={onSubmitDesign} disabled={submitting}>
-                <Send size={15} /> {submitting ? 'Submitting…' : 'Submit for review'}
-              </button>
-            )}
             {design.quoteId && (
               <button className="dnb-tool-btn" onClick={() => navigate(`/shop/quotes/${design.quoteId}`)}>
                 <ArrowUpRight size={15} /> Open quote
@@ -504,23 +341,6 @@ export const DesignDetailPage = () => {
               <button className="dnb-tool-btn" onClick={() => navigate(`/shop/orders/${design.orderId}`)}>
                 <ArrowUpRight size={15} /> View order
               </button>
-            )}
-          </div>
-
-          {/* ── Next action callout ─────────────────────────────────── */}
-          <div className={`dd-callout dd-callout-${statusTone}`}>
-            <div className="dd-callout-icon">
-              {statusTone === 'success' ? <CheckCircle2 size={18} /> : <CalendarClock size={18} />}
-            </div>
-            <div className="dd-callout-body">
-              <strong>{next.label}</strong>
-              <span>{next.description}</span>
-            </div>
-            {design.nextMilestone && (
-              <div className="dd-callout-aside">
-                <span className="dd-callout-label">Next milestone</span>
-                <strong>{design.nextMilestone}</strong>
-              </div>
             )}
           </div>
 
@@ -612,8 +432,7 @@ export const DesignDetailPage = () => {
                               <input
                                 type="checkbox"
                                 checked={msIncluded}
-                                disabled={design.status !== 'draft' && design.status !== 'reviewed'}
-                                onChange={() => toggleMsForDevice(msDevice.itemId, !msDevice.excluded ? false : true)}
+                                onChange={() => toggleMsForDevice(msDevice.itemId, !!msIncluded)}
                               />
                               <span className={msIncluded ? 'ms-inline-price' : 'ms-inline-price ms-inline-excluded'}>
                                 ${msDevice.managedServicePrice.toFixed(2)}
@@ -640,99 +459,6 @@ export const DesignDetailPage = () => {
               <p className="mini-note">No BOM lines yet.</p>
             )}
           </div>
-
-          {/* ── Progress section ────────────────────────────────────── */}
-          <section className="dd-section" id="dd-progress">
-            <div className="dd-section-head">
-              <h2>Progress</h2>
-              <span className="dd-section-sub">Where this design is in the lifecycle</span>
-            </div>
-            <div className="dd-progress-card">
-              <div className="status-track design-status-track">
-                {STATUS_FLOW.map((step, index) => {
-                  const stateClass = index < activeStepIndex ? 'done' : index === activeStepIndex ? 'active' : '';
-                  return (
-                    <div key={step} className={`track-step ${stateClass}`}>
-                      <span className="dot" />
-                      <span>{formatStatus(step)}</span>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="dd-milestone-grid">
-                <div>
-                  <span className="dd-milestone-label">Submitted</span>
-                  <strong>{formatDate(design.submittedAt)}</strong>
-                </div>
-                <div>
-                  <span className="dd-milestone-label">Estimated Review</span>
-                  <strong>{formatDate(design.milestones?.estimatedReviewDate)}</strong>
-                </div>
-                <div>
-                  <span className="dd-milestone-label">Estimated Proposal</span>
-                  <strong>{formatDate(design.milestones?.estimatedProposalDate)}</strong>
-                </div>
-                <div>
-                  <span className="dd-milestone-label">Estimated Fulfillment</span>
-                  <strong>{formatDate(design.milestones?.estimatedFulfillmentDate)}</strong>
-                </div>
-                <div>
-                  <span className="dd-milestone-label">Estimated Installation</span>
-                  <strong>{formatDate(design.milestones?.estimatedInstallationDate)}</strong>
-                </div>
-                <div>
-                  <span className="dd-milestone-label">Confirmed Installation</span>
-                  <strong>{formatDate(design.milestones?.confirmedInstallationDate)}</strong>
-                </div>
-              </div>
-            </div>
-
-            <div className="dd-twin-grid">
-              <div className="dd-section-card">
-                <h3 className="dd-card-h"><CalendarClock size={14} /> Status Timeline</h3>
-                {statusHistory.length === 0 ? (
-                  <p className="dd-empty">No status changes recorded yet.</p>
-                ) : (
-                  <ul className="dd-timeline">
-                    {statusHistory.map((entry) => (
-                      <li key={`${entry.changedAt}-${entry.status}`}>
-                        <div className="dd-timeline-dot" />
-                        <div>
-                          <strong>{formatStatus(entry.status)}</strong>
-                          <div className="dd-timeline-meta">
-                            {formatDate(entry.changedAt)}
-                            {entry.changedBy ? ` · ${entry.changedBy}` : ''}
-                          </div>
-                          {entry.note && <div className="dd-timeline-note">{entry.note}</div>}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              <div className="dd-section-card">
-                <h3 className="dd-card-h"><MessageSquare size={14} /> Latest Updates</h3>
-                {updates.length === 0 ? (
-                  <p className="dd-empty">No updates from the team yet.</p>
-                ) : (
-                  <ul className="dd-update-list">
-                    {updates.map((update) => (
-                      <li key={update.id}>
-                        <span className={`dd-update-tag ${update.visibility === 'customer' ? 'customer' : 'internal'}`}>
-                          {update.visibility === 'customer' ? 'Customer' : 'Internal'}
-                        </span>
-                        <div>
-                          <p className="dd-update-msg">{update.message}</p>
-                          <span className="dd-update-meta">{formatDate(update.createdAt)}</span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-          </section>
 
           {/* ── Installation ────────────────────────────────────────── */}
           <section className="dd-section" id="dd-installation">

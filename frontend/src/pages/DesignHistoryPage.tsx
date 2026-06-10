@@ -17,34 +17,6 @@ const formatDate = (dateStr: string): string => {
   return d.toISOString().slice(0, 10);
 };
 
-const statusConfig: Record<string, { label: string; tone: string }> = {
-  draft: { label: 'Draft', tone: 'draft' },
-  reviewed: { label: 'Reviewed', tone: 'reviewed' },
-  in_review: { label: 'Reviewed', tone: 'reviewed' },
-  submitted: { label: 'Submitted', tone: 'submitted' },
-  bom_finalized: { label: 'Submitted', tone: 'submitted' },
-  proposal_ready: { label: 'Submitted', tone: 'submitted' },
-  approved: { label: 'Approved', tone: 'approved' },
-  order_decomposed: { label: 'Approved', tone: 'approved' },
-  fulfillment_in_progress: { label: 'In Progress', tone: 'submitted' },
-  installation_scheduled: { label: 'Scheduled', tone: 'submitted' },
-  installed: { label: 'Installed', tone: 'installed' },
-  rejected: { label: 'Rejected', tone: 'rejected' },
-};
-
-const FILTERS: { key: string; label: string; match: (status: string) => boolean }[] = [
-  { key: 'all', label: 'All', match: () => true },
-  { key: 'draft', label: 'Draft', match: (s) => s === 'draft' },
-  { key: 'reviewed', label: 'Reviewed', match: (s) => statusConfig[s]?.tone === 'reviewed' },
-  { key: 'submitted', label: 'Submitted', match: (s) => statusConfig[s]?.tone === 'submitted' },
-  { key: 'approved', label: 'Approved', match: (s) => statusConfig[s]?.tone === 'approved' },
-  { key: 'installed', label: 'Installed', match: (s) => s === 'installed' },
-];
-
-// A regular user can delete their own drafts/reviewed designs.
-// For submitted designs, backend returns 409 — so we hide the button.
-const canDelete = (status: string): boolean => status === 'draft' || status === 'reviewed';
-
 // Placeholder visual shown at the top of every design card.
 const CARD_PLACEHOLDER_IMG = networkDesignImg;
 
@@ -56,7 +28,6 @@ export const DesignHistoryPage = () => {
   const [error, setError] = useState('');
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState('all');
   const [query, setQuery] = useState('');
 
   const onDelete = async (design: NetworkDesignSummary) => {
@@ -88,16 +59,14 @@ export const DesignHistoryPage = () => {
   }, [accessToken]);
 
   const filteredDesigns = useMemo(() => {
-    const matcher = FILTERS.find((f) => f.key === activeFilter) ?? FILTERS[0];
     const q = query.trim().toLowerCase();
+    if (!q) return designs;
     return designs.filter((design) => {
-      if (!matcher.match(design.status)) return false;
-      if (!q) return true;
       const name = (design.designName || '').toLowerCase();
       const company = (design.lead?.companyName || '').toLowerCase();
       return name.includes(q) || company.includes(q);
     });
-  }, [designs, activeFilter, query]);
+  }, [designs, query]);
 
   return (
     <section className="content-wrap fade-in network-designs-page">
@@ -106,25 +75,13 @@ export const DesignHistoryPage = () => {
           <h1>Network designs</h1>
           <p className="nd-subtitle">Every design you've sized, saved, and submitted.</p>
         </div>
-        <button className="nd-new-btn" onClick={() => navigate('/shop/designs/new')}>
+        <button className="nd-new-btn" onClick={() => setIntakeOpen(true)}>
           <Plus size={17} />
           New design
         </button>
       </div>
 
       <div className="nd-toolbar">
-        <div className="nd-tabs">
-          {FILTERS.map((filter) => (
-            <button
-              key={filter.key}
-              type="button"
-              className={`nd-tab ${activeFilter === filter.key ? 'active' : ''}`}
-              onClick={() => setActiveFilter(filter.key)}
-            >
-              {filter.label}
-            </button>
-          ))}
-        </div>
         <div className="nd-search">
           <Search size={16} />
           <input
@@ -157,7 +114,6 @@ export const DesignHistoryPage = () => {
       {filteredDesigns.length > 0 && (
         <div className="nd-grid">
           {filteredDesigns.map((design) => {
-            const status = statusConfig[design.status] || { label: design.status, tone: 'draft' };
             return (
               <article
                 key={design.id}
@@ -174,25 +130,22 @@ export const DesignHistoryPage = () => {
               >
                 <div className="nd-card-viz">
                   <img className="nd-card-viz-img" src={CARD_PLACEHOLDER_IMG} alt="" aria-hidden="true" loading="lazy" />
-                  {canDelete(design.status) && (
-                    <button
-                      type="button"
-                      className="nd-card-delete"
-                      title="Delete design"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDelete(design);
-                      }}
-                      disabled={deletingId === design.id}
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="nd-card-delete"
+                    title="Delete design"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(design);
+                    }}
+                    disabled={deletingId === design.id}
+                  >
+                    <Trash2 size={15} />
+                  </button>
                 </div>
 
                 <div className="nd-card-body">
                   <div className="nd-card-head">
-                    <span className={`nd-status nd-status-${status.tone}`}>{status.label}</span>
                     <span className="nd-date">{formatDate(design.createdAt)}</span>
                   </div>
 

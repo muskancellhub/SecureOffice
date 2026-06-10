@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.exceptions import AppError, UnauthorizedError
+from app.middleware.dependencies import get_current_user
 from app.models import AuthProvider
 from app.schemas.auth import (
     LoginOtpRequest,
@@ -11,6 +12,9 @@ from app.schemas.auth import (
     LoginRequest,
     MessageResponse,
     SignupRequest,
+    SuperAdminPasswordSetupRequest,
+    SuperAdminSetCredentialsRequest,
+    SuperAdminSetPasswordRequest,
     TokenResponse,
     VendorSignupRequest,
     VerifyOtpRequest,
@@ -50,9 +54,41 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)):
         password=payload.password,
         mobile=payload.mobile,
         name=payload.name,
-        tenant_id=payload.tenant_id,
+        company_name=payload.company_name,
     )
     return MessageResponse(message='Signup successful. OTP sent.')
+
+
+@router.post('/super-admin/password-setup', response_model=MessageResponse)
+def trigger_super_admin_password_setup(
+    payload: SuperAdminPasswordSetupRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Super-admin-only: email a single-use password-setup link to an allowlisted
+    teammate (SUPER_ADMIN_EMAILS)."""
+    AuthService(db).trigger_super_admin_password_setup(current_user, payload.email)
+    return MessageResponse(message='A password-setup link has been sent.')
+
+
+@router.post('/super-admin/set-password', response_model=MessageResponse)
+def set_super_admin_password(payload: SuperAdminSetPasswordRequest, db: Session = Depends(get_db)):
+    """Consume a setup token and set the super admin's password (self-set flow)."""
+    AuthService(db).set_super_admin_password(token=payload.token, password=payload.password)
+    return MessageResponse(message='Password set successfully. You can now sign in.')
+
+
+@router.post('/super-admin/set-credentials', response_model=MessageResponse)
+def admin_set_super_admin_credentials(
+    payload: SuperAdminSetCredentialsRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Super-admin-only: directly set a password for an allowlisted teammate."""
+    AuthService(db).admin_set_super_admin_credentials(
+        current_user, email=payload.email, password=payload.password,
+    )
+    return MessageResponse(message='Super-admin password set. Share it securely with your teammate.')
 
 
 @router.post('/vendor/signup', response_model=MessageResponse)

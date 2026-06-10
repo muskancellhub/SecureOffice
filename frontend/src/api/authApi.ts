@@ -45,6 +45,32 @@ export const refresh = async (): Promise<TokenResponse> => {
   return data;
 };
 
+// Super-admin password setup. Trigger is super-admin-only (sends an email link);
+// set-password consumes the single-use token from that link.
+export const triggerSuperAdminPasswordSetup = async (accessToken: string, email: string) => {
+  const { data } = await api.post(
+    '/auth/super-admin/password-setup',
+    { email },
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  return data;
+};
+
+export const setSuperAdminPassword = async (token: string, password: string) => {
+  const { data } = await api.post('/auth/super-admin/set-password', { token, password });
+  return data;
+};
+
+// Admin-set flow: an existing super admin directly sets an allowlisted teammate's password.
+export const setSuperAdminCredentials = async (accessToken: string, email: string, password: string) => {
+  const { data } = await api.post(
+    '/auth/super-admin/set-credentials',
+    { email, password },
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  return data;
+};
+
 export const logout = async () => {
   const { data } = await api.post('/auth/logout');
   return data;

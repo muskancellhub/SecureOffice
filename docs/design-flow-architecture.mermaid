@@ -1,0 +1,64 @@
+erDiagram
+    TENANTS ||--o{ USERS : "has"
+    TENANTS ||--o{ NETWORK_DESIGNS : "owns"
+    TENANTS ||--o{ DESIGN_LEADS : "scopes"
+    TENANTS ||--o{ CARTS : "scopes"
+    TENANTS ||--o{ QUOTES : "scopes"
+    TENANTS ||--o{ ORDERS : "scopes"
+    TENANTS ||--o{ WORKFLOW_INSTANCES : "scopes"
+
+    USERS ||--o{ NETWORK_DESIGNS : "created_by"
+    USERS ||--o{ CARTS : "owns"
+    DESIGN_LEADS ||--o{ NETWORK_DESIGNS : "contact (lead_id)"
+
+    NETWORK_DESIGNS ||--o| QUOTES : "metadata.quoteId"
+    QUOTES ||--o{ QUOTE_LINES : "bom.line_items"
+    QUOTES ||--o| ORDERS : "metadata.orderId"
+    ORDERS ||--o{ ORDER_LINES : "has"
+    ORDERS ||--o| WORKFLOW_INSTANCES : "metadata.workflowInstanceId"
+    WORKFLOW_INSTANCES ||--o{ WORKFLOW_STEPS : "has"
+
+    CARTS ||--o{ CART_LINES : "Order this design"
+    CATALOG_ITEMS ||--o{ CART_LINES : "catalog_item_id"
+    CATALOG_ITEMS ||--o{ QUOTE_LINES : "catalog_item_id"
+
+    TENANTS {
+        uuid id PK
+        string name
+        enum tenant_type "CELLHUB|COMPANY|VENDOR"
+    }
+    USERS {
+        uuid id PK
+        uuid tenant_id FK "RESTRICT"
+        string email
+        enum role "SUPER_ADMIN|ADMIN|USER"
+    }
+    NETWORK_DESIGNS {
+        uuid id PK
+        uuid tenant_id FK "owner"
+        uuid created_by FK "author"
+        uuid lead_id FK
+        string design_name "designN-INITIALS-company-date"
+        enum status
+        jsonb bom "line_items[]"
+        jsonb topology
+        jsonb metadata "quoteId/orderId/workflowInstanceId"
+    }
+    DESIGN_LEADS {
+        uuid id PK
+        uuid tenant_id FK
+        string email
+        string company_name
+    }
+    CARTS {
+        uuid id PK
+        uuid user_id FK
+        uuid tenant_id FK
+        enum status "ACTIVE|CHECKED_OUT"
+    }
+    CART_LINES {
+        uuid id PK
+        uuid cart_id FK
+        uuid catalog_item_id FK
+        int quantity
+    }

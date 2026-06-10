@@ -18,5 +18,12 @@ class TenantRepository:
     def get_first(self) -> Tenant | None:
         return self.db.scalar(select(Tenant).order_by(Tenant.created_at.asc()))
 
+    def get_by_email_domain(self, domain: str) -> Tenant | None:
+        """Find the company tenant that owns an email domain (company-first
+        signup key). Domains are stored lowercased."""
+        if not domain:
+            return None
+        return self.db.scalar(select(Tenant).where(Tenant.email_domain == domain.lower()))
+
     def list_all(self) -> list[Tenant]:
         return list(self.db.scalars(select(Tenant).order_by(Tenant.name.asc())))

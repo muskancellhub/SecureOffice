@@ -3,12 +3,16 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from app.core.config import get_settings
-from app.core.exceptions import AppError, NotFoundError, UnauthorizedError
+from app.core.exceptions import AppError, ForbiddenError, NotFoundError, UnauthorizedError
+import hashlib
+from app.core.email_domains import extract_domain, is_free_email_provider
 from app.core.permissions import default_permissions_for_role
-from app.core.security import hash_value, verify_value
-from app.models import AuthProvider, UserRole, UserType
-from app.models.tenant import TenantType
+from app.core.security import hash_value, verify_value, password_strength_error
+from app.core.tenancy import CELLHUB_MASTER_TENANT_ID
+from app.models import AuthProvider, UserRole, UserStatus, UserType
+from app.models.tenant import Tenant, TenantType
 from app.models.vendor import Vendor
+from app.repositories.onboarding_repository import OnboardingRepository
 from app.repositories.otp_repository import OTPRepository
 from app.repositories.refresh_session_repository import RefreshSessionRepository
 from app.repositories.tenant_repository import TenantRepository
@@ -25,6 +29,7 @@ class AuthService:
         self.db = db
         self.user_repo = UserRepository(db)
         self.tenant_repo = TenantRepository(db)
+        self.onboarding_repo = OnboardingRepository(db)
         self.otp_repo = OTPRepository(db)
         self.refresh_repo = RefreshSessionRepository(db)
 
@@ -54,12 +59,14 @@ class AuthService:
         return tenant.id
 
     def _is_bootstrap_super_admin(self, email: str) -> bool:
-        if not settings.bootstrap_super_admin_email:
-            return False
-        return email.lower().strip() == settings.bootstrap_super_admin_email.lower().strip()
+        # Now backed by the full env allowlist (bootstrap admin + SUPER_ADMIN_EMAILS).
+        return settings.is_super_admin_email(email)
 
     def _ensure_bootstrap_super_admin(self, user) -> None:
-        if self._is_bootstrap_super_admin(user.email):
+        # Promote any user whose email is in the env super-admin allowlist. The env
+        # list is the source of truth — we never persist "who is super admin" as a
+        # manually-managed DB flag; it's derived here at auth time.
+        if settings.is_super_admin_email(user.email):
             user.role = UserRole.SUPER_ADMIN
             user.permissions = default_permissions_for_role(UserRole.SUPER_ADMIN)
             user.is_verified = True
@@ -80,29 +87,68 @@ class AuthService:
         )
         EmailService.send_otp_email(to_email=user.email, otp=otp, purpose=purpose)
 
-    def signup(self, *, email: str, password: str, mobile: str | None, name: str, tenant_id: str | None):
-        existing = self.user_repo.get_by_email(email)
-        if existing:
+    def signup(self, *, email: str, password: str, mobile: str | None, name: str, company_name: str):
+        """Company-first signup (PLAN.md §1). The signup email's domain is the
+        company key:
+          - free/public email providers are rejected (must be a company email);
+          - first signup for a domain creates the COMPANY tenant and makes this
+            user its founding ADMIN + billing owner (ACTIVE);
+          - a later signup from the same domain auto-joins that tenant as a USER
+            with PENDING status, awaiting admin approval.
+
+        The account stays unverified until the OTP flow proves control of the
+        inbox — which also doubles as proof the signer controls that company
+        domain's mailbox. The bootstrap super-admin promotion still happens in
+        `_ensure_bootstrap_super_admin` after OTP.
+        """
+        email_norm = email.lower().strip()
+        if self.user_repo.get_by_email(email_norm):
             raise AppError('Email already in use', 409)
 
-        # Every signup starts unverified as a regular USER. We do NOT trust the
-        # claimed email at this point — the OTP flow is what proves control of
-        # the inbox. If the bootstrap super admin email is used, the role
-        # promotion happens in `_ensure_bootstrap_super_admin` AFTER OTP
-        # verification (called from verify_otp / login).
-        resolved_tenant_id = self._resolve_tenant_id(tenant_id)
+        domain = extract_domain(email_norm)
+        if not domain:
+            raise AppError('Please enter a valid email address', 400)
+        if is_free_email_provider(email_norm):
+            raise AppError('Please use your company email address.', 400)
+
+        company_name = (company_name or '').strip()
+        if not company_name:
+            raise AppError('Company name is required', 400)
+
+        tenant = self.tenant_repo.get_by_email_domain(domain)
+        if tenant is None:
+            # First account for this domain -> provision the company tenant and
+            # make this user the founding ADMIN (the paying / primary user).
+            tenant = Tenant(name=company_name, email_domain=domain, tenant_type=TenantType.COMPANY)
+            self.db.add(tenant)
+            self.db.flush()
+            onboarding = self.onboarding_repo.get_or_create(tenant.id)
+            onboarding.organization_name = company_name
+            onboarding.admin_name = name
+            onboarding.admin_email = email_norm
+            role = UserRole.ADMIN
+            status = UserStatus.ACTIVE
+            is_billing_owner = True
+        else:
+            # Domain already has a company -> join as a USER pending approval.
+            role = UserRole.USER
+            status = UserStatus.PENDING
+            is_billing_owner = False
+
         user = self.user_repo.create(
-            email=email.lower().strip(),
+            email=email_norm,
             mobile=mobile,
             name=name,
             password_hash=hash_value(password),
             provider=AuthProvider.LOCAL,
             provider_id=None,
             is_verified=False,
-            role=UserRole.USER,
-            user_type=UserType.CELLHUB,
-            permissions=default_permissions_for_role(UserRole.USER),
-            tenant_id=resolved_tenant_id,
+            role=role,
+            user_type=UserType.COMPANY,
+            permissions=default_permissions_for_role(role),
+            status=status,
+            is_billing_owner=is_billing_owner,
+            tenant_id=tenant.id,
         )
 
         self._issue_otp_for_user(user=user, purpose='signup verification')
@@ -344,6 +390,97 @@ class AuthService:
             raise UnauthorizedError('User not found')
 
         return self._issue_tokens_for_user(user)
+
+    # ── Super-admin password setup ──────────────────────────────────────────
+    # Teammates listed in the env SUPER_ADMIN_EMAILS allowlist activate their
+    # account via a single-use, expiring email link. The allowlist (who is a
+    # super admin) lives in env; only the credential row lives in the DB, created
+    # the moment they set a password here.
+
+    @staticmethod
+    def _setup_state(user) -> str:
+        """A short fingerprint of the account's current password state. Binding
+        the setup token to this makes it single-use: once a password is set the
+        fingerprint changes, so the old link can't be replayed."""
+        basis = user.password_hash if (user and user.password_hash) else 'INIT'
+        return hashlib.sha256(basis.encode()).hexdigest()[:16]
+
+    def trigger_super_admin_password_setup(self, actor: dict, email: str) -> None:
+        """Existing super admin triggers a password-setup link for an allowlisted
+        email. Can ONLY target an email in SUPER_ADMIN_EMAILS — never an arbitrary
+        address — so it can't be used to escalate a random account."""
+        if actor.get('role') != UserRole.SUPER_ADMIN.value:
+            raise ForbiddenError('Only a super admin can trigger super-admin password setup')
+        email_norm = (email or '').strip().lower()
+        if not settings.is_super_admin_email(email_norm):
+            raise ForbiddenError('That email is not in the super-admin allowlist (SUPER_ADMIN_EMAILS).')
+        user = self.user_repo.get_by_email(email_norm)
+        token = TokenService.create_super_admin_setup_token(email=email_norm, state=self._setup_state(user))
+        link = f"{settings.frontend_url.rstrip('/')}/super-admin/set-password?token={token}"
+        EmailService.send_super_admin_setup_email(to_email=email_norm, link=link)
+
+    def _provision_super_admin(self, email_norm: str, password: str):
+        """Create or update an allowlisted super-admin's LOCAL credential row in the
+        CellHub master tenant with the given password. Shared by the token-based
+        (self-set) and admin-set flows."""
+        master_tenant_id = uuid.UUID(CELLHUB_MASTER_TENANT_ID)
+        user = self.user_repo.get_by_email(email_norm)
+        if user is None:
+            user = self.user_repo.create(
+                email=email_norm,
+                mobile=None,
+                name=email_norm.split('@', 1)[0],
+                password_hash=hash_value(password),
+                provider=AuthProvider.LOCAL,
+                provider_id=None,
+                is_verified=True,
+                role=UserRole.SUPER_ADMIN,
+                user_type=UserType.CELLHUB,
+                permissions=default_permissions_for_role(UserRole.SUPER_ADMIN),
+                tenant_id=master_tenant_id,
+            )
+        else:
+            user.password_hash = hash_value(password)
+            user.provider = AuthProvider.LOCAL
+            user.provider_id = None
+            user.is_verified = True
+            user.role = UserRole.SUPER_ADMIN
+            user.permissions = default_permissions_for_role(UserRole.SUPER_ADMIN)
+            self.db.flush()
+        self.db.commit()
+        return user
+
+    def set_super_admin_password(self, *, token: str, password: str):
+        """Consume a setup token and set the super admin's password (self-set flow).
+        Validates signature/TTL/type, re-checks allowlist, enforces single-use via
+        the state binding, and requires a strong password."""
+        payload = TokenService.decode_super_admin_setup_token(token)
+        email_norm = (payload.get('email') or '').strip().lower()
+        if not settings.is_super_admin_email(email_norm):
+            raise UnauthorizedError('This setup link is no longer valid.')
+        user = self.user_repo.get_by_email(email_norm)
+        if payload.get('state') != self._setup_state(user):
+            raise UnauthorizedError('This setup link has already been used or is no longer valid.')
+        err = password_strength_error(password)
+        if err:
+            raise AppError(err, 422)
+        self._provision_super_admin(email_norm, password)
+        return {'email': email_norm}
+
+    def admin_set_super_admin_credentials(self, actor: dict, *, email: str, password: str):
+        """Admin-set flow: an existing super admin directly sets the password for an
+        allowlisted teammate (no email round-trip). Restricted to SUPER_ADMIN_EMAILS
+        so it can't set credentials for an arbitrary account."""
+        if actor.get('role') != UserRole.SUPER_ADMIN.value:
+            raise ForbiddenError('Only a super admin can set super-admin credentials')
+        email_norm = (email or '').strip().lower()
+        if not settings.is_super_admin_email(email_norm):
+            raise ForbiddenError('That email is not in the super-admin allowlist (SUPER_ADMIN_EMAILS).')
+        err = password_strength_error(password)
+        if err:
+            raise AppError(err, 422)
+        self._provision_super_admin(email_norm, password)
+        return {'email': email_norm}
 
     def logout(self, refresh_token: str):
         payload = TokenService.decode_token(refresh_token)

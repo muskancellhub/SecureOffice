@@ -19,6 +19,7 @@ import type {
   NetworkDesignSummary,
   NetworkTopologyArtifact,
   OnboardingProfile,
+  Address,
   InvoiceRecord,
   IntegrationSyncLog,
   OrderNotificationRecipients,
@@ -283,6 +284,9 @@ export const updateOnboardingProfile = async (
     tax_id?: string;
     company_setup_completed?: boolean;
     payment_method_setup?: boolean;
+    operations_address?: Address;
+    billing_address?: Address;
+    billing_same_as_operations?: boolean;
     metadata?: Record<string, any>;
   },
 ) => {

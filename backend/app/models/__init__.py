@@ -1,5 +1,5 @@
 from app.models.tenant import Tenant, TenantType
-from app.models.user import User, AuthProvider, UserRole, UserType
+from app.models.user import User, AuthProvider, UserRole, UserStatus, UserType
 from app.models.otp import OTP
 from app.models.refresh_session import RefreshSession
 from app.models.vendor import Vendor
@@ -49,6 +49,7 @@ __all__ = [
     'User',
     'AuthProvider',
     'UserRole',
+    'UserStatus',
     'UserType',
     'Vendor',
     'Company',

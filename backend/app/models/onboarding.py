@@ -35,6 +35,12 @@ class TenantOnboarding(Base):
     business_credit_bureau: Mapped[str | None] = mapped_column(String(64), nullable=True)
     business_credit_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     credit_check_result: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    # Company addresses (PLAN.md §5). Each is {line1, line2, city, state,
+    # postal_code, country}; empty {} until provided. Billing mirrors operations
+    # when billing_same_as_operations is true.
+    operations_address: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    billing_address: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    billing_same_as_operations: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text('TRUE'))
     metadata_json: Mapped[dict] = mapped_column('metadata', JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[DateTime] = mapped_column(

@@ -95,6 +95,43 @@ class EmailService:
         logger.warning('[OTP EMAIL COMPLETED] to=%s channel=resend purpose=%s', to_email, purpose)
 
     @staticmethod
+    def send_super_admin_setup_email(*, to_email: str, link: str) -> None:
+        """Email a single-use link to set a super-admin password."""
+        ttl = settings.super_admin_setup_ttl_minutes
+        subject = 'Set your Secure AI Office super-admin password'
+        text_body = '\n'.join([
+            'You have been added as a Secure AI Office super admin.',
+            '',
+            'Set your password using this single-use link:',
+            f'  {link}',
+            '',
+            f'This link expires in {ttl} minutes and can be used only once.',
+            'If you were not expecting this, please ignore this email.',
+        ])
+        html_body = (
+            '<html><body style="font-family:Arial, sans-serif; background:#f3eef4; padding:40px 0;">'
+            '<div style="max-width:480px; margin:0 auto; background:#ffffff; border-radius:8px; padding:40px;">'
+            '<h2 style="margin:0 0 8px; color:#152844;">Secure AI Office</h2>'
+            '<p style="color:#617089; margin:0 0 24px;">You have been added as a <strong>super admin</strong>. '
+            'Set your password to activate your account.</p>'
+            f'<a href="{link}" style="display:inline-block; background:#e1067d; color:#fff; text-decoration:none; '
+            'font-weight:700; padding:14px 28px; border-radius:8px;">Set your password</a>'
+            f'<p style="color:#617089; font-size:13px; margin:24px 0 0;">This link expires in {ttl} minutes and can '
+            'be used only once. If you were not expecting this, please ignore this email.</p>'
+            '</div></body></html>'
+        )
+        if not EmailService._resend_enabled():
+            print(f'[MOCK SUPER-ADMIN SETUP] email={to_email} link={link}')
+            return
+        EmailService._send_via_resend(
+            to_emails=[to_email],
+            subject=subject,
+            text_content=text_body,
+            html_content=html_body,
+        )
+        logger.warning('[SUPER-ADMIN SETUP EMAIL COMPLETED] to=%s channel=resend', to_email)
+
+    @staticmethod
     def _compose_invite_text(*, org_name: str, invited_by: str | None, login_url: str) -> str:
         lines = [
             f'You have been invited to join {org_name} on Secure AI Office.',

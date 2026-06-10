@@ -86,6 +86,13 @@ class NetworkDesignRepository:
             stmt = stmt.where(NetworkDesign.status.notin_([NetworkDesignStatus.DRAFT, NetworkDesignStatus.REVIEWED]))
         return list(self.db.scalars(stmt).all())
 
+    def count_for_tenant(self, *, tenant_id: str | uuid.UUID) -> int:
+        """Number of designs already owned by a tenant — used to derive the
+        next sequential index for an auto-generated design name."""
+        tenant_uuid = tenant_id if isinstance(tenant_id, uuid.UUID) else uuid.UUID(str(tenant_id))
+        stmt = select(func.count(NetworkDesign.id)).where(NetworkDesign.tenant_id == tenant_uuid)
+        return int(self.db.scalar(stmt) or 0)
+
     def delete_design(self, design: NetworkDesign) -> None:
         self.db.delete(design)
         self.db.flush()

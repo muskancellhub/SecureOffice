@@ -300,6 +300,15 @@ export interface InvoiceRecord {
 export type ValidationStatus = 'PENDING' | 'VERIFIED' | 'FAILED';
 export type PaymentMethodType = 'CARD' | 'BANK_TRANSFER' | 'MANUAL';
 
+export interface Address {
+  line1?: string;
+  line2?: string;
+  city?: string;
+  state?: string;
+  postal_code?: string;
+  country?: string;
+}
+
 export interface OnboardingProfile {
   tenant_id: string;
   organization_name: string | null;
@@ -316,6 +325,9 @@ export interface OnboardingProfile {
   payment_method_type: string | null;
   payment_method_last4: string | null;
   onboarding_completed: boolean;
+  operations_address: Address;
+  billing_address: Address;
+  billing_same_as_operations: boolean;
   metadata: Record<string, any>;
   missing_requirements: string[];
   created_at: string;

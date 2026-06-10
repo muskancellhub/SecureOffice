@@ -111,15 +111,24 @@ def startup() -> None:
                 )
             except Exception as exc:
                 logger.warning('PAPI startup sync failed (using seed data): %s', exc)
-    if settings.bootstrap_super_admin_email:
+    # Promote every existing user whose email is in the env super-admin allowlist
+    # (bootstrap admin + SUPER_ADMIN_EMAILS). Accounts that don't exist yet are
+    # promoted lazily on first auth (or created via the secure password-setup flow).
+    super_admin_emails = settings.super_admin_email_set
+    if super_admin_emails:
+        from sqlalchemy import func as _func
         with SessionLocal() as db:
-            bootstrap_user = db.scalar(
-                select(User).where(User.email == settings.bootstrap_super_admin_email.lower().strip())
-            )
-            if bootstrap_user and bootstrap_user.role != UserRole.SUPER_ADMIN:
-                bootstrap_user.role = UserRole.SUPER_ADMIN
-                bootstrap_user.permissions = default_permissions_for_role(UserRole.SUPER_ADMIN)
-                bootstrap_user.is_verified = True
+            rows = db.scalars(
+                select(User).where(_func.lower(User.email).in_(super_admin_emails))
+            ).all()
+            changed = False
+            for u in rows:
+                if u.role != UserRole.SUPER_ADMIN:
+                    u.role = UserRole.SUPER_ADMIN
+                    u.permissions = default_permissions_for_role(UserRole.SUPER_ADMIN)
+                    u.is_verified = True
+                    changed = True
+            if changed:
                 db.commit()
 
     # Demo vendor seed: DEV ONLY. Never run in production — this creates a
