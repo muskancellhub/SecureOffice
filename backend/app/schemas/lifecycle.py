@@ -21,7 +21,7 @@ class ContractResponse(BaseModel):
 class SubscriptionResponse(BaseModel):
     id: str
     tenant_id: str
-    contract_id: str
+    contract_id: str | None
     order_line_id: str | None
     name: str
     sku: str | None

@@ -103,17 +103,23 @@ class OnboardingService:
         tenant_uuid = self._assert_tenant_exists(tenant_id)
         return self.onboarding_repo.get_or_create(tenant_uuid)
 
-    def get_profile(self, current_user: dict):
+    def get_profile(self, current_user: dict, *, effective_tenant_id: str | None = None):
         self._assert_user_exists(current_user)
-        profile = self._get_or_create_profile(current_user['tenant_id'])
+        # Effective tenant: the actor's own tenant unless a SUPER_ADMIN has
+        # selected another via X-Tenant-Id (resolved upstream in get_tenant_context).
+        tenant_id = effective_tenant_id or current_user['tenant_id']
+        profile = self._get_or_create_profile(tenant_id)
         profile.onboarding_completed = self._compute_onboarding_completed(profile)
         self.db.commit()
         self.db.refresh(profile)
         return profile
 
-    def update_profile(self, current_user: dict, payload: dict):
+    def update_profile(self, current_user: dict, payload: dict, *, effective_tenant_id: str | None = None):
         self._assert_user_exists(current_user)
-        profile = self._get_or_create_profile(current_user['tenant_id'])
+        # Effective tenant: the actor's own tenant unless a SUPER_ADMIN has
+        # selected another via X-Tenant-Id (resolved upstream in get_tenant_context).
+        tenant_id = effective_tenant_id or current_user['tenant_id']
+        profile = self._get_or_create_profile(tenant_id)
 
         if 'organization_name' in payload:
             profile.organization_name = (payload.get('organization_name') or '').strip() or None
@@ -164,7 +170,8 @@ class OnboardingService:
         self.db.commit()
         self.db.refresh(profile)
         audit.log('onboarding_updated', fields_changed=sorted(payload.keys()),
-                  onboarding_completed=profile.onboarding_completed)
+                  onboarding_completed=profile.onboarding_completed,
+                  target_tenant_id=tenant_id)
         return profile
 
     def validate_payment_method(
@@ -174,9 +181,13 @@ class OnboardingService:
         payment_method_type: str,
         last4: str | None,
         external_reference: str | None,
+        effective_tenant_id: str | None = None,
     ):
         self._assert_user_exists(current_user)
-        profile = self._get_or_create_profile(current_user['tenant_id'])
+        # Effective tenant: the actor's own tenant unless a SUPER_ADMIN has
+        # selected another via X-Tenant-Id (resolved upstream in get_tenant_context).
+        tenant_id = effective_tenant_id or current_user['tenant_id']
+        profile = self._get_or_create_profile(tenant_id)
 
         method = (payment_method_type or '').strip().upper()
         if method not in {'CARD', 'BANK_TRANSFER', 'MANUAL'}:
@@ -201,7 +212,8 @@ class OnboardingService:
         self.db.commit()
         self.db.refresh(profile)
         # last4 only — full card data never reaches this service (plan §6).
-        audit.log('payment_method_validated', payment_method_type=method, last4=masked_last4)
+        audit.log('payment_method_validated', payment_method_type=method, last4=masked_last4,
+                  target_tenant_id=tenant_id)
         return profile
 
     def is_onboarding_complete(self, tenant_id: str) -> bool:

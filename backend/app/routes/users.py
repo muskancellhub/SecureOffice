@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.middleware.dependencies import get_current_user
+from app.middleware.tenant_context import TenantContext, get_tenant_context
 from app.models.user import UserRole
 from app.repositories.user_repository import UserRepository
 from app.schemas.auth import MeResponse
@@ -37,9 +38,16 @@ def _to_user_response(user) -> UserSummaryResponse:
 
 
 @router.get('/me', response_model=MeResponse)
-def me(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def me(
+    current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db),
+):
     onboarding_service = OnboardingService(db)
-    onboarding_completed = onboarding_service.is_onboarding_complete(current_user['tenant_id'])
+    # onboarding_completed is tenant-scoped: reflect the effective tenant so a
+    # SUPER_ADMIN using the switcher sees the selected tenant's status. All
+    # identity fields below stay actor-derived.
+    onboarding_completed = onboarding_service.is_onboarding_complete(ctx.effective_tenant_id)
     user = UserRepository(db).get_by_id(current_user['user_id'])
     if not user:
         return MeResponse(

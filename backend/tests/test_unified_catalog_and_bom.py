@@ -25,6 +25,7 @@ class FakeItem:
     is_active: bool = True
     availability: str | None = 'in_stock'
     attributes: dict = field(default_factory=dict)
+    managed_service_price: float | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 

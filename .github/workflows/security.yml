@@ -1,0 +1,72 @@
+# Security gates: SAST (Bandit) + SCA (pip-audit, npm audit).
+# Secrets scanning (gitleaks) runs as a local pre-commit hook.
+# Accepted-risk exceptions are documented in backend/SECURITY_NOTES.md —
+# every --ignore-vuln below must have an entry there.
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  sast-bandit:
+    name: SAST — Bandit (backend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install bandit==1.9.4
+      # -ll: fail on medium+ severity, -iii: high confidence only
+      # (QA_FRAMEWORK §10 blocks on high/critical; this is slightly stricter).
+      - run: bandit -r backend/app -ll -iii
+
+  sca-backend:
+    name: SCA — pip-audit (backend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      # Install the real tree so transitive deps (crewai stack) are audited too.
+      # pip-audit's tomli requirement conflicts with crewai's pin on paper, but
+      # nothing imports crewai in this job — see backend/requirements-dev.txt note.
+      - run: pip install -r backend/requirements.txt
+      - run: pip install pip-audit
+      - name: pip-audit (env, with documented exceptions)
+        # Exceptions tracked in backend/SECURITY_NOTES.md (crewai-pinned or no fix):
+        run: >
+          pip-audit
+          --ignore-vuln CVE-2026-25645
+          --ignore-vuln CVE-2026-28684
+          --ignore-vuln GHSA-pjjw-68hj-v9mw
+          --ignore-vuln GHSA-4gg8-gxpx-9rph
+          --ignore-vuln CVE-2026-45829
+
+  sca-frontend:
+    name: SCA — npm audit (frontend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      # npm audit only needs the lockfile; no install required.
+      - run: npm audit --audit-level=high
+        working-directory: frontend
+
+  sca-anam:
+    name: SCA — npm audit (anam_ai)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm audit --audit-level=high
+        working-directory: anam_ai

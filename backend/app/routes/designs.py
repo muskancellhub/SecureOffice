@@ -95,7 +95,8 @@ def _serialize_status_history(row) -> list[DesignStatusHistoryEntryResponse]:
                     note=entry.get('note'),
                 )
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning('Skipping unserializable status-history entry (status=%s): %s', status, exc)
             continue
     return serialized
 

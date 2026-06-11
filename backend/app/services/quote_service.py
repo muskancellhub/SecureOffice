@@ -278,6 +278,10 @@ class QuoteService:
 
     def preview_quote(self, current_user: dict, draft_solution: dict) -> dict:
         self._assert_user_exists(current_user)
+        # Gate deliberately checks the actor's home tenant: the whole quote/cart/
+        # pricing write path is home-tenant-bound, so the gate must match the
+        # tenant being written. Effective-tenant (X-Tenant-Id) threading for
+        # quotes is a separate phase — see docs/plans/multi-tenant-config.md.
         if not self.onboarding_service.is_onboarding_complete(current_user['tenant_id']):
             raise AppError('Complete onboarding before creating a procurement request', 400)
         candidates, currency = self._build_line_candidates_from_draft(draft_solution)

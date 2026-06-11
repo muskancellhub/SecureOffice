@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from html import escape
 from typing import Any
 from urllib.parse import quote
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosec B405 — builds draw.io XML from app data only; never parses external XML
 
 from app.core.exceptions import AppError
 

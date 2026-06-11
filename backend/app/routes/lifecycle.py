@@ -39,7 +39,7 @@ def _serialize_subscription(subscription) -> SubscriptionResponse:
     return SubscriptionResponse(
         id=str(subscription.id),
         tenant_id=str(subscription.tenant_id),
-        contract_id=str(subscription.contract_id),
+        contract_id=str(subscription.contract_id) if subscription.contract_id else None,
         order_line_id=str(subscription.order_line_id) if subscription.order_line_id else None,
         name=subscription.name,
         sku=subscription.sku,

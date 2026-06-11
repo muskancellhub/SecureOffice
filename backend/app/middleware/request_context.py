@@ -67,5 +67,5 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
                 f'{fields["endpoint"]} -> {status_code}',
                 extra={'msgid': 'http_request', 'sd': {SD_ID_REQUEST: fields}},
             )
-        except Exception:  # the access log must never break a response
+        except Exception:  # nosec B110 — the access log must never break a response
             pass

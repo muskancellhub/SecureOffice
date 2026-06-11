@@ -1,0 +1,8 @@
+# Dev/QA tooling — not installed in production images.
+# NOTE: pip-audit cannot live in this venv (its tomli>=2.2.1 requirement
+# conflicts with crewai's tomli~=2.0.2 pin). Run it standalone instead:
+#   pip freeze > /tmp/freeze.txt && pipx run pip-audit -r /tmp/freeze.txt --no-deps
+# or rely on the CI job (pip-audit -r requirements.txt).
+bandit==1.9.4
+pytest==9.0.3
+pytest-cov==7.0.0

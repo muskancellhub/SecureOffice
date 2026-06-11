@@ -1,7 +1,7 @@
 import json
 import os
 import shlex
-import subprocess
+import subprocess  # nosec B404 — used only for the admin-gated CDW agent; see _run_script
 from typing import Any
 import httpx
 from app.core.config import get_settings
@@ -49,7 +49,11 @@ class CDWAgentService:
         env['CDW_QUERY'] = query
         env['CDW_LIMIT'] = str(limit)
 
-        completed = subprocess.run(
+        # Security review 2026-06-11 (see backend/SECURITY_NOTES.md): command comes
+        # from the server-side CDW_AGENT_COMMAND env var (never user input), is
+        # tokenized with shlex.split and run with shell=False, and the only route
+        # reaching here is guarded by PERM_MANAGE_CATALOG_SYNC.
+        completed = subprocess.run(  # nosec B603
             shlex.split(command),
             capture_output=True,
             text=True,

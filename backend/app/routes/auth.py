@@ -175,7 +175,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     token = await oauth.google.authorize_access_token(request)
     userinfo = token.get('userinfo')
     if not userinfo:
-        userinfo = await oauth.google.parse_id_token(request, token)
+        userinfo = await oauth.google.parse_id_token(token, nonce=None)
 
     email = userinfo.get('email')
     sub = userinfo.get('sub')

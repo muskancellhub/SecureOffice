@@ -22,6 +22,9 @@ export const ShopShell = () => {
   const canViewBilling = permissionSet.has('view_billing');
   const onboardingCompleted = Boolean(user?.onboarding_completed);
   const onboardingSkipped = window.localStorage.getItem('so2_onboarding_skip') === '1';
+  // Super-admins browse other tenants via the switcher; an incomplete target
+  // tenant must not trap them in that tenant's onboarding wizard.
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const profileName = user?.email ? user.email.split('@')[0] : 'Secure AI Office User';
   const profileInitials = profileName
     .split(/[\s._-]+/)
@@ -32,10 +35,10 @@ export const ShopShell = () => {
   useEffect(() => {
     if (!user) return;
     const path = location.pathname;
-    if (!onboardingCompleted && !onboardingSkipped && path !== '/shop/onboarding') {
+    if (!onboardingCompleted && !onboardingSkipped && !isSuperAdmin && path !== '/shop/onboarding') {
       navigate('/shop/onboarding', { replace: true });
     }
-  }, [user, onboardingCompleted, onboardingSkipped, location.pathname, navigate]);
+  }, [user, onboardingCompleted, onboardingSkipped, isSuperAdmin, location.pathname, navigate]);
 
   return (
     <div

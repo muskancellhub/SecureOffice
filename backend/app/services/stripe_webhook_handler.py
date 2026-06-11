@@ -24,8 +24,10 @@ def _record_event(db: Session, event: stripe.Event) -> bool:
     """Insert event for idempotency. Returns True if this is a new event."""
     result = db.execute(
         text(
+            # CAST(...) not :payload::jsonb — SQLAlchemy's text() misparses a bind
+            # param immediately followed by a PG-style cast (binds 'payloa').
             "INSERT INTO stripe_events (id, type, payload) "
-            "VALUES (:id, :type, :payload::jsonb) "
+            "VALUES (:id, :type, CAST(:payload AS jsonb)) "
             "ON CONFLICT (id) DO NOTHING"
         ),
         {'id': event.id, 'type': event.type, 'payload': str(event.data)},

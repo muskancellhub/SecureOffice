@@ -48,16 +48,16 @@ def _parse_json_safely(text: str) -> dict[str, Any] | None:
     # 1) straight parse
     try:
         return json.loads(text)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug('Straight JSON parse failed, trying fences: %s', exc)
 
     # 2) strip markdown code fences
     fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if fence:
         try:
             return json.loads(fence.group(1))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug('Fenced JSON parse failed, trying balanced braces: %s', exc)
 
     # 3) find first balanced { ... }
     start = text.find("{")
@@ -73,7 +73,8 @@ def _parse_json_safely(text: str) -> dict[str, Any] | None:
                     snippet = text[start : i + 1]
                     try:
                         return json.loads(snippet)
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug('Balanced-brace JSON parse failed at %d: %s', start, exc)
                         break
         start = text.find("{", start + 1)
 

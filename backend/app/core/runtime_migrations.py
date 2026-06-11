@@ -994,6 +994,10 @@ def apply_runtime_migrations() -> None:
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_subscriptions_stripe_subscription_id "
             "ON subscriptions (stripe_subscription_id) WHERE stripe_subscription_id IS NOT NULL"
         ))
+        # Tenant-level Stripe checkout subscriptions have no order/contract.
+        conn.execute(text(
+            "ALTER TABLE subscriptions ALTER COLUMN contract_id DROP NOT NULL"
+        ))
 
         conn.execute(text(
             "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS stripe_invoice_id VARCHAR(64)"

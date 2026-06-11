@@ -1,0 +1,6 @@
+# Bandit SAST config — SecureOffice2 backend.
+# No rule-wide skips: every suppression is an inline `# nosec <rule>` with a
+# justification comment so future findings of the same rule stay visible.
+# Run locally: .venv/bin/bandit -r app -ll
+[bandit]
+exclude_dirs = .venv,venv,tests

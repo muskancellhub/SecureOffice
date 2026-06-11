@@ -92,7 +92,9 @@ class Subscription(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('tenants.id', ondelete='RESTRICT'), nullable=False)
-    contract_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('contracts.id', ondelete='CASCADE'), nullable=False)
+    # Nullable: subscriptions from tenant-level Stripe checkout (no order/contract)
+    # have no contract; order-flow subscriptions always set one (lifecycle_service).
+    contract_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey('contracts.id', ondelete='CASCADE'), nullable=True)
     order_line_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey('order_lines.id', ondelete='SET NULL'),

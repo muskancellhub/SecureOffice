@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.middleware.dependencies import get_current_user
+from app.middleware.tenant_context import TenantContext, get_tenant_context
 from app.schemas.onboarding import (
     OnboardingProfileResponse,
     UpdateOnboardingProfileRequest,
@@ -40,9 +41,13 @@ def _serialize_profile(service: OnboardingService, profile) -> OnboardingProfile
 
 
 @router.get('/profile', response_model=OnboardingProfileResponse)
-def get_onboarding_profile(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_onboarding_profile(
+    current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db),
+):
     service = OnboardingService(db)
-    profile = service.get_profile(current_user)
+    profile = service.get_profile(current_user, effective_tenant_id=ctx.effective_tenant_id)
     return _serialize_profile(service, profile)
 
 
@@ -50,10 +55,15 @@ def get_onboarding_profile(current_user: dict = Depends(get_current_user), db: S
 def update_onboarding_profile(
     payload: UpdateOnboardingProfileRequest,
     current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
     db: Session = Depends(get_db),
 ):
     service = OnboardingService(db)
-    profile = service.update_profile(current_user, payload.model_dump(exclude_unset=True))
+    profile = service.update_profile(
+        current_user,
+        payload.model_dump(exclude_unset=True),
+        effective_tenant_id=ctx.effective_tenant_id,
+    )
     return _serialize_profile(service, profile)
 
 
@@ -61,6 +71,7 @@ def update_onboarding_profile(
 def validate_payment_method(
     payload: ValidatePaymentMethodRequest,
     current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
     db: Session = Depends(get_db),
 ):
     service = OnboardingService(db)
@@ -69,5 +80,6 @@ def validate_payment_method(
         payment_method_type=payload.payment_method_type,
         last4=payload.last4,
         external_reference=payload.external_reference,
+        effective_tenant_id=ctx.effective_tenant_id,
     )
     return _serialize_profile(service, profile)

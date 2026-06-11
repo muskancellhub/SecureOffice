@@ -73,22 +73,32 @@ All current direct dependencies are on **GA releases**. Nothing in either projec
 
 ## Verification
 
+Executed 2026-06-11 (the plan above was applied on this date — package.json had
+still carried `axios ^1.11.0` until now):
+
 ```
 === UPGRADE REPORT ===
 frontend/
-  CVEs before:  H=1 M=2
-  CVEs after:   H=0 M=0
-  Build:        PASS
-  Tests:        PASS
+  npm audit before:  H=1 (axios chain) M=4
+  npm audit after:   H=0 M=2 (esbuild<=0.24.2 via vite 5 — fix is vite 8, deferred; dev-server only)
+  Landed:            axios 1.17.0, react-router-dom 6.30.4, vite 5.4.21
+  Build:             PASS (tsc -b && vite build)
+  Tests:             PASS (23/23 vitest)
 
 anam_ai/
-  CVEs before:  H=1 M=2
-  CVEs after:   H=0 M=0
-  Build:        PASS
-  Tests:        N/A (no test script)
-```
+  npm audit before:  H=1 (vite 6 path traversal/file read) M=2 (postcss, qs)
+  npm audit after:   0 vulnerabilities
+  Build:             PASS
 
-*(Replace the above block with the actual Claude Code report output before sending.)*
+backend/ (Python — see backend/SECURITY_NOTES.md for accepted exceptions)
+  pip-audit before:  36 vulns / 14 packages (HIGH: authlib, starlette, python-multipart)
+  pip-audit after:   5 vulns / 4 packages, all documented exceptions (crewai-pinned or no fix)
+  Landed:            fastapi 0.136.3, starlette 1.3.0, authlib 1.6.12, python-multipart 0.0.32,
+                     aiohttp 3.14.1, lxml 6.1.1, PyJWT 2.13.0, urllib3 2.7.0,
+                     cryptography/idna/pyasn1/ecdsa refreshed
+  Tests:             PASS (118 passed; 28 pre-existing fixture failures, unchanged from baseline)
+  Smoke:             PASS (health, docs, login + refresh cycle, 401 CORS headers, 422 shape)
+```
 
 ## How to reproduce locally
 

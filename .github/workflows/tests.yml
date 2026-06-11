@@ -1,0 +1,80 @@
+# Test + coverage gates (QA_FRAMEWORK §1.1, §10).
+# Backend threshold is a RATCHET: set just below currently-achieved coverage
+# (61% on 2026-06-11) and raised toward the 80% framework target as tests land.
+# Frontend thresholds live in frontend/vite.config.ts (suggestions/calculator
+# pools gated at the framework's real 90%).
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend — pytest + coverage (ratchet 60%)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: so2
+          POSTGRES_PASSWORD: so2
+          POSTGRES_DB: secureoffice2
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U so2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg2://so2:so2@localhost:5432/secureoffice2
+      JWT_SECRET_KEY: ci-only-not-a-real-secret
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Bootstrap schema (fresh database)
+        # Order matters and is verified against a scratch DB: the public_id
+        # server defaults need these sequences before create_all, and runtime
+        # migrations assume the tables already exist (they also seed the
+        # CellHub master tenant the auth tests rely on).
+        run: |
+          python - <<'EOF'
+          from sqlalchemy import text
+          import app.models  # register all models
+          from app.core.database import Base, engine
+          with engine.begin() as conn:
+              conn.execute(text("CREATE SEQUENCE IF NOT EXISTS quote_public_id_seq"))
+              conn.execute(text("CREATE SEQUENCE IF NOT EXISTS order_public_id_seq"))
+          Base.metadata.create_all(bind=engine)
+          from app.core.runtime_migrations import apply_runtime_migrations
+          apply_runtime_migrations()
+          EOF
+      - run: >
+          python -m pytest -q
+          --cov=app/services --cov=app/repositories
+          --cov-report=term --cov-fail-under=60
+
+  frontend:
+    name: Frontend — vitest + coverage (90% pools)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run test:coverage

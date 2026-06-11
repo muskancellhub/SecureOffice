@@ -11,7 +11,7 @@ class RefreshSessionRepository:
     def create_placeholder(self, user_id, expires_at) -> RefreshSession:
         session = RefreshSession(
             user_id=user_id,
-            refresh_token_hash='',
+            refresh_token_hash='',  # nosec B106 — empty placeholder; real hash is set before persist
             expires_at=expires_at,
             revoked=False,
         )

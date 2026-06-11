@@ -92,8 +92,16 @@ _assert_production_hardening(settings)
 
 @app.on_event('startup')
 def startup() -> None:
-    apply_runtime_migrations()
+    # Bootstrap ordering matters on a fresh database (mirrors the CI
+    # "Bootstrap schema" step): the orders/quotes public_id server defaults
+    # reference these sequences, so they must exist before create_all, and
+    # the runtime migrations ALTER tables that create_all has to create first.
+    from sqlalchemy import text as _text
+    with engine.begin() as conn:
+        conn.execute(_text('CREATE SEQUENCE IF NOT EXISTS quote_public_id_seq'))
+        conn.execute(_text('CREATE SEQUENCE IF NOT EXISTS order_public_id_seq'))
     Base.metadata.create_all(bind=engine)
+    apply_runtime_migrations()
     with SessionLocal() as db:
         CatalogService(db).seed_managed_services()
         CatalogService(db).seed_partner_devices()

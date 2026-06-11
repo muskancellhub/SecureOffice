@@ -117,6 +117,8 @@ def setup():
             admin_email='admin@test.local', tax_id='TAX-PH3',
             credit_validation_status='VERIFIED', tax_validation_status='VERIFIED',
             company_setup_completed=True, payment_validation_status='VERIFIED',
+            operations_address={'line1': '1 Main St', 'city': 'Austin', 'state': 'TX', 'postal_code': '78701'},
+            billing_same_as_operations=True,
         ))
         db.add(CustomerPricing(tenant_id=tid, opex_eligible=False))
         db.commit()

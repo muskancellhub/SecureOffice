@@ -261,7 +261,7 @@ Return ONLY a valid JSON object mapping field names to values.
 
 FORM FIELDS:
 {FORM_FIELDS_REFERENCE}
-{form_context}"""
+{form_context}"""  # nosec B608 — LLM system prompt sent to OpenAI, not SQL; form_context is server-built json.dumps
 
     try:
         async with httpx.AsyncClient(timeout=20) as client:

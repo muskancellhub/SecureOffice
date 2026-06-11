@@ -35,6 +35,7 @@ build/
 htmlcov/
 coverage.xml
 *.cover
+coverage/
 
 # --- Node ---
 node_modules/

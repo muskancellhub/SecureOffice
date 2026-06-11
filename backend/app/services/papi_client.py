@@ -7,7 +7,7 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-_token_cache: dict = {"token": None, "expires_at": 0.0}
+_token_cache: dict = {"token": None, "expires_at": 0.0}  # nosec B105 — OAuth token cache structure, not a hardcoded credential
 
 TOKEN_BUFFER_SECONDS = 60
 

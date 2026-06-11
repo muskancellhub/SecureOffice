@@ -50,7 +50,7 @@ class AuditLogger:
         except Exception as exc:  # never raise into the request path
             try:
                 print(f'audit-logger failure for {action!r}: {exc}', file=sys.stderr)
-            except Exception:
+            except Exception:  # nosec B110 — last-resort fallback of a never-raise logger
                 pass
 
 
