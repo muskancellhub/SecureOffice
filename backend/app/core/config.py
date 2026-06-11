@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     # Set to 1 if behind a single LB / nginx; 2 if LB -> nginx; etc. 0 means no proxy.
     trusted_proxy_count: int = 0
 
+    # Logging (docs/LOGGING_PLAN.md §4.5). The sink is the only env-specific
+    # piece: 'file' writes RFC 5424 lines to LOG_DIR (dev), 'syslog' sends to
+    # rsyslog via /dev/log (prod). LOG_LEVEL empty → DEBUG in dev, INFO in prod.
+    log_sink: str = Field(default='file', alias='LOG_SINK')
+    log_dir: str = Field(default='./logs/dev', alias='LOG_DIR')
+    log_level: str = Field(default='', alias='LOG_LEVEL')
+
     # OTP brute-force protection: number of verification attempts per issued OTP
     # before the OTP is invalidated and the user must request a new one.
     otp_max_attempts: int = 5

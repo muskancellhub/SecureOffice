@@ -18,5 +18,8 @@ class AuthorizationService:
         permissions = self.effective_permissions(current_user)
         for permission_code in permission_codes:
             if permission_code not in permissions:
-                raise ForbiddenError(f'Missing permission: {permission_code}')
+                raise ForbiddenError(
+                    f'Missing permission: {permission_code}',
+                    required_permission=permission_code,
+                )
         return permissions

@@ -319,6 +319,19 @@ export const BusinessIntakePage = () => {
     setIntakeData((prev) => ({ ...prev, [key]: value }));
   };
 
+  // Industry-specific sections only apply to certain business types. The
+  // Restaurant / QSR section (kitchen displays, drive-thru, etc.) is meaningless
+  // for an office or gym, so it is gated on the selected business type. Changing
+  // the dropdown re-renders the form and the section appears/disappears — no page
+  // reload needed.
+  const isRestaurant = intakeData.businessType === 'Restaurant / QSR';
+
+  // Section numbers are assigned at render time so hidden sections don't leave a
+  // gap in the sequence (e.g. 6 → 8). sectionNo() is only called for sections that
+  // actually render.
+  let sectionCounter = 0;
+  const sectionNo = () => (sectionCounter += 1);
+
   /** Called by AnamAvatar when the AI agent fills form fields */
   const handleAvatarFormUpdate = useCallback((updates: Record<string, string>) => {
     setIntakeData((prev) => {
@@ -379,7 +392,7 @@ export const BusinessIntakePage = () => {
 
         <form className="intake-form" onSubmit={onSubmitIntake}>
           <section className="intake-section">
-            <h3>1. Business Profile (Basic Context)</h3>
+            <h3>{sectionNo()}. Business Profile (Basic Context)</h3>
             <div className="intake-grid">
               <SelectField fieldKey="businessType" label="Business type / industry" value={intakeData.businessType} options={BUSINESS_TYPE_OPTIONS} onChange={(next) => updateIntakeField('businessType', next)} required />
               <NumericField fieldKey="locations" label="Number of locations" value={intakeData.locations} onChange={(next) => updateIntakeField('locations', next)} required />
@@ -391,7 +404,7 @@ export const BusinessIntakePage = () => {
           </section>
 
           <section className="intake-section">
-            <h3>2. Connectivity Requirements</h3>
+            <h3>{sectionNo()}. Connectivity Requirements</h3>
             <div className="intake-grid">
               <SelectField fieldKey="internetType" label="Internet type" value={intakeData.internetType} options={INTERNET_TYPE_OPTIONS} onChange={(next) => updateIntakeField('internetType', next)} required />
               <label data-field="primaryInternetSpeed">
@@ -404,7 +417,7 @@ export const BusinessIntakePage = () => {
           </section>
 
           <section className="intake-section">
-            <h3>3. Staff Devices</h3>
+            <h3>{sectionNo()}. Staff Devices</h3>
             <div className="intake-grid">
               <NumericField fieldKey="laptops" label="Laptops" value={intakeData.laptops} onChange={(next) => updateIntakeField('laptops', next)} />
               <NumericField fieldKey="desktops" label="Desktop computers" value={intakeData.desktops} onChange={(next) => updateIntakeField('desktops', next)} />
@@ -414,7 +427,7 @@ export const BusinessIntakePage = () => {
           </section>
 
           <section className="intake-section">
-            <h3>4. POS &amp; Retail Systems</h3>
+            <h3>{sectionNo()}. POS &amp; Retail Systems</h3>
             <div className="intake-grid">
               <NumericField fieldKey="posTerminals" label="POS terminals" value={intakeData.posTerminals} onChange={(next) => updateIntakeField('posTerminals', next)} />
               <NumericField fieldKey="handheldPosDevices" label="Handheld POS devices" value={intakeData.handheldPosDevices} onChange={(next) => updateIntakeField('handheldPosDevices', next)} />
@@ -426,7 +439,7 @@ export const BusinessIntakePage = () => {
           </section>
 
           <section className="intake-section">
-            <h3>5. Surveillance &amp; Security</h3>
+            <h3>{sectionNo()}. Surveillance &amp; Security</h3>
             <div className="intake-grid">
               <NumericField fieldKey="ipCameras" label="Number of IP cameras" value={intakeData.ipCameras} onChange={(next) => updateIntakeField('ipCameras', next)} />
               <SelectField fieldKey="nvrDvrPresent" label="NVR / DVR system present" value={intakeData.nvrDvrPresent} options={YES_NO_OPTIONS} onChange={(next) => updateIntakeField('nvrDvrPresent', next)} />
@@ -436,7 +449,7 @@ export const BusinessIntakePage = () => {
           </section>
 
           <section className="intake-section">
-            <h3>6. Customer Experience Systems</h3>
+            <h3>{sectionNo()}. Customer Experience Systems</h3>
             <div className="intake-grid">
               <NumericField fieldKey="digitalSignageScreens" label="Digital signage screens" value={intakeData.digitalSignageScreens} onChange={(next) => updateIntakeField('digitalSignageScreens', next)} />
               <NumericField fieldKey="selfOrderKiosks" label="Self-order kiosks" value={intakeData.selfOrderKiosks} onChange={(next) => updateIntakeField('selfOrderKiosks', next)} />
@@ -446,18 +459,20 @@ export const BusinessIntakePage = () => {
             </div>
           </section>
 
-          <section className="intake-section">
-            <h3>7. Restaurant / QSR Systems</h3>
-            <div className="intake-grid">
-              <NumericField fieldKey="kitchenDisplaySystems" label="Kitchen display systems" value={intakeData.kitchenDisplaySystems} onChange={(next) => updateIntakeField('kitchenDisplaySystems', next)} />
-              <NumericField fieldKey="onlineOrderingTablets" label="Online ordering tablets" value={intakeData.onlineOrderingTablets} onChange={(next) => updateIntakeField('onlineOrderingTablets', next)} />
-              <NumericField fieldKey="driveThruSystems" label="Drive-thru systems" value={intakeData.driveThruSystems} onChange={(next) => updateIntakeField('driveThruSystems', next)} />
-              <SelectField fieldKey="deliveryIntegration" label="Delivery integration" value={intakeData.deliveryIntegration} options={YES_NO_OPTIONS} onChange={(next) => updateIntakeField('deliveryIntegration', next)} />
-            </div>
-          </section>
+          {isRestaurant && (
+            <section className="intake-section">
+              <h3>{sectionNo()}. Restaurant / QSR Systems</h3>
+              <div className="intake-grid">
+                <NumericField fieldKey="kitchenDisplaySystems" label="Kitchen display systems" value={intakeData.kitchenDisplaySystems} onChange={(next) => updateIntakeField('kitchenDisplaySystems', next)} />
+                <NumericField fieldKey="onlineOrderingTablets" label="Online ordering tablets" value={intakeData.onlineOrderingTablets} onChange={(next) => updateIntakeField('onlineOrderingTablets', next)} />
+                <NumericField fieldKey="driveThruSystems" label="Drive-thru systems" value={intakeData.driveThruSystems} onChange={(next) => updateIntakeField('driveThruSystems', next)} />
+                <SelectField fieldKey="deliveryIntegration" label="Delivery integration" value={intakeData.deliveryIntegration} options={YES_NO_OPTIONS} onChange={(next) => updateIntakeField('deliveryIntegration', next)} />
+              </div>
+            </section>
+          )}
 
           <section className="intake-section">
-            <h3>8. IoT &amp; Smart Devices</h3>
+            <h3>{sectionNo()}. IoT &amp; Smart Devices</h3>
             <div className="intake-grid">
               <NumericField fieldKey="smartRefrigerators" label="Smart refrigerators" value={intakeData.smartRefrigerators} onChange={(next) => updateIntakeField('smartRefrigerators', next)} />
               <NumericField fieldKey="smartCoffeeMachines" label="Smart coffee machines" value={intakeData.smartCoffeeMachines} onChange={(next) => updateIntakeField('smartCoffeeMachines', next)} />
@@ -470,7 +485,7 @@ export const BusinessIntakePage = () => {
           </section>
 
           <section className="intake-section">
-            <h3>9. Advanced Automation Devices</h3>
+            <h3>{sectionNo()}. Advanced Automation Devices</h3>
             <div className="intake-grid">
               <NumericField fieldKey="deliveryRobots" label="Delivery robots" value={intakeData.deliveryRobots} onChange={(next) => updateIntakeField('deliveryRobots', next)} />
               <NumericField fieldKey="inventoryRobots" label="Inventory robots" value={intakeData.inventoryRobots} onChange={(next) => updateIntakeField('inventoryRobots', next)} />
@@ -480,7 +495,7 @@ export const BusinessIntakePage = () => {
           </section>
 
           <section className="intake-section">
-            <h3>10. Applications / SaaS</h3>
+            <h3>{sectionNo()}. Applications / SaaS</h3>
             <div className="intake-grid">
               <SelectField fieldKey="squarePos" label="Square POS" value={intakeData.squarePos} options={YES_NO_OPTIONS} onChange={(next) => updateIntakeField('squarePos', next)} />
               <SelectField fieldKey="odoo" label="Odoo" value={intakeData.odoo} options={YES_NO_OPTIONS} onChange={(next) => updateIntakeField('odoo', next)} />
@@ -494,7 +509,7 @@ export const BusinessIntakePage = () => {
           </section>
 
           <section className="intake-section">
-            <h3>11. Network Reliability Needs</h3>
+            <h3>{sectionNo()}. Network Reliability Needs</h3>
             <div className="intake-grid">
               <SelectField fieldKey="downtimeTolerance" label="Downtime tolerance" value={intakeData.downtimeTolerance} options={DOWNTIME_OPTIONS} onChange={(next) => updateIntakeField('downtimeTolerance', next)} required />
               <SelectField fieldKey="needRedundancy" label="Need redundancy?" value={intakeData.needRedundancy} options={YES_NO_OPTIONS} onChange={(next) => updateIntakeField('needRedundancy', next)} />
@@ -502,7 +517,7 @@ export const BusinessIntakePage = () => {
           </section>
 
           <section className="intake-section">
-            <h3>12. Managed Services Preference</h3>
+            <h3>{sectionNo()}. Managed Services Preference</h3>
             <div className="intake-grid">
               <SelectField fieldKey="managedServicePreference" label="Network ownership" value={intakeData.managedServicePreference} options={MANAGED_OPTIONS} onChange={(next) => updateIntakeField('managedServicePreference', next)} required />
               <SelectField fieldKey="installationSupportNeeded" label="Installation support needed" value={intakeData.installationSupportNeeded} options={YES_NO_OPTIONS} onChange={(next) => updateIntakeField('installationSupportNeeded', next)} />

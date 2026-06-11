@@ -9,6 +9,7 @@ from app.repositories.order_notification_repository import OrderNotificationRepo
 from app.repositories.order_repository import OrderRepository
 from app.repositories.quote_repository import QuoteRepository
 from app.repositories.user_repository import UserRepository
+from app.services.audit_logger import audit
 from app.services.email_service import EmailService
 
 logger = logging.getLogger(__name__)
@@ -62,11 +63,18 @@ class OrderNotificationService:
     def update_recipient_settings(self, current_user: dict, recipients: list[str]):
         self._assert_user_exists(current_user)
         settings_row = self.notification_repo.get_or_create(current_user['tenant_id'])
+        old_recipients = set(self._normalize_recipients(list(settings_row.recipient_emails_json or [])))
         normalized = self._normalize_recipients(recipients)
         settings_row.recipient_emails_json = normalized
         settings_row.updated_by_user_id = self._parse_uuid(current_user['user_id'], field_name='user_id')
         self.db.commit()
         self.db.refresh(settings_row)
+        audit.log(
+            'notification_recipients_changed',
+            added=sorted(set(normalized) - old_recipients),
+            removed=sorted(old_recipients - set(normalized)),
+            recipient_count=len(normalized),
+        )
         logger.warning(
             '[ORDER RECIPIENTS UPDATED] tenant_id=%s updated_by=%s recipients_count=%d recipients=%s',
             current_user.get('tenant_id'),

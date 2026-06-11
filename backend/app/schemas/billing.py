@@ -59,6 +59,8 @@ class RunInvoicingRequest(BaseModel):
 
 
 class RecordPaymentRequest(BaseModel):
-    amount: float | None = None
+    # gt=0 rejects negative/zero amounts at the API boundary (422). A payment
+    # is money received; a negative value would act as an unauthorized credit.
+    amount: float | None = Field(default=None, gt=0)
     method: PaymentMethod = PaymentMethod.MANUAL
     external_reference: str | None = None

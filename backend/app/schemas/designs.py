@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationInfo, field_validator
 from app.schemas.auth import validate_email, validate_phone
 
 
@@ -34,6 +34,34 @@ class DesignMilestonesInput(BaseModel):
     estimated_installation_date: str | None = Field(default=None, alias='estimatedInstallationDate')
     confirmed_fulfillment_date: str | None = Field(default=None, alias='confirmedFulfillmentDate')
     confirmed_installation_date: str | None = Field(default=None, alias='confirmedInstallationDate')
+
+    @field_validator(
+        'estimated_review_date',
+        'estimated_proposal_date',
+        'estimated_fulfillment_date',
+        'estimated_installation_date',
+        'confirmed_fulfillment_date',
+        'confirmed_installation_date',
+    )
+    @classmethod
+    def check_date_format(cls, v: str | None, info: ValidationInfo) -> str | None:
+        # Milestone dates feed date-based logic (e.g. "review overdue"); enforce
+        # a strict YYYY-MM-DD calendar date so garbage never reaches milestones_json.
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        try:
+            parsed = datetime.strptime(v, '%Y-%m-%d').date()
+        except ValueError:
+            raise ValueError('must be a valid date (YYYY-MM-DD format)')
+        # `estimated_*` dates are forward-looking projections, so a past value is a
+        # mistake. `confirmed_*` dates record what actually happened and may be
+        # backdated, so they accept any valid date.
+        if (info.field_name or '').startswith('estimated_') and parsed < date.today():
+            raise ValueError('estimated milestone dates cannot be in the past')
+        return parsed.isoformat()
 
 
 class DesignInstallAssistanceInput(BaseModel):

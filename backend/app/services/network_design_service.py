@@ -21,6 +21,7 @@ from app.repositories.onboarding_repository import OnboardingRepository
 from app.repositories.order_repository import OrderRepository
 from app.repositories.quote_repository import QuoteRepository
 from app.repositories.user_repository import UserRepository
+from app.services.audit_logger import audit
 from app.services.email_service import EmailService
 
 
@@ -1035,6 +1036,13 @@ class NetworkDesignService:
                 self.mail_notifier(self.serialize_submission_payload(design))
 
         self.db.commit()
+        audit.log(
+            'design_saved',
+            design_id=str(design.id),
+            design_name=design.design_name,
+            design_status=design.status.value,
+            created=not design_id,
+        )
         refreshed = self.repo.get_design_by_id(str(design.id))
         if not refreshed:
             raise NotFoundError('Design not found after save')
@@ -1077,6 +1085,14 @@ class NetworkDesignService:
             self.mail_notifier(self.serialize_submission_payload(design))
 
         self.db.commit()
+        audit.log(
+            'design_submitted',
+            design_id=str(design.id),
+            design_name=design.design_name,
+            lead_email=(lead_payload or {}).get('email'),
+            lead_company=(lead_payload or {}).get('company'),
+            first_submission=not had_submitted_timestamp,
+        )
         refreshed = self.repo.get_design_by_id(str(design.id))
         if not refreshed:
             raise NotFoundError('Design not found after submit')
@@ -1136,8 +1152,12 @@ class NetworkDesignService:
                     409,
                 )
 
+        design_name = design.design_name
+        design_status = design.status.value
         self.repo.delete_design(design)
         self.db.commit()
+        audit.log('design_deleted', design_id=design_id,
+                  design_name=design_name, design_status=design_status)
 
     def _fetch_design_for_tenant_admin(self, current_user: dict, design_id: str) -> NetworkDesign:
         design = self.repo.get_design_by_id(design_id)
@@ -1198,6 +1218,10 @@ class NetworkDesignService:
         self._refresh_decomposition(design)
         self._sync_existing_tables_for_design(design=design, current_user=current_user)
         self.db.commit()
+        if current_status != target:
+            audit.log('design_status_changed', design_id=str(design.id),
+                      old_status=current_status.value, new_status=target.value,
+                      note_attached=bool(note))
         refreshed = self.repo.get_design_by_id(str(design.id))
         if not refreshed:
             raise NotFoundError('Design not found after status update')
@@ -1222,6 +1246,8 @@ class NetworkDesignService:
         )
         self._sync_existing_tables_for_design(design=design, current_user=current_user)
         self.db.commit()
+        audit.log('design_milestones_updated', design_id=str(design.id),
+                  fields_changed=sorted(patch.keys()))
 
         refreshed = self.repo.get_design_by_id(str(design.id))
         if not refreshed:
@@ -1247,6 +1273,8 @@ class NetworkDesignService:
 
         self._sync_existing_tables_for_design(design=design, current_user=current_user)
         self.db.commit()
+        audit.log('design_install_assistance_updated', design_id=str(design.id),
+                  install_mode=patch.get('installMode'), fields_changed=sorted(patch.keys()))
         refreshed = self.repo.get_design_by_id(str(design.id))
         if not refreshed:
             raise NotFoundError('Design not found after install update')
@@ -1266,6 +1294,8 @@ class NetworkDesignService:
 
         self._sync_existing_tables_for_design(design=design, current_user=current_user)
         self.db.commit()
+        audit.log('design_note_added', design_id=str(design.id),
+                  visibility=visibility, message_snippet=message[:80])
         refreshed = self.repo.get_design_by_id(str(design.id))
         if not refreshed:
             raise NotFoundError('Design not found after note update')

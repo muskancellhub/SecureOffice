@@ -1,3 +1,10 @@
+# --- Logs (docs/LOGGING_PLAN.md) — dev sink + archives, never commit ---
+# Both forms needed: logs/ matches the dev directory; /logs matches the
+# prod symlink to /var/log/secureoffice/archive (trailing-slash patterns
+# do not match symlinks).
+logs/
+/logs
+
 # --- Secrets & environment (never commit real values) ---
 .env
 .env.*

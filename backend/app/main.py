@@ -1,4 +1,7 @@
+import logging
+
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -7,12 +10,15 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 from app.core.config import get_settings
 from app.core.database import Base, SessionLocal, engine
-from app.core.exceptions import AppError
+from app.core.exceptions import AppError, ForbiddenError
+from app.core.logging_config import configure_logging
 from app.core.permissions import default_permissions_for_role
 from app.core.runtime_migrations import apply_runtime_migrations
 from app.middleware.auth_middleware import AuthContextMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.request_context import RequestContextMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
+from app.services.audit_logger import audit
 from app.models import User, UserRole, UserType
 from app.models.tenant import Tenant, TenantType
 from app.models.vendor import Vendor
@@ -38,6 +44,14 @@ from app.services.oauth_service import register_oauth_clients
 from app import models  # noqa: F401
 
 settings = get_settings()
+
+configure_logging(
+    app_env=settings.app_env,
+    log_sink=settings.log_sink,
+    log_dir=settings.log_dir,
+    log_level=settings.log_level,
+)
+logger = logging.getLogger(__name__)
 
 # In production, hide the auto-generated API docs. They leak the full endpoint
 # shape + request/response schemas to anyone who can reach the backend, which
@@ -78,9 +92,6 @@ _assert_production_hardening(settings)
 
 @app.on_event('startup')
 def startup() -> None:
-    import logging
-    logger = logging.getLogger(__name__)
-
     apply_runtime_migrations()
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
@@ -193,6 +204,9 @@ app.add_middleware(
 app.add_middleware(RateLimitMiddleware, trusted_proxy_count=settings.trusted_proxy_count)
 app.add_middleware(SecurityHeadersMiddleware, app_env=settings.app_env)
 app.add_middleware(AuthContextMiddleware)
+# Just inside CORS so every downstream middleware/route runs with request
+# context set, and the access line sees auth identity (docs/LOGGING_PLAN.md §4.1).
+app.add_middleware(RequestContextMiddleware, trusted_proxy_count=settings.trusted_proxy_count)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in settings.backend_cors_origins.split(',') if origin.strip()],
@@ -203,7 +217,25 @@ app.add_middleware(
 
 
 @app.exception_handler(AppError)
-async def app_error_handler(_: Request, exc: AppError):
+async def app_error_handler(request: Request, exc: AppError):
+    # Central security hooks (docs/LOGGING_PLAN.md §4.3) — no per-route work.
+    if isinstance(exc, ForbiddenError):
+        audit.log(
+            'access_denied',
+            status='denied',
+            level=logging.WARNING,
+            endpoint_attempted=f'{request.method} {request.url.path}',
+            required_permission=exc.required_permission,
+            reason=exc.message,
+        )
+    elif exc.status_code >= 500:
+        audit.log(
+            'server_error',
+            status='failure',
+            level=logging.ERROR,
+            error_code=exc.status_code,
+            reason=exc.message,
+        )
     return JSONResponse(status_code=exc.status_code, content={'detail': exc.message})
 
 
@@ -218,11 +250,15 @@ async def validation_error_handler(_: Request, exc: RequestValidationError):
         {k: v for k, v in e.items() if k != 'ctx'}
         for e in exc.errors()
     ]
-    return JSONResponse(status_code=422, content={'detail': safe_errors})
+    # jsonable_encoder coerces non-serializable values (e.g. the raw request
+    # body bytes that FastAPI stores in `input` for non-JSON Content-Types)
+    # into JSON-safe types. Without it, json.dumps raises on bytes and the
+    # 422 handler itself fails with an unhandled 500 (BUG-CART-003).
+    return JSONResponse(status_code=422, content={'detail': jsonable_encoder(safe_errors)})
 
 
 @app.exception_handler(Exception)
-async def unhandled_error_handler(_: Request, exc: Exception):
+async def unhandled_error_handler(request: Request, exc: Exception):
     # Bad Unicode in JSON body → Postgres rejects it → SQLAlchemy DataError.
     # Classify these as client input errors (400), not server errors (500).
     # Prevents a trivial DoS where any authenticated user can force 500s by
@@ -236,6 +272,18 @@ async def unhandled_error_handler(_: Request, exc: Exception):
             status_code=400,
             content={'detail': 'Request body contains invalid Unicode (lone surrogates or non-UTF-8 sequences).'},
         )
+    # Stack trace to the app log (local0) only; the audit stream gets the
+    # event without internals (docs/LOGGING_PLAN.md §4.3).
+    logger.error(
+        'Unhandled exception on %s %s', request.method, request.url.path,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+    audit.log(
+        'server_error',
+        status='failure',
+        level=logging.ERROR,
+        error_type=type(exc).__name__,
+    )
     if settings.app_debug:
         return JSONResponse(status_code=500, content={'detail': str(exc)})
     return JSONResponse(status_code=500, content={'detail': 'Internal server error'})

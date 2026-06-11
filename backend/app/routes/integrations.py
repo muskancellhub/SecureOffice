@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -25,6 +27,7 @@ from app.schemas.topology import (
     NetworkTopologyResponse,
     NetworkTopologySummaryResponse,
 )
+from app.services.audit_logger import audit
 from app.services.authorization_service import AuthorizationService
 from app.services.catalog_service import CatalogService
 from app.services.cdw_agent_service import CDWAgentService
@@ -62,6 +65,9 @@ def sync_cdw_routers(payload: SyncRoutersRequest, current_user: dict = Depends(g
             error_excerpt='; '.join(result['errors'][:3]) if result['errors'] else None,
         )
         db.commit()
+        audit.log('cdw_sync_triggered', sync_status=status.value,
+                  synced_count=result['synced_count'], created_count=result['created_count'],
+                  updated_count=result['updated_count'], error_count=len(result['errors']))
 
         return CatalogSyncResponse(
             synced_count=result['synced_count'],
@@ -80,6 +86,8 @@ def sync_cdw_routers(payload: SyncRoutersRequest, current_user: dict = Depends(g
             error_excerpt=str(exc)[:1500],
         )
         db.commit()
+        audit.log('cdw_sync_triggered', status='failure', level=logging.ERROR,
+                  error_type=type(exc).__name__)
         raise
 
 
@@ -135,6 +143,9 @@ def sync_papi_devices(
             error_excerpt='; '.join(result['errors'][:3]) if result['errors'] else None,
         )
         db.commit()
+        audit.log('papi_sync_triggered', sync_status=status.value,
+                  synced_count=result['synced_count'], created_count=result['created_count'],
+                  updated_count=result['updated_count'], error_count=len(result['errors']))
 
         return CatalogSyncResponse(
             synced_count=result['synced_count'],
@@ -153,6 +164,8 @@ def sync_papi_devices(
             error_excerpt=str(exc)[:1500],
         )
         db.commit()
+        audit.log('papi_sync_triggered', status='failure', level=logging.ERROR,
+                  error_type=type(exc).__name__)
         raise
 
 
@@ -202,6 +215,9 @@ def sync_network_vendor_catalog(
             error_excerpt='; '.join(result['errors'][:3]) if result['errors'] else None,
         )
         db.commit()
+        audit.log('excel_sync_triggered', sync_status=status.value,
+                  synced_count=result['synced_count'], created_count=result['created_count'],
+                  updated_count=result['updated_count'], error_count=len(result['errors']))
 
         return CatalogSyncResponse(
             synced_count=result['synced_count'],
@@ -220,6 +236,8 @@ def sync_network_vendor_catalog(
             error_excerpt=str(exc)[:1500],
         )
         db.commit()
+        audit.log('excel_sync_triggered', status='failure', level=logging.ERROR,
+                  error_type=type(exc).__name__)
         raise
 
 
@@ -256,6 +274,8 @@ def suggest_designx_bom(
         site_count=payload.site_count,
         existing_customer=payload.existing_customer,
     )
+    audit.log('designx_bom_suggested', employee_count=payload.employee_count,
+              site_count=payload.site_count, suggestion_count=len(result['suggestions']))
     return DesignXSuggestBOMResponse(
         summary=result['summary'],
         suggestions=[DesignXSuggestedLineResponse(**row) for row in result['suggestions']],
@@ -274,6 +294,8 @@ def generate_network_bom(
         business_context=payload.business_context,
         preferences=payload.preferences.model_dump(exclude_none=True),
     )
+    audit.log('bom_generated', line_count=len(result['line_items']),
+              grand_total=result['grand_total'])
 
     return GenerateNetworkBomResponse(
         line_items=[NetworkBomLineResponse(**line) for line in result['line_items']],
@@ -295,6 +317,7 @@ def generate_network_topology(
         design_id=payload.design_id,
         business_context=payload.business_context,
     )
+    audit.log('topology_generated', design_id=payload.design_id)
 
     return GenerateNetworkTopologyResponse(
         topology=NetworkTopologyResponse.model_validate(result['topology']),

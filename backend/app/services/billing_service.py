@@ -1,8 +1,9 @@
+import logging
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import desc, select
 from sqlalchemy.orm import selectinload
-from app.core.exceptions import ForbiddenError, NotFoundError, UnauthorizedError
+from app.core.exceptions import AppError, ForbiddenError, NotFoundError, UnauthorizedError
 from app.models.lifecycle import (
     Contract,
     Invoice,
@@ -17,6 +18,7 @@ from app.models.order import Order, OrderLine
 from app.models.quote import BillingInterval, BillingType
 from app.models.user import UserRole
 from app.repositories.user_repository import UserRepository
+from app.services.audit_logger import audit
 
 
 class BillingService:
@@ -158,6 +160,8 @@ class BillingService:
         past_values = [past_map[self._month_key(month)] for month in past_months]
         projected_values = [projected_map[self._month_key(month)] for month in projected_months]
 
+        audit.log('billing_overview_viewed', level=logging.INFO,
+                  months_back=months_back, months_forward=months_forward)
         return {
             'past_months': past_values,
             'projected_months': projected_values,
@@ -228,6 +232,13 @@ class BillingService:
             created_or_existing.append(invoice)
 
         self.db.commit()
+        audit.log(
+            'invoices_generated',
+            billing_month=str(month_start),
+            invoice_count=len(created_or_existing),
+            subscription_count=len(subscriptions),
+            total_amount=round(sum(float(inv.amount) for inv in created_or_existing), 2),
+        )
         return created_or_existing
 
     def record_payment(
@@ -251,6 +262,11 @@ class BillingService:
             raise ForbiddenError('Cannot record payment for void invoice')
 
         payment_amount = float(amount) if amount is not None else float(invoice.amount)
+        # Defense-in-depth: the schema enforces gt=0 at the API boundary, but
+        # record_payment is also reachable from internal callers that bypass it.
+        # A payment must be a positive amount of money received.
+        if payment_amount <= 0:
+            raise AppError('Payment amount must be greater than zero', 400)
         payment = Payment(
             tenant_id=tenant_id,
             invoice_id=invoice.id,
@@ -270,4 +286,14 @@ class BillingService:
         self.db.commit()
         self.db.refresh(invoice)
         self.db.refresh(payment)
+        audit.log(
+            'payment_recorded',
+            invoice_id=str(invoice.id),
+            payment_id=str(payment.id),
+            amount=payment_amount,
+            currency=invoice.currency,
+            method=method.value if hasattr(method, 'value') else str(method),
+            external_reference=external_reference,
+            invoice_status=invoice.status.value,
+        )
         return invoice, payment

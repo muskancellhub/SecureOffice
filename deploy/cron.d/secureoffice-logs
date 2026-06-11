@@ -1,0 +1,17 @@
+# SecureOffice2 daily log rotation/archival (docs/LOGGING_PLAN.md §5.2).
+# Installed at /etc/cron.d/secureoffice-logs. Runs as root: log files under
+# /var/log/secureoffice are root/syslog-owned by design — the app user never
+# has write access to them (no setuid needed, plan §5.4).
+#
+# Cron output (stdout/stderr) is mailed to root / captured by the cron log;
+# the script exits non-zero on failure so a broken rotation is visible.
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Off-box archive copy (plan §5.5, phase 5): set the bucket to enable.
+# Requires the aws CLI and the instance-role policy in
+# deploy/aws/iam-policy-log-archive.json. Unset = archives stay instance-local.
+SECUREOFFICE_S3_BUCKET=
+SECUREOFFICE_S3_PREFIX=secureoffice-logs
+
+5 0 * * * root /usr/local/bin/secureoffice-rotate-logs

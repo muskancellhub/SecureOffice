@@ -1,3 +1,4 @@
+import logging
 import math
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -17,6 +18,7 @@ from app.repositories.otp_repository import OTPRepository
 from app.repositories.refresh_session_repository import RefreshSessionRepository
 from app.repositories.tenant_repository import TenantRepository
 from app.repositories.user_repository import UserRepository
+from app.services.audit_logger import audit
 from app.services.email_service import EmailService
 from app.services.otp_service import OTPService
 from app.services.token_service import TokenService
@@ -116,6 +118,7 @@ class AuthService:
             raise AppError('Company name is required', 400)
 
         tenant = self.tenant_repo.get_by_email_domain(domain)
+        new_tenant_created = tenant is None
         if tenant is None:
             # First account for this domain -> provision the company tenant and
             # make this user the founding ADMIN (the paying / primary user).
@@ -153,6 +156,15 @@ class AuthService:
 
         self._issue_otp_for_user(user=user, purpose='signup verification')
         self.db.commit()
+        audit.log(
+            'user_signup',
+            user_id=str(user.id),
+            tenant_id=str(tenant.id),
+            email=email_norm,
+            role=role.value,
+            account_status=status.value,
+            new_tenant_created=new_tenant_created,
+        )
 
     def vendor_signup(
         self,
@@ -223,9 +235,16 @@ class AuthService:
 
         self._issue_otp_for_user(user=user, purpose='vendor signup verification')
         self.db.commit()
+        audit.log(
+            'vendor_signup',
+            user_id=str(user.id),
+            tenant_id=str(vendor_tenant.id),
+            email=user.email,
+            company_name=company_name,
+        )
         return user
 
-    def _verify_otp_attempt(self, latest_otp, otp: str) -> None:
+    def _verify_otp_attempt(self, latest_otp, otp: str, *, user) -> None:
         """Check a submitted OTP against the active code, enforcing the per-OTP
         attempt limit. On a wrong code it decrements `attempts_remaining`; once
         exhausted the OTP is locked and a 429 is raised so the client can prompt
@@ -235,6 +254,15 @@ class AuthService:
             return
         remaining = self.otp_repo.decrement_attempts(latest_otp)
         self.db.commit()
+        audit.log(
+            'otp_verify_failed',
+            status='failure',
+            level=logging.WARNING,
+            user_id=str(user.id),
+            email_attempted=user.email,
+            attempts_remaining=remaining,
+            locked=remaining <= 0,
+        )
         if remaining <= 0:
             raise AppError('Too many invalid attempts. Please request a new code.', 429)
         raise AppError(f'Invalid OTP. {remaining} attempt(s) remaining.', 400)
@@ -248,31 +276,57 @@ class AuthService:
         if not latest_otp:
             raise AppError('OTP expired or not found', 400)
 
-        self._verify_otp_attempt(latest_otp, otp)
+        self._verify_otp_attempt(latest_otp, otp, user=user)
 
         user.is_verified = True
         self.otp_repo.mark_used(latest_otp)
         self._ensure_bootstrap_super_admin(user)
         self.db.commit()
-        return self._issue_tokens_for_user(user)
+        tokens = self._issue_tokens_for_user(user)
+        audit.log(
+            'otp_verified',
+            user_id=str(user.id),
+            tenant_id=str(user.tenant_id),
+            email=user.email,
+            purpose='signup_verification',
+        )
+        return tokens
 
     def login(self, *, email: str, password: str):
         user = self.user_repo.get_by_email(email)
         if not user or user.provider != AuthProvider.LOCAL or not user.password_hash:
+            audit.log('user_login_failed', status='failure', level=logging.WARNING,
+                      email_attempted=email, reason='unknown_user_or_wrong_provider')
             raise UnauthorizedError('Invalid credentials')
 
         if not verify_value(password, user.password_hash):
+            audit.log('user_login_failed', status='failure', level=logging.WARNING,
+                      email_attempted=email, user_id=str(user.id), reason='bad_password')
             raise UnauthorizedError('Invalid credentials')
 
         if not user.is_verified:
+            audit.log('user_login_failed', status='failure', level=logging.WARNING,
+                      email_attempted=email, user_id=str(user.id), reason='not_verified')
             raise UnauthorizedError('Please verify OTP first')
 
         self._ensure_bootstrap_super_admin(user)
-        return self._issue_tokens_for_user(user)
+        tokens = self._issue_tokens_for_user(user)
+        audit.log(
+            'user_login',
+            user_id=str(user.id),
+            tenant_id=str(user.tenant_id),
+            actor_role=user.role.value,
+            email=user.email,
+            method='password',
+        )
+        return tokens
 
     def request_login_otp(self, *, email: str):
         user = self.user_repo.get_by_email(email)
         if not user:
+            # Response stays silent (no email enumeration), but the attempt is
+            # still recorded — a stream of these is an enumeration probe.
+            audit.log('otp_requested', status='skipped', email_attempted=email, reason='unknown_email')
             return
         if not user.is_verified:
             raise UnauthorizedError('Please verify OTP first')
@@ -281,6 +335,13 @@ class AuthService:
         self._ensure_bootstrap_super_admin(user)
         self._issue_otp_for_user(user=user, purpose='login')
         self.db.commit()
+        audit.log(
+            'otp_requested',
+            user_id=str(user.id),
+            tenant_id=str(user.tenant_id),
+            email=user.email,
+            purpose='login',
+        )
 
     def _enforce_otp_request_throttle(self, user) -> None:
         """Block per-account OTP request floods (email bombing / quota drain).
@@ -321,20 +382,35 @@ class AuthService:
     def login_with_otp(self, *, email: str, otp: str):
         user = self.user_repo.get_by_email(email)
         if not user:
+            audit.log('user_login_failed', status='failure', level=logging.WARNING,
+                      email_attempted=email, reason='unknown_user', method='otp')
             raise UnauthorizedError('Invalid OTP or email')
         if not user.is_verified:
+            audit.log('user_login_failed', status='failure', level=logging.WARNING,
+                      email_attempted=email, user_id=str(user.id), reason='not_verified', method='otp')
             raise UnauthorizedError('Please verify OTP first')
 
         latest_otp = self.otp_repo.get_latest_active_for_user(user.id)
         if not latest_otp:
+            audit.log('otp_verify_failed', status='failure', level=logging.WARNING,
+                      email_attempted=email, user_id=str(user.id), reason='otp_expired_or_missing')
             raise AppError('OTP expired or not found', 400)
 
-        self._verify_otp_attempt(latest_otp, otp)
+        self._verify_otp_attempt(latest_otp, otp, user=user)
 
         self.otp_repo.mark_used(latest_otp)
         self._ensure_bootstrap_super_admin(user)
         self.db.commit()
-        return self._issue_tokens_for_user(user)
+        tokens = self._issue_tokens_for_user(user)
+        audit.log(
+            'user_login',
+            user_id=str(user.id),
+            tenant_id=str(user.tenant_id),
+            actor_role=user.role.value,
+            email=user.email,
+            method='otp',
+        )
+        return tokens
 
     def _issue_tokens_for_user(self, user):
         self._ensure_permissions_initialized(user)
@@ -389,7 +465,9 @@ class AuthService:
         if not user:
             raise UnauthorizedError('User not found')
 
-        return self._issue_tokens_for_user(user)
+        tokens = self._issue_tokens_for_user(user)
+        audit.log('token_refresh', user_id=str(user.id), tenant_id=str(user.tenant_id))
+        return tokens
 
     # ── Super-admin password setup ──────────────────────────────────────────
     # Teammates listed in the env SUPER_ADMIN_EMAILS allowlist activate their
@@ -418,6 +496,7 @@ class AuthService:
         token = TokenService.create_super_admin_setup_token(email=email_norm, state=self._setup_state(user))
         link = f"{settings.frontend_url.rstrip('/')}/super-admin/set-password?token={token}"
         EmailService.send_super_admin_setup_email(to_email=email_norm, link=link)
+        audit.log('super_admin_setup_link_sent', target_email=email_norm)
 
     def _provision_super_admin(self, email_norm: str, password: str):
         """Create or update an allowlisted super-admin's LOCAL credential row in the
@@ -464,7 +543,9 @@ class AuthService:
         err = password_strength_error(password)
         if err:
             raise AppError(err, 422)
-        self._provision_super_admin(email_norm, password)
+        user = self._provision_super_admin(email_norm, password)
+        audit.log('super_admin_credentials_changed', user_id=str(user.id),
+                  target_email=email_norm, flow='setup_token')
         return {'email': email_norm}
 
     def admin_set_super_admin_credentials(self, actor: dict, *, email: str, password: str):
@@ -479,7 +560,9 @@ class AuthService:
         err = password_strength_error(password)
         if err:
             raise AppError(err, 422)
-        self._provision_super_admin(email_norm, password)
+        user = self._provision_super_admin(email_norm, password)
+        audit.log('super_admin_credentials_changed', user_id=str(user.id),
+                  target_email=email_norm, flow='admin_set')
         return {'email': email_norm}
 
     def logout(self, refresh_token: str):
@@ -492,9 +575,11 @@ class AuthService:
         if session:
             self.refresh_repo.revoke(session)
             self.db.commit()
+            audit.log('user_logout', user_id=str(session.user_id))
 
     def oauth_login_or_register(self, *, provider: AuthProvider, email: str, name: str, provider_id: str):
         user = self.user_repo.get_by_email(email)
+        new_user_created = user is None
         if not user:
             tenant_id = self._resolve_tenant_id(None)
             user = self.user_repo.create(
@@ -515,4 +600,14 @@ class AuthService:
             self.db.flush()
         else:
             self._ensure_bootstrap_super_admin(user)
-        return self._issue_tokens_for_user(user)
+        tokens = self._issue_tokens_for_user(user)
+        audit.log(
+            'oauth_login',
+            user_id=str(user.id),
+            tenant_id=str(user.tenant_id),
+            actor_role=user.role.value if hasattr(user.role, 'value') else str(user.role),
+            email=user.email,
+            provider=provider.value if hasattr(provider, 'value') else str(provider),
+            new_user_created=new_user_created,
+        )
+        return tokens

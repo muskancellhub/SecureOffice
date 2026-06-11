@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import NotFoundError
 from app.models.catalog import CatalogItem, CatalogItemType
 from app.models.network_design import NetworkDesign
+from app.services.audit_logger import audit
 from app.services.catalog_service import (
     CATEGORY_TO_MS_GROUP,
     MANAGED_SERVICE_CATEGORIES,
@@ -162,6 +163,12 @@ class ManagedServicePricingService:
         design.managed_services_json = config
         self.db.commit()
         self.db.refresh(design)
+        audit.log(
+            'design_managed_services_updated',
+            design_id=design_id,
+            enabled_categories=config['enabled_categories'],
+            excluded_item_count=len(config['excluded_item_ids']),
+        )
 
         return self.calculate_for_design(design_id)
 

@@ -1,0 +1,21 @@
+{
+  "_comment": "Attach to the EC2 instance role (docs/LOGGING_PLAN.md §5.5). Replace YOUR_BUCKET. Deliberately minimal: List+Put only, NO s3:DeleteObject and NO s3:GetObject — the instance can ship audit archives but can never read them back, erase, or overwrite-to-tamper (enable bucket versioning so even same-key overwrites are recoverable).",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListArchivePrefixForSync",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::YOUR_BUCKET",
+      "Condition": {
+        "StringLike": { "s3:prefix": "secureoffice-logs/*" }
+      }
+    },
+    {
+      "Sid": "PutArchives",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::YOUR_BUCKET/secureoffice-logs/*"
+    }
+  ]
+}

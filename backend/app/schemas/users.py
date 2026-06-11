@@ -8,7 +8,9 @@ class UserSummaryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    email: EmailStr
+    # Plain str (not EmailStr): a response echoing a trusted stored email must not
+    # re-validate it, or reserved TLDs like .test would 500 on output (BUG-35).
+    email: str
     mobile: str | None
     name: str
     role: UserRole

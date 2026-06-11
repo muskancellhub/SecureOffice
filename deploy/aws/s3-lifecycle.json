@@ -1,0 +1,22 @@
+{
+  "_comment": "Bucket lifecycle for the log-archive bucket (docs/LOGGING_PLAN.md §5.5). Apply with: aws s3api put-bucket-lifecycle-configuration --bucket YOUR_BUCKET --lifecycle-configuration file://deploy/aws/s3-lifecycle.json (strip the _comment keys first, or manage via IaC). App logs: Glacier at 90d, expire at 400d. Audit logs: Glacier at 90d, never expire — bucket-side retention is the durable complement to the box-side 90/365-day local pruning.",
+  "Rules": [
+    {
+      "ID": "secureoffice-app-logs",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "secureoffice-logs/app/" },
+      "Transitions": [
+        { "Days": 90, "StorageClass": "GLACIER" }
+      ],
+      "Expiration": { "Days": 400 }
+    },
+    {
+      "ID": "secureoffice-audit-logs",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "secureoffice-logs/audit/" },
+      "Transitions": [
+        { "Days": 90, "StorageClass": "GLACIER" }
+      ]
+    }
+  ]
+}

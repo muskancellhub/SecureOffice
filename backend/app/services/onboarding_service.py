@@ -3,6 +3,7 @@ from app.core.exceptions import AppError, UnauthorizedError
 from app.repositories.onboarding_repository import OnboardingRepository
 from app.repositories.tenant_repository import TenantRepository
 from app.repositories.user_repository import UserRepository
+from app.services.audit_logger import audit
 
 VALIDATION_STATUSES = {'PENDING', 'VERIFIED', 'FAILED'}
 
@@ -162,6 +163,8 @@ class OnboardingService:
         profile.onboarding_completed = self._compute_onboarding_completed(profile)
         self.db.commit()
         self.db.refresh(profile)
+        audit.log('onboarding_updated', fields_changed=sorted(payload.keys()),
+                  onboarding_completed=profile.onboarding_completed)
         return profile
 
     def validate_payment_method(
@@ -197,6 +200,8 @@ class OnboardingService:
         profile.onboarding_completed = self._compute_onboarding_completed(profile)
         self.db.commit()
         self.db.refresh(profile)
+        # last4 only — full card data never reaches this service (plan §6).
+        audit.log('payment_method_validated', payment_method_type=method, last4=masked_last4)
         return profile
 
     def is_onboarding_complete(self, tenant_id: str) -> bool:

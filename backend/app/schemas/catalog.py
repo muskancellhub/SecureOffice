@@ -40,7 +40,10 @@ class CatalogSyncResponse(BaseModel):
 
 
 class UpdateManagedServiceRequest(BaseModel):
-    price: float | None = None
+    # ge=0 rejects negative prices at the API boundary (422). Zero is allowed:
+    # a managed service may legitimately be free/included. A negative price would
+    # corrupt quote and billing totals for any cart that adds it.
+    price: float | None = Field(default=None, ge=0)
     is_active: bool | None = None
     features: list[str] | None = None
 

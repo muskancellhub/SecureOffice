@@ -115,7 +115,11 @@ class VerifyOtpRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    # Plain str (not EmailStr): the check_email regex below is the intended
+    # validator and, unlike EmailStr, accepts reserved TLDs like .test used by
+    # seeded QA accounts. Login authenticates an existing account, so strict
+    # RFC/special-use checks add no value here (BUG-35).
+    email: str
     password: str = Field(min_length=8, max_length=128)
 
     @field_validator('email')
@@ -125,7 +129,7 @@ class LoginRequest(BaseModel):
 
 
 class LoginOtpRequest(BaseModel):
-    email: EmailStr
+    email: str
 
     @field_validator('email')
     @classmethod
@@ -134,7 +138,7 @@ class LoginOtpRequest(BaseModel):
 
 
 class LoginOtpVerifyRequest(BaseModel):
-    email: EmailStr
+    email: str
     otp: str = Field(pattern=r'^\d{6}$')
 
     @field_validator('email')
@@ -157,7 +161,10 @@ class MeResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     user_id: str
-    email: EmailStr
+    # Plain str (not EmailStr): this is a response echoing an already-stored,
+    # trusted email. Re-validating it on output would 500 for reserved TLDs like
+    # .test even though the data is valid (BUG-35).
+    email: str
     role: UserRole
     user_type: str = 'CELLHUB'
     permissions: list[str]

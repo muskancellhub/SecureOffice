@@ -1,6 +1,7 @@
 import logging
 import secrets
 import uuid
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.exceptions import AppError, ForbiddenError, NotFoundError
@@ -19,6 +20,7 @@ from app.models import AuthProvider, UserRole
 from app.repositories.tenant_repository import TenantRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.users import CreateUserRequest, InviteUserRequest
+from app.services.audit_logger import audit
 from app.services.email_service import EmailService
 
 logger = logging.getLogger(__name__)
@@ -105,6 +107,7 @@ class UserManagementService:
         self._assert_actor_can_manage(actor_role, actor_permissions)
         if PERM_MANAGE_PERMISSIONS not in actor_permissions:
             raise ForbiddenError('Missing permission: manage_permissions')
+        audit.log('permission_catalog_viewed', level=logging.INFO)
         return [{'code': code, 'description': desc} for code, desc in PERMISSION_CATALOG.items()]
 
     def create_user(self, actor: dict, payload: CreateUserRequest):
@@ -119,20 +122,36 @@ class UserManagementService:
 
         tenant_id = self._resolve_tenant_for_creation(actor, actor_role, payload.tenant_id)
 
-        user = self.user_repo.create(
-            email=payload.email.lower().strip(),
-            mobile=payload.mobile,
-            name=payload.name,
-            password_hash=hash_value(payload.password),
-            provider=AuthProvider.LOCAL,
-            provider_id=None,
-            is_verified=True,
-            role=payload.role,
-            permissions=default_permissions_for_role(payload.role),
-            tenant_id=tenant_id,
-        )
-        self.db.commit()
+        try:
+            user = self.user_repo.create(
+                email=payload.email.lower().strip(),
+                mobile=payload.mobile,
+                name=payload.name,
+                password_hash=hash_value(payload.password),
+                provider=AuthProvider.LOCAL,
+                provider_id=None,
+                is_verified=True,
+                role=payload.role,
+                permissions=default_permissions_for_role(payload.role),
+                tenant_id=tenant_id,
+            )
+            self.db.commit()
+        except IntegrityError:
+            # The get_by_email pre-check above is not atomic: a concurrent request
+            # can insert the same email between the check and the flush/commit here.
+            # The DB's unique constraint is the real guard — turn its violation into
+            # a clean 409 instead of an unhandled 500 (BUG-USER-002). The INSERT is
+            # emitted by create()'s flush, so the guard must cover it too.
+            self.db.rollback()
+            raise AppError('Email already in use', 409)
         self.db.refresh(user)
+        audit.log(
+            'user_created',
+            target_user_id=str(user.id),
+            target_email=user.email,
+            target_role=user.role.value,
+            target_tenant_id=str(user.tenant_id),
+        )
         return user
 
     def invite_user(self, actor: dict, payload: InviteUserRequest):
@@ -176,6 +195,13 @@ class UserManagementService:
             email_error = str(exc) or exc.__class__.__name__
             logger.exception('[INVITE EMAIL FAILED] to=%s', user.email)
 
+        audit.log(
+            'user_invited',
+            target_user_id=str(user.id),
+            target_email=user.email,
+            target_role=user.role.value,
+            email_sent=email_sent,
+        )
         return user, email_sent, email_error
 
     def list_users(self, actor: dict, tenant_id: str | None = None):
@@ -187,14 +213,18 @@ class UserManagementService:
         if actor_role == UserRole.SUPER_ADMIN:
             if tenant_id:
                 tenant_uuid = self._parse_tenant_uuid(tenant_id)
-                return self.user_repo.list_by_tenant(str(tenant_uuid))
-            return self.user_repo.list_all()
-
-        if tenant_id:
-            tenant_uuid = self._parse_tenant_uuid(tenant_id)
-            if str(tenant_uuid) != actor_tenant_id:
-                raise ForbiddenError('ADMIN can only view users in their own tenant')
-        return self.user_repo.list_by_tenant(actor_tenant_id)
+                users = self.user_repo.list_by_tenant(str(tenant_uuid))
+            else:
+                users = self.user_repo.list_all()
+        else:
+            if tenant_id:
+                tenant_uuid = self._parse_tenant_uuid(tenant_id)
+                if str(tenant_uuid) != actor_tenant_id:
+                    raise ForbiddenError('ADMIN can only view users in their own tenant')
+            users = self.user_repo.list_by_tenant(actor_tenant_id)
+        audit.log('user_list_viewed', level=logging.INFO,
+                  tenant_filter=tenant_id, result_count=len(users))
+        return users
 
     def update_user_role(self, actor: dict, target_user_id: str, new_role: UserRole):
         actor_role = self._actor_role(actor)
@@ -220,10 +250,18 @@ class UserManagementService:
             if target_user.role != UserRole.USER or new_role != UserRole.USER:
                 raise ForbiddenError('ADMIN can only manage USER role accounts')
 
+        old_role = target_user.role
         target_user.role = new_role
         target_user.permissions = default_permissions_for_role(new_role)
         self.db.commit()
         self.db.refresh(target_user)
+        audit.log(
+            'user_role_changed',
+            target_user_id=str(target_user.id),
+            target_email=target_user.email,
+            old_role=old_role.value,
+            new_role=new_role.value,
+        )
         return target_user
 
     def update_user_permissions(self, actor: dict, target_user_id: str, permissions: list[str]):
@@ -245,12 +283,29 @@ class UserManagementService:
             if target_user.role != UserRole.USER:
                 raise ForbiddenError('ADMIN can only edit permissions for USER accounts')
 
+        # Reject unknown codes BEFORE normalize_permissions() silently strips them.
+        # Without this, an all-unknown payload normalizes to [], the any()-check
+        # below sees an empty list and never fires, and the bad input is masked as
+        # a 200 that wipes the user's permissions (BUG-USER-001).
+        unknown = [p for p in permissions if str(p).strip() not in PERMISSION_CATALOG]
+        if unknown:
+            raise AppError('One or more permissions are invalid for target role', 400)
+
         normalized = normalize_permissions(permissions)
         allowed = set(allowed_permissions_for_role(target_user.role))
         if any(p not in allowed for p in normalized):
             raise AppError('One or more permissions are invalid for target role', 400)
 
+        old_permissions = set(normalize_permissions(target_user.permissions))
         target_user.permissions = normalized
         self.db.commit()
         self.db.refresh(target_user)
+        new_permissions = set(normalized)
+        audit.log(
+            'user_permissions_changed',
+            target_user_id=str(target_user.id),
+            target_email=target_user.email,
+            added=sorted(new_permissions - old_permissions),
+            removed=sorted(old_permissions - new_permissions),
+        )
         return target_user

@@ -13,6 +13,7 @@ from app.repositories.cart_repository import CartRepository
 from app.repositories.order_repository import OrderRepository
 from app.repositories.quote_repository import QuoteRepository
 from app.repositories.user_repository import UserRepository
+from app.services.audit_logger import audit
 from app.services.lifecycle_service import LifecycleService
 from app.services.onboarding_service import OnboardingService
 from app.services.order_notification_service import OrderNotificationService
@@ -390,6 +391,15 @@ class QuoteService:
                 logger.exception('Failed to add managed service lines from design %s', design_id)
 
         self.db.commit()
+        audit.log(
+            'quote_created',
+            quote_id=str(quote.id),
+            source='draft_solution' if (payload and payload.get('draft_solution')) else 'cart',
+            design_id=design_id,
+            line_count=len(ordered_candidates),
+            one_time_total=float(one_time_total),
+            monthly_total=float(quote.monthly_total),
+        )
         return self.quote_repo.get_by_id(str(quote.id))
 
     # ── Component-driven quotes (Phase 3) ────────────────────────────────────
@@ -547,6 +557,15 @@ class QuoteService:
         self.pricing_service.get_or_create_deal_pricing(quote)
         self._persist_component_tree(quote, product, result, financial_model)
         self.db.commit()
+        audit.log(
+            'quote_created',
+            quote_id=str(quote.id),
+            source='component',
+            product_id=str(product.id),
+            financial_model=financial_model,
+            interval=interval,
+            selection_count=len(selections),
+        )
         return self.quote_repo.get_by_id(str(quote.id))
 
     def add_component_line(self, current_user: dict, quote_id: str, payload: dict):
@@ -590,6 +609,13 @@ class QuoteService:
         self._check_capacity(product, result)
         self._persist_component_tree(quote, product, result, financial_model)
         self.db.commit()
+        audit.log(
+            'quote_updated',
+            quote_id=str(quote.id),
+            component_id=str(component.id),
+            new_qty=qty,
+            change='component_line',
+        )
         return self.quote_repo.get_by_id(str(quote.id))
 
     def create_bundle_quote(self, current_user: dict, payload: dict):
@@ -659,6 +685,14 @@ class QuoteService:
         quote.financial_model = financial_model
         quote.subscription_interval = interval
         self.db.commit()
+        audit.log(
+            'quote_created',
+            quote_id=str(quote.id),
+            source='bundle',
+            bundle_id=str(bundle.id),
+            financial_model=financial_model,
+            interval=interval,
+        )
         return self.quote_repo.get_by_id(str(quote.id))
 
     def list_quotes(self, current_user: dict):
@@ -679,16 +713,22 @@ class QuoteService:
         quote = self.get_quote(current_user, quote_id)
         if quote.status == QuoteStatus.CONVERTED:
             raise AppError('Quote cannot be sent in its current state', 400)
+        old_status = quote.status
         quote.status = QuoteStatus.SENT
         self.db.commit()
+        audit.log('quote_sent', quote_id=str(quote.id),
+                  old_status=old_status.value, new_status=QuoteStatus.SENT.value)
         return self.quote_repo.get_by_id(str(quote.id))
 
     def accept_quote(self, current_user: dict, quote_id: str):
         quote = self.get_quote(current_user, quote_id)
         if quote.status == QuoteStatus.CONVERTED:
             raise AppError('Quote cannot be accepted in its current state', 400)
+        old_status = quote.status
         quote.status = QuoteStatus.ACCEPTED
         self.db.commit()
+        audit.log('quote_accepted', quote_id=str(quote.id),
+                  old_status=old_status.value, new_status=QuoteStatus.ACCEPTED.value)
         return self.quote_repo.get_by_id(str(quote.id))
 
     def convert_quote(self, current_user: dict, quote_id: str):
@@ -756,6 +796,10 @@ class QuoteService:
 
         order_id = str(order.id)
         quote_id_text = str(quote.id)
+        line_count = len(list(order.lines or []))
+        audit.log('quote_converted', quote_id=quote_id_text, order_id=order_id, line_count=line_count)
+        audit.log('order_placed', order_id=order_id, quote_id=quote_id_text,
+                  line_count=line_count, financial_model=order.financial_model)
         logger.warning(
             '[ORDER NOTIFICATION TRIGGER] quote_id=%s order_id=%s tenant_id=%s user_id=%s line_count=%d',
             quote_id_text,

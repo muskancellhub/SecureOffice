@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# SecureOffice2 daily log rotation + archival (docs/LOGGING_PLAN.md §5.2).
+# Installed at /usr/local/bin/secureoffice-rotate-logs, run by root from
+# /etc/cron.d/secureoffice-logs daily at 00:05.
+#
+# Steps:
+#   1. logrotate renames app.log/audit.log to *-YYYY-MM-DD (yesterday's date),
+#      HUPs rsyslog to reopen fresh files, and gzips the rotated files into
+#      /var/log/secureoffice/archive/ (flat).
+#   2. Each gzip is integrity-checked (gzip -t), renamed to the plan's
+#      <stream>-YYYY-MM-DD.log.gz convention, and moved into the dated folder
+#      archive/YYYY-MM-DD/.
+#   3. Off-box copy (phase 5): `aws s3 sync` the dated archives to S3 so they
+#      survive instance termination. Sync is idempotent — a failed or missed
+#      day is caught up on the next run.
+#   4. Retention: local archive folders older than the per-stream limits are
+#      pruned (audit kept longer than app logs, plan §5.2). S3 copies are
+#      never deleted from here — bucket lifecycle rules own that — so a
+#      compromised box cannot erase shipped audit history.
+#
+# Usage:
+#   secureoffice-rotate-logs                  normal daily run
+#   secureoffice-rotate-logs --organize-only  skip logrotate; just re-run steps
+#                                             2-4 (e.g. after a missed day)
+#
+# Env overrides (mainly for staging/testing):
+#   SECUREOFFICE_LOG_DIR     (default /var/log/secureoffice)
+#   APP_RETENTION_DAYS       (default 90)
+#   AUDIT_RETENTION_DAYS     (default 365)
+#   SECUREOFFICE_S3_BUCKET   (unset = skip off-box copy)
+#   SECUREOFFICE_S3_PREFIX   (default secureoffice-logs)
+set -euo pipefail
+
+LOG_DIR="${SECUREOFFICE_LOG_DIR:-/var/log/secureoffice}"
+ARCHIVE_DIR="$LOG_DIR/archive"
+STATE_FILE="${SECUREOFFICE_LOGROTATE_STATE:-/var/lib/secureoffice/logrotate.state}"
+LOGROTATE_CONF="${SECUREOFFICE_LOGROTATE_CONF:-/etc/logrotate.d/secureoffice}"
+APP_RETENTION_DAYS="${APP_RETENTION_DAYS:-90}"
+AUDIT_RETENTION_DAYS="${AUDIT_RETENTION_DAYS:-365}"
+
+mkdir -p "$ARCHIVE_DIR"
+
+# ── 1. rotate ────────────────────────────────────────────────────────────────
+if [[ "${1:-}" != "--organize-only" ]]; then
+    mkdir -p "$(dirname "$STATE_FILE")"
+    /usr/sbin/logrotate --state "$STATE_FILE" "$LOGROTATE_CONF"
+fi
+
+# ── 2. verify + organize into dated folders ─────────────────────────────────
+# logrotate (dateext) produces e.g. archive/app.log-2026-06-10.gz; the plan's
+# convention (§5.3) is archive/2026-06-10/app-2026-06-10.log.gz.
+shopt -s nullglob
+integrity_failures=0
+for gz in "$ARCHIVE_DIR"/app.log-*.gz "$ARCHIVE_DIR"/audit.log-*.gz; do
+    fname="$(basename "$gz")"            # app.log-2026-06-10.gz
+    stream="${fname%%.log-*}"            # app
+    day="${fname#*.log-}"; day="${day%.gz}"   # 2026-06-10
+    if ! [[ "$day" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+        echo "WARNING: skipping unrecognized archive name: $fname" >&2
+        continue
+    fi
+    if ! gzip -t "$gz"; then
+        echo "ERROR: gzip integrity check failed for $gz — leaving in place" >&2
+        integrity_failures=$((integrity_failures + 1))
+        continue
+    fi
+    mkdir -p "$ARCHIVE_DIR/$day"
+    mv "$gz" "$ARCHIVE_DIR/$day/$stream-$day.log.gz"
+    chmod 0640 "$ARCHIVE_DIR/$day/$stream-$day.log.gz"
+done
+
+# ── 3. off-box copy (plan §5.5, phase 5: S3-archives-only) ──────────────────
+# app/ and audit/ go to separate prefixes so bucket lifecycle rules can differ
+# (see deploy/aws/s3-lifecycle.json). Live-log shipping (CloudWatch/Fluent Bit)
+# is deliberately deferred: up to 24h of the newest logs die with the instance.
+S3_BUCKET="${SECUREOFFICE_S3_BUCKET:-}"
+S3_PREFIX="${SECUREOFFICE_S3_PREFIX:-secureoffice-logs}"
+s3_failures=0
+if [[ -n "$S3_BUCKET" ]]; then
+    if command -v aws >/dev/null 2>&1; then
+        aws s3 sync "$ARCHIVE_DIR" "s3://$S3_BUCKET/$S3_PREFIX/app/" \
+            --exclude '*' --include '*/app-*.log.gz' --only-show-errors || s3_failures=$((s3_failures + 1))
+        aws s3 sync "$ARCHIVE_DIR" "s3://$S3_BUCKET/$S3_PREFIX/audit/" \
+            --exclude '*' --include '*/audit-*.log.gz' --only-show-errors || s3_failures=$((s3_failures + 1))
+    else
+        echo "ERROR: SECUREOFFICE_S3_BUCKET is set but the aws CLI is not installed" >&2
+        s3_failures=1
+    fi
+else
+    echo "NOTE: SECUREOFFICE_S3_BUCKET unset — archives are instance-local only (plan §5.5 risk)"
+fi
+
+# ── 4. retention (local only — S3 lifecycle rules own bucket retention) ─────
+# App and audit retention differ, so prune per-file, then drop empty day dirs.
+find "$ARCHIVE_DIR" -name 'app-*.log.gz'   -mtime "+$APP_RETENTION_DAYS"   -delete
+find "$ARCHIVE_DIR" -name 'audit-*.log.gz' -mtime "+$AUDIT_RETENTION_DAYS" -delete
+find "$ARCHIVE_DIR" -mindepth 1 -maxdepth 1 -type d -empty -delete
+
+if (( integrity_failures > 0 || s3_failures > 0 )); then
+    echo "secureoffice-rotate-logs: FAILED — $integrity_failures corrupt archive(s), $s3_failures S3 sync failure(s)" >&2
+    exit 1
+fi
+echo "secureoffice-rotate-logs: done ($(date -u +%Y-%m-%dT%H:%M:%SZ))"

@@ -590,6 +590,25 @@ export const BusinessIntakeModal = ({ open, onClose }: Props) => {
     [intakeData],
   );
 
+  // Industry-specific sections are gated on the selected business type. The
+  // Restaurant / QSR section is meaningless for an office or gym, so it is
+  // dropped from the wizard unless the business is a restaurant.
+  const visibleSections = useMemo(
+    () =>
+      ADVANCED_SECTIONS.filter(
+        (s) =>
+          s.title !== 'Restaurant / QSR Systems' ||
+          intakeData.businessType === 'Restaurant / QSR',
+      ),
+    [intakeData.businessType],
+  );
+
+  // When the visible list shrinks (e.g. switching away from Restaurant), keep the
+  // current step within bounds.
+  useEffect(() => {
+    setAdvancedStep((s) => Math.min(s, Math.max(0, visibleSections.length - 1)));
+  }, [visibleSections.length]);
+
   if (!open) return null;
 
   const fieldClass = (key: string) =>
@@ -600,7 +619,8 @@ export const BusinessIntakeModal = ({ open, onClose }: Props) => {
       highlightedFields[key] ? 'intake-field-highlighted' : ''
     }`;
 
-  const currentSection = ADVANCED_SECTIONS[advancedStep];
+  const safeStep = Math.min(advancedStep, visibleSections.length - 1);
+  const currentSection = visibleSections[safeStep];
 
   /* --- render a single field from a FieldDef --- */
   const renderField = (field: FieldDef) => {
@@ -867,7 +887,7 @@ export const BusinessIntakeModal = ({ open, onClose }: Props) => {
                 <div>
                   <h3>Advanced Options</h3>
                   <span className="intake-form-sub">
-                    Section {advancedStep + 2} of 12 — {currentSection.title}
+                    Section {safeStep + 2} of {visibleSections.length + 1} — {currentSection.title}
                   </span>
                 </div>
                 <button
@@ -889,12 +909,12 @@ export const BusinessIntakeModal = ({ open, onClose }: Props) => {
 
               {/* Step indicator dots */}
               <div className="intake-step-dots">
-                {ADVANCED_SECTIONS.map((_, i) => (
+                {visibleSections.map((section, i) => (
                   <button
-                    key={i}
-                    className={`intake-step-dot ${i === advancedStep ? 'active' : ''}`}
+                    key={section.title}
+                    className={`intake-step-dot ${i === safeStep ? 'active' : ''}`}
                     onClick={() => setAdvancedStep(i)}
-                    title={ADVANCED_SECTIONS[i].title}
+                    title={section.title}
                   />
                 ))}
               </div>
@@ -910,19 +930,19 @@ export const BusinessIntakeModal = ({ open, onClose }: Props) => {
                 <button
                   type="button"
                   onClick={() => setAdvancedStep((s) => Math.max(0, s - 1))}
-                  disabled={advancedStep === 0}
+                  disabled={safeStep === 0}
                 >
                   <ChevronLeft size={14} /> Back
                 </button>
                 <span className="intake-step-indicator">
-                  {advancedStep + 1} / {ADVANCED_SECTIONS.length}
+                  {safeStep + 1} / {visibleSections.length}
                 </span>
                 <button
                   type="button"
                   onClick={() =>
-                    setAdvancedStep((s) => Math.min(ADVANCED_SECTIONS.length - 1, s + 1))
+                    setAdvancedStep((s) => Math.min(visibleSections.length - 1, s + 1))
                   }
-                  disabled={advancedStep === ADVANCED_SECTIONS.length - 1}
+                  disabled={safeStep === visibleSections.length - 1}
                 >
                   Next <ChevronRight size={14} />
                 </button>

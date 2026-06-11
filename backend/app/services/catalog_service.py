@@ -10,6 +10,7 @@ from app.core.exceptions import AppError, ForbiddenError, NotFoundError
 from app.models.catalog import BillingCycle, CatalogItem, CatalogItemType
 from app.models.user import UserRole
 from app.repositories.catalog_repository import CatalogRepository
+from app.services.audit_logger import audit
 from app.services.network_vendor_catalog_loader import (
     NETWORK_VENDOR_CATALOG_SOURCE_NAME,
     load_network_vendor_catalog,
@@ -803,6 +804,11 @@ class CatalogService:
             raise AppError('Target catalog item is not a managed router service', 400)
 
         if price is not None:
+            # Defense-in-depth: the schema enforces ge=0 at the API boundary, but
+            # update_managed_service is also reachable from internal callers that
+            # bypass it. A negative price would corrupt billing totals.
+            if float(price) < 0:
+                raise AppError('Price must be zero or greater', 400)
             item.price = float(price)
         if is_active is not None:
             item.is_active = is_active
@@ -838,9 +844,12 @@ class CatalogService:
         if item.type != CatalogItemType.DEVICE:
             raise AppError('Managed service pricing can only be set on DEVICE items', 400)
 
+        old_price = float(item.managed_service_price) if item.managed_service_price is not None else None
         item.managed_service_price = float(managed_service_price) if managed_service_price is not None else None
         self.db.commit()
         self.db.refresh(item)
+        audit.log('service_price_updated', catalog_item_id=str(item.id), item_sku=item.sku,
+                  old_price=old_price, new_price=item.managed_service_price)
         return item
 
     def bulk_update_managed_service_prices(
@@ -861,4 +870,5 @@ class CatalogService:
             item.managed_service_price = float(price) if price is not None else None
             count += 1
         self.db.commit()
+        audit.log('bulk_price_update', requested_count=len(updates), applied_count=count)
         return count

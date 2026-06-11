@@ -1,7 +1,18 @@
+from enum import Enum
+
 from app.core.exceptions import AppError, ForbiddenError, NotFoundError, UnauthorizedError
 from app.models.catalog import CatalogItem, CatalogItemType
 from app.repositories.cart_repository import CartRepository
 from app.repositories.user_repository import UserRepository
+from app.services.audit_logger import audit
+
+
+def _enum_value(value):
+    """Return the underlying string for an enum, or the value unchanged if it is
+    already a plain string. SQLAlchemy only coerces a column back to its Enum type
+    on a fresh DB load; an attribute that was set from a string (or not reloaded)
+    can still be a bare str, so ``.value`` is unsafe (BUG-CART-001)."""
+    return value.value if isinstance(value, Enum) else value
 
 
 class CartService:
@@ -53,10 +64,10 @@ class CartService:
         snapshot = {
             'name': item.name,
             'sku': item.sku,
-            'type': item.type.value,
+            'type': _enum_value(item.type),
             'category': (item.attributes or {}).get('category'),
             'attributes': item.attributes,
-            'billing_cycle': item.billing_cycle.value,
+            'billing_cycle': _enum_value(item.billing_cycle),
         }
 
         existing_line = self.cart_repo.get_matching_line(
@@ -80,6 +91,14 @@ class CartService:
                 applies_to_line_id=attach_line_uuid,
             )
         self.db.commit()
+        audit.log(
+            'service_attached_to_device' if attach_line_uuid else 'cart_item_added',
+            catalog_item_id=str(item.id),
+            item_sku=item.sku,
+            quantity=effective_quantity,
+            applies_to_line_id=str(attach_line_uuid) if attach_line_uuid else None,
+            replaced_existing_line=existing_line is not None,
+        )
         return self.cart_repo.get_active_cart(current_user['user_id'], current_user['tenant_id'])
 
     def remove_line(self, current_user: dict, line_id: str):
@@ -93,6 +112,13 @@ class CartService:
 
         self.cart_repo.delete_line(line)
         self.db.commit()
+        audit.log(
+            'cart_item_removed',
+            line_id=line_id,
+            catalog_item_id=str(line.catalog_item_id),
+            quantity=line.quantity,
+            detached_service_lines=len(attached),
+        )
         return self.cart_repo.get_active_cart(current_user['user_id'], current_user['tenant_id'])
 
     def update_line(self, current_user: dict, line_id: str, *, quantity: int | None, catalog_item_id: str | None):
@@ -101,6 +127,8 @@ class CartService:
         line = self._ensure_line_in_cart(cart, line_id)
         snapshot = line.price_snapshot or {}
         line_type = snapshot.get('type')
+        old_quantity = line.quantity
+        old_catalog_item_id = str(line.catalog_item_id)
 
         if quantity is not None:
             line.quantity = quantity
@@ -131,10 +159,10 @@ class CartService:
             line.price_snapshot = {
                 'name': new_item.name,
                 'sku': new_item.sku,
-                'type': new_item.type.value,
+                'type': _enum_value(new_item.type),
                 'category': (new_item.attributes or {}).get('category'),
                 'attributes': new_item.attributes,
-                'billing_cycle': new_item.billing_cycle.value,
+                'billing_cycle': _enum_value(new_item.billing_cycle),
             }
 
         if line_type == 'DEVICE':
@@ -143,4 +171,12 @@ class CartService:
                 service_line.quantity = line.quantity
 
         self.db.commit()
+        audit.log(
+            'cart_item_updated',
+            line_id=line_id,
+            old_quantity=old_quantity,
+            new_quantity=line.quantity,
+            old_catalog_item_id=old_catalog_item_id,
+            new_catalog_item_id=str(line.catalog_item_id),
+        )
         return self.cart_repo.get_active_cart(current_user['user_id'], current_user['tenant_id'])

@@ -1001,7 +1001,13 @@ class NetworkBomService:
 
         subtotal = round(sum(float(line['line_total']) for line in line_items), 2)
 
-        tax_pct = self._as_float(pricing.get('taxPct'), self._as_float(preferences.get('taxPct')))
+        # preferences arrives via model_dump(exclude_none=True), so the key is the
+        # snake_case field name (tax_pct), not the camelCase alias. Read both variants
+        # via _pref_value, matching every other preference lookup in this service.
+        tax_pct = self._as_float(
+            pricing.get('taxPct'),
+            self._as_float(self._pref_value(preferences, 'taxPct', 'tax_pct')),
+        )
         tax = round(subtotal * (tax_pct / 100.0), 2) if tax_pct > 0 else 0.0
         grand_total = round(subtotal + tax, 2)
 

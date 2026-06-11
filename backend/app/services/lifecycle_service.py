@@ -20,6 +20,7 @@ from app.models.quote import BillingInterval, BillingType, QuoteLineType
 from app.models.user import UserRole
 from app.repositories.order_repository import OrderRepository
 from app.repositories.user_repository import UserRepository
+from app.services.audit_logger import audit
 
 
 class LifecycleService:
@@ -305,6 +306,7 @@ class LifecycleService:
         if str(subscription.tenant_id) != current_user['tenant_id']:
             raise ForbiddenError('Subscription not found in your tenant')
 
+        old_status = subscription.status
         subscription.status = status
         if status == SubscriptionStatus.CANCELLED:
             subscription.end_date = date.today()
@@ -316,6 +318,8 @@ class LifecycleService:
 
         self.db.commit()
         self.db.refresh(subscription)
+        audit.log('subscription_status_changed', subscription_id=str(subscription.id),
+                  old_status=old_status.value, new_status=status.value)
         return subscription
 
     def list_assets(self, current_user: dict) -> list[Asset]:
@@ -381,6 +385,10 @@ class LifecycleService:
         order.status = self._order_status_for_stage(workflow.current_stage, workflow.status)
         self.db.commit()
         self.db.refresh(workflow)
+        audit.log('workflow_advanced', order_id=str(order.id), workflow_id=str(workflow.id),
+                  current_stage=workflow.current_stage,
+                  workflow_status=workflow.status.value,
+                  order_status=order.status.value)
 
         refreshed = self.db.scalar(
             select(WorkflowInstance)

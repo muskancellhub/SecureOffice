@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.order import Order
 from app.models.tenant import Tenant
+from app.services.audit_logger import audit
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,8 @@ class StripeService:
             cancel_url=_settings.stripe_cancel_url,
             client_reference_id=str(tenant.id),
         )
+        audit.log('stripe_checkout_created', mode='subscription',
+                  checkout_tenant_id=str(tenant.id), price_id=price_id)
         return session.url
 
     def create_order_checkout(self, tenant: Tenant, order: Order) -> str:
@@ -64,6 +67,9 @@ class StripeService:
             client_reference_id=str(tenant.id),
             metadata={'order_id': str(order.id), 'tenant_id': str(tenant.id)},
         )
+        audit.log('stripe_checkout_created', mode='payment',
+                  checkout_tenant_id=str(tenant.id), order_id=str(order.id),
+                  line_count=len(line_items))
         return session.url
 
     @staticmethod

@@ -3,6 +3,7 @@ from app.models.order import OrderStatus
 from app.models.user import UserRole
 from app.repositories.order_repository import OrderRepository
 from app.repositories.user_repository import UserRepository
+from app.services.audit_logger import audit
 
 
 class OrderService:
@@ -46,6 +47,7 @@ class OrderService:
             raise ForbiddenError('Only admin can update orders')
 
         order = self.get_order(current_user, order_id)
+        old_status = order.status
 
         if 'status' in updates:
             raw_status = updates.get('status')
@@ -61,6 +63,16 @@ class OrderService:
             order.confirmed_delivery_date = updates.get('confirmed_delivery_date')
 
         self.db.commit()
+        if 'status' in updates and order.status != old_status:
+            audit.log('order_status_changed', order_id=str(order.id),
+                      old_status=old_status.value, new_status=order.status.value)
+        if 'estimated_delivery_date' in updates or 'confirmed_delivery_date' in updates:
+            audit.log(
+                'order_delivery_date_set',
+                order_id=str(order.id),
+                estimated_delivery_date=str(order.estimated_delivery_date),
+                confirmed_delivery_date=str(order.confirmed_delivery_date),
+            )
         refreshed = self.order_repo.get_by_id(str(order.id))
         if not refreshed:
             raise NotFoundError('Order not found')

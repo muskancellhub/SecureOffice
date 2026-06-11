@@ -5,10 +5,13 @@ making the Zabbix dashboard visible to every logged-in user. Credential
 configuration endpoints are restricted to admins.
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.middleware.dependencies import get_current_user
+from app.services.audit_logger import audit
 from app.services.zabbix_client import (
     ZabbixClient,
     get_runtime_credentials_status,
@@ -57,10 +60,14 @@ def zabbix_set_config(payload: ZabbixCredentialsIn, _admin: dict = Depends(_requ
     except Exception as exc:
         # Roll back so a bad credential doesn't break monitoring for everyone
         set_runtime_credentials('', '', '')
+        # url/username only — the password must never reach a log line (plan §6).
+        audit.log('zabbix_credentials_updated', status='failure', level=logging.WARNING,
+                  url=payload.url, zabbix_username=payload.username, reason='validation_failed')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f'Zabbix sync failed: {exc}',
         )
+    audit.log('zabbix_credentials_updated', url=payload.url, zabbix_username=payload.username)
     return {
         'status': 'ok',
         'config': get_runtime_credentials_status(),

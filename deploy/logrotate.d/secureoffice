@@ -1,0 +1,28 @@
+# SecureOffice2 log rotation (docs/LOGGING_PLAN.md §5.2).
+# Installed at /etc/logrotate.d/secureoffice. NOT driven by the distro's
+# global daily logrotate run — invoked explicitly by /etc/cron.d/secureoffice-logs
+# via secureoffice-rotate-logs with a private state file, so our schedule and
+# archive layout don't depend on distro defaults.
+#
+# logrotate handles the race-prone parts (rename + reopen without losing
+# lines); the wrapper script then moves the gzipped files into dated folders
+# and applies retention.
+
+/var/log/secureoffice/app.log /var/log/secureoffice/audit.log {
+    daily
+    rotate 400
+    missingok
+    dateext
+    dateformat -%Y-%m-%d
+    dateyesterday
+    compress
+    olddir /var/log/secureoffice/archive
+    # Match rsyslog's file ownership/permissions (plan §5.1).
+    create 0640 syslog adm
+    sharedscripts
+    postrotate
+        # Reopen fresh app.log/audit.log — rsyslog keeps writing to the
+        # renamed file until this fires, so no lines are lost mid-rotation.
+        /usr/bin/systemctl kill -s HUP rsyslog.service 2>/dev/null || /usr/bin/pkill -HUP rsyslogd || true
+    endscript
+}

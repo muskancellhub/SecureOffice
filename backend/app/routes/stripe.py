@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.middleware.dependencies import get_current_user
 from app.models.order import Order
+from app.services.audit_logger import audit
 from app.services.stripe_service import StripeService
 from app.services import stripe_webhook_handler
 
@@ -81,6 +82,10 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         event = StripeService.verify_webhook(payload, sig_header)
     except (stripe.SignatureVerificationError, ValueError) as exc:
         logger.warning('Stripe webhook signature verification failed: %s', exc)
+        audit.log('stripe_webhook_received', status='failure', level=logging.WARNING,
+                  actor='system', reason='invalid_signature')
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Invalid signature')
     stripe_webhook_handler.handle_event(db, event)
+    audit.log('stripe_webhook_received', actor='system',
+              event_type=event.type, event_id=event.id)
     return {'received': True}

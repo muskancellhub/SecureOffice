@@ -26,6 +26,7 @@ from app.models.product import (
     Product,
     ProductComponent,
 )
+from app.services.audit_logger import audit
 
 _COMPONENT_TYPES = {e.value for e in ComponentType}
 _UOMS = {e.value for e in ComponentUom}
@@ -90,6 +91,8 @@ class ProductAdminService:
         )
         self.db.add(product)
         self.db.commit()
+        audit.log('product_created', product_id=str(product.id), sku=product.sku,
+                  vendor=product.vendor, technology=product.technology, name=product.name)
         return self.get_product(product.id)
 
     def update_product(self, product_id, payload: dict) -> Product:
@@ -104,6 +107,8 @@ class ProductAdminService:
             if field in payload:
                 setattr(product, field, _dec(payload[field]))
         self.db.commit()
+        audit.log('product_updated', product_id=str(product.id), sku=product.sku,
+                  fields_changed=sorted(payload.keys()))
         return self.get_product(product.id)
 
     # ── components ───────────────────────────────────────────────────────────
@@ -152,6 +157,9 @@ class ProductAdminService:
         self.db.add(component)
         self.db.commit()
         self.db.refresh(component)
+        audit.log('component_created', component_id=str(component.id),
+                  product_id=str(product.id), component_type=component.component_type,
+                  label=component.label)
         return component
 
     def update_component(self, component_id, payload: dict) -> ProductComponent:
@@ -168,6 +176,8 @@ class ProductAdminService:
                 setattr(component, field, _dec(payload[field]))
         self.db.commit()
         self.db.refresh(component)
+        audit.log('component_updated', component_id=str(component.id),
+                  product_id=str(component.product_id), fields_changed=sorted(payload.keys()))
         return component
 
     # ── financing terms (per-tenant, multi-tenant Phase 1) ───────────────────
@@ -201,6 +211,10 @@ class ProductAdminService:
         self.db.add(term)
         self.db.commit()
         self.db.refresh(term)
+        audit.log('financing_terms_created', financing_terms_id=str(term.id),
+                  target_tenant_id=str(tid), name=term.name,
+                  term_months=term.term_months, annual_rate_pct=float(term.annual_rate_pct),
+                  is_default=term.is_default)
         return term
 
     # ── customer commercial config ───────────────────────────────────────────
@@ -222,6 +236,9 @@ class ProductAdminService:
             pricing.credit_limit = _dec(payload['credit_limit'])
         self.db.commit()
         self.db.refresh(pricing)
+        audit.log('customer_commercial_changed', target_tenant_id=str(tid),
+                  fields_changed=sorted(payload.keys()),
+                  credit_status=pricing.credit_status, opex_eligible=pricing.opex_eligible)
         return pricing
 
     # ── bundles (Phase 5) ────────────────────────────────────────────────────
@@ -252,6 +269,8 @@ class ProductAdminService:
         )
         self.db.add(bundle)
         self.db.commit()
+        audit.log('bundle_created', bundle_id=str(bundle.id), sku=bundle.sku,
+                  name=bundle.name, vendor=bundle.vendor)
         return self.get_bundle(bundle.id)
 
     def add_bundle_item(self, bundle_id, payload: dict) -> BundleItem:
@@ -272,6 +291,9 @@ class ProductAdminService:
         self.db.add(item)
         self.db.commit()
         self.db.refresh(item)
+        audit.log('bundle_item_added', bundle_id=str(bundle.id),
+                  product_id=str(product_uuid), default_qty=item.default_qty,
+                  is_optional=item.is_optional)
         return item
 
     def upsert_price_override(self, tenant_id, payload: dict) -> CustomerPriceOverride:
@@ -301,4 +323,13 @@ class ProductAdminService:
             self.db.add(row)
         self.db.commit()
         self.db.refresh(row)
+        audit.log(
+            'price_override_created',
+            target_tenant_id=str(tid),
+            product_id=str(product_uuid) if product_uuid else None,
+            component_id=str(component_uuid) if component_uuid else None,
+            override_margin_pct=float(row.override_margin_pct) if row.override_margin_pct is not None else None,
+            override_unit_price=float(row.override_unit_price) if row.override_unit_price is not None else None,
+            updated_existing=existing is not None,
+        )
         return row

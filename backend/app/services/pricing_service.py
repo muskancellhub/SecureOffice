@@ -9,6 +9,7 @@ from app.models.catalog import CatalogItem
 from app.models.pricing import CustomerPricing, DealPricing, ListPrice
 from app.models.quote import BillingType, Quote, QuoteStatus
 from app.models.user import UserRole
+from app.services.audit_logger import audit
 
 MONEY_QUANT = Decimal('0.01')
 PCT_QUANT = Decimal('0.0001')
@@ -80,9 +81,12 @@ class PricingService:
     def update_customer_discount(self, current_user: dict, default_discount_pct: float) -> CustomerPricing:
         pct = self._parse_pct(default_discount_pct, field_name='default_discount_pct')
         pricing = self.get_or_create_customer_pricing(current_user['tenant_id'])
+        old_pct = float(pricing.default_discount_pct)
         pricing.default_discount_pct = pct
         self.db.commit()
         self.db.refresh(pricing)
+        audit.log('customer_discount_changed',
+                  old_discount_pct=old_pct, new_discount_pct=float(pct))
         return pricing
 
     def resolve_list_price(self, *, tenant_id: str | uuid.UUID, catalog_item: CatalogItem, vendor: str | None = None) -> ListPrice:
@@ -146,6 +150,7 @@ class PricingService:
         default_pct = self._to_decimal(customer_pricing.default_discount_pct)
 
         deal_row = self.get_or_create_deal_pricing(quote)
+        old_pct = float(deal_row.incremental_discount_pct)
         deal_row.incremental_discount_pct = pct
 
         one_time_total = Decimal('0')
@@ -169,4 +174,6 @@ class PricingService:
 
         self.db.commit()
         self.db.refresh(deal_row)
+        audit.log('deal_discount_applied', quote_id=str(quote.id),
+                  old_incremental_discount_pct=old_pct, new_incremental_discount_pct=float(pct))
         return deal_row

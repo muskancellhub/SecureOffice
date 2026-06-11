@@ -1,9 +1,13 @@
+import logging
 import math
 import time
 from collections import defaultdict, deque
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
+
+from app.core.request_context import resolve_client_ip
+from app.services.audit_logger import audit
 
 
 # Per-path overrides: tighter limits on auth endpoints so brute force is expensive
@@ -30,31 +34,9 @@ AUTH_PATH_LIMITS: dict[str, tuple[int, int]] = {
 }
 
 
-def _resolve_client_ip(request: Request, trusted_proxy_count: int) -> str:
-    """Determine the real client IP.
-
-    Behind a reverse proxy, request.client.host is the proxy's IP — every user
-    then shares one rate-limit bucket. When trusted_proxy_count > 0, read the
-    real IP from X-Forwarded-For, counting from the right (the rightmost entry
-    is the nearest proxy, so we step back `trusted_proxy_count` entries).
-
-    Only do this when trusted_proxy_count is set — otherwise an attacker can
-    forge XFF to get per-fake-IP rate buckets and bypass the limit entirely.
-    """
-    if trusted_proxy_count <= 0:
-        return request.client.host if request.client else 'unknown'
-
-    xff = request.headers.get('x-forwarded-for', '')
-    if not xff:
-        return request.client.host if request.client else 'unknown'
-
-    # XFF is a comma-separated list; rightmost is closest to us.
-    # If we trust 1 proxy, the real client is at index -1 (one before our proxy).
-    parts = [p.strip() for p in xff.split(',') if p.strip()]
-    if not parts:
-        return request.client.host if request.client else 'unknown'
-    idx = max(0, len(parts) - trusted_proxy_count)
-    return parts[idx] if idx < len(parts) else parts[0]
+# Client-IP resolution lives in app.core.request_context so rate limiting and
+# logging use identical logic (docs/LOGGING_PLAN.md §4.1).
+_resolve_client_ip = resolve_client_ip
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -94,6 +76,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if len(q) >= max_requests:
             retry_after = max(1, int(window - (now - q[0])))
             retry_minutes = max(1, math.ceil(retry_after / 60))
+            audit.log(
+                'rate_limit_exceeded',
+                status='blocked',
+                level=logging.WARNING,
+                limit=max_requests,
+                window_seconds=window,
+                retry_after_seconds=retry_after,
+            )
             return JSONResponse(
                 status_code=429,
                 content={'detail': f'Too many requests. Please try again after {retry_minutes} minute(s).'},
