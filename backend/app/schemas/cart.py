@@ -1,27 +1,48 @@
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class AddCartLineRequest(BaseModel):
-    # UUID validation at the schema boundary — malformed ids fail as 422, not 500.
-    catalog_item_id: UUID
+    """Phase 7: cart lines are component-model only.
+
+    Either a configured product (``product_id`` + optional ``selections`` from
+    the bundling configurator) or a single standalone component (D10).
+    """
+
+    product_id: UUID | None = None
+    component_id: UUID | None = None
+    # {component_id: qty} — optional components to include (configurator).
+    selections: dict[str, int] = Field(default_factory=dict)
     quantity: int = Field(default=1, ge=1)
+    financial_model: str = Field(default='CAPEX', pattern='^(CAPEX|OPEX)$')
+    interval: str = Field(default='MONTH', pattern='^(MONTH|YEAR)$')
     applies_to_line_id: UUID | None = None
+
+    @model_validator(mode='after')
+    def _exactly_one_source(self):
+        if bool(self.product_id) == bool(self.component_id):
+            raise ValueError('Provide exactly one of product_id or component_id')
+        return self
 
 
 class UpdateCartLineRequest(BaseModel):
     quantity: int | None = Field(default=None, ge=1)
-    catalog_item_id: UUID | None = None
 
 
 class CartLineResponse(BaseModel):
     id: str
-    catalog_item_id: str
+    product_id: str | None = None
+    component_id: str | None = None
+    component_type: str | None = None
     item_name: str
     item_type: str
     category: str | None
     billing_cycle: str | None
+    financial_model: str | None = None
+    financed: bool = False
+    standalone: bool = False
+    is_parent: bool = False
     quantity: int
     unit_price: float
     currency: str

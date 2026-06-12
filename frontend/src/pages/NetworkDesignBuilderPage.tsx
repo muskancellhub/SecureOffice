@@ -281,7 +281,10 @@ export const NetworkDesignBuilderPage = () => {
     const map = new Map<string, { lineId: string; quantity: number }>();
     if (!cart?.lines) return map;
     for (const line of cart.lines) {
-      map.set(line.catalog_item_id, { lineId: line.id, quantity: line.quantity });
+      // Component-model cart: index the configured product's parent line.
+      if (line.product_id && !line.applies_to_line_id) {
+        map.set(line.product_id, { lineId: line.id, quantity: line.quantity });
+      }
     }
     return map;
   }, [cart]);
@@ -439,7 +442,7 @@ export const NetworkDesignBuilderPage = () => {
     setError('');
     try {
       await commerceApi.addCartLine(accessToken, {
-        catalog_item_id: line.item_id,
+        product_id: line.item_id,
         quantity: Math.max(1, line.quantity),
       });
       await refreshCart();
@@ -466,7 +469,7 @@ export const NetworkDesignBuilderPage = () => {
       for (const line of eligibleCatalogLines) {
         try {
           await commerceApi.addCartLine(accessToken, {
-            catalog_item_id: line.item_id as string,
+            product_id: line.item_id as string,
             quantity: Math.max(1, line.quantity),
           });
           successCount += 1;

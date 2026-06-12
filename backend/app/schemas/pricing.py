@@ -30,3 +30,12 @@ class ComponentPreviewRequest(BaseModel):
     interval: str = Field(default='MONTH', pattern='^(MONTH|YEAR)$')
     # {component_id: qty} — optional components to include; also overrides required qty.
     selections: dict[str, int] = Field(default_factory=dict)
+
+
+class StandaloneComponentPreviewRequest(BaseModel):
+    """Phase 7 D10 — price one component à-la-carte."""
+
+    component_id: str
+    qty: int = Field(default=1, ge=1)
+    financial_model: str = Field(default='CAPEX', pattern='^(CAPEX|OPEX)$')
+    interval: str = Field(default='MONTH', pattern='^(MONTH|YEAR)$')

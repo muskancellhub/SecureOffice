@@ -140,7 +140,7 @@ export const DesignDetailPage = () => {
     let fail = 0;
     for (const line of orderableLines) {
       try {
-        await commerceApi.addCartLine(accessToken, { catalog_item_id: line.item_id as string, quantity: Math.max(1, line.quantity) });
+        await commerceApi.addCartLine(accessToken, { product_id: line.item_id as string, quantity: Math.max(1, line.quantity) });
         ok += 1;
       } catch {
         fail += 1;

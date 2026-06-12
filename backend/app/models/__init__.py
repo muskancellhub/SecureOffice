@@ -4,12 +4,12 @@ from app.models.otp import OTP
 from app.models.refresh_session import RefreshSession
 from app.models.vendor import Vendor
 from app.models.company import Company
-from app.models.catalog import CatalogItem, CatalogItemType, BillingCycle
+from app.models.catalog import CatalogItemType, BillingCycle
 from app.models.cart import Cart, CartLine, CartStatus
 from app.models.integration_log import IntegrationSyncLog, SyncStatus
 from app.models.quote import Quote, QuoteStatus, QuoteLine, QuoteLineType, BillingType, BillingInterval
 from app.models.order import Order, OrderStatus, OrderLine
-from app.models.pricing import ListPrice, CustomerPricing, DealPricing
+from app.models.pricing import CustomerPricing, DealPricing
 from app.models.product import (
     Product,
     ProductComponent,
@@ -55,7 +55,6 @@ __all__ = [
     'Company',
     'OTP',
     'RefreshSession',
-    'CatalogItem',
     'CatalogItemType',
     'BillingCycle',
     'Cart',
@@ -72,7 +71,6 @@ __all__ = [
     'Order',
     'OrderStatus',
     'OrderLine',
-    'ListPrice',
     'CustomerPricing',
     'DealPricing',
     'Product',

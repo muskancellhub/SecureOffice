@@ -120,7 +120,9 @@ def setup():
             operations_address={'line1': '1 Main St', 'city': 'Austin', 'state': 'TX', 'postal_code': '78701'},
             billing_same_as_operations=True,
         ))
-        db.add(CustomerPricing(tenant_id=tid, opex_eligible=False))
+        # Phase 7: pin the tenant-wide markup at 20% so the worked-example
+        # numbers (660 / 19.78 / 42.88 + $30 SIM) hold under D2 precedence.
+        db.add(CustomerPricing(tenant_id=tid, opex_eligible=False, default_margin_pct=Decimal('0.20')))
         db.commit()
 
     current_user = {'user_id': str(uid), 'tenant_id': str(tid), 'role': UserRole.ADMIN.value}
@@ -160,7 +162,7 @@ def test_create_capex_quote_persists_snapshots_and_tree(setup):
             cu, {'product_id': str(p.id), 'financial_model': 'CAPEX', 'interval': 'MONTH', 'selections': sel})
 
         assert q.financial_model == 'CAPEX' and q.subscription_interval == 'MONTH'
-        assert q.one_time_total == Decimal('700.00')  # device 660 + SIM 40
+        assert q.one_time_total == Decimal('690.00')  # device 660 + SIM 30 (D6)
         assert q.monthly_total == Decimal('23.10')    # ctrl 9.30 + line 13.80
 
         device = next(l for l in q.lines if l.component_type == 'DEVICE')
@@ -200,7 +202,7 @@ def test_opex_allowed_after_enabling_flag(setup):
         q = QuoteService(db).create_component_quote(
             cu, {'product_id': str(p.id), 'financial_model': 'OPEX', 'interval': 'MONTH', 'selections': sel})
         assert q.monthly_total == Decimal('42.88')   # lease 19.78 + 9.30 + 13.80
-        assert q.one_time_total == Decimal('40.00')  # SIM
+        assert q.one_time_total == Decimal('30.00')  # SIM (D6: one-time $30)
         device = next(l for l in q.lines if l.component_type == 'DEVICE')
         assert device.financial_model == 'OPEX' and device.term_months == 36
         assert device.leasing_pct_snapshot == Decimal('0.05')

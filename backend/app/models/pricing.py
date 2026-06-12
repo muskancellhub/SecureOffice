@@ -1,31 +1,11 @@
 import uuid
-from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, UniqueConstraint, func, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
-
-class ListPrice(Base):
-    __tablename__ = 'list_prices'
-    __table_args__ = (
-        UniqueConstraint('tenant_id', 'catalog_item_id', 'vendor', name='uq_list_prices_tenant_item_vendor'),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False)
-    catalog_item_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey('catalog_items.id', ondelete='CASCADE'), nullable=False
-    )
-    vendor: Mapped[str] = mapped_column(String(128), nullable=False, default='CDW')
-    list_price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
-    currency: Mapped[str] = mapped_column(String(8), nullable=False, default='USD')
-    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    updated_at: Mapped[DateTime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        onupdate=func.now(),
-    )
+# Phase 7: the legacy discount-off-list model (list_prices) is retired —
+# every live price comes from ComponentPricingService (cost × (1 + markup)).
 
 
 class CustomerPricing(Base):
@@ -37,10 +17,9 @@ class CustomerPricing(Base):
         primary_key=True,
     )
     default_discount_pct: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.30)
-    # Cost-plus-margin model (spec §4.5) — coexists with the legacy discount model above.
-    default_margin_pct: Mapped[float] = mapped_column(
-        Numeric(6, 4), nullable=False, default=0.20, server_default='0.2000'
-    )
+    # Tenant-wide markup (Phase 7 D2). NULL = not customized → inherit the 25%
+    # global default in ComponentPricingService, so "unset" ≠ a real 0.
+    default_margin_pct: Mapped[float | None] = mapped_column(Numeric(6, 4), nullable=True, default=None)
     credit_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default='PENDING', server_default='PENDING'
     )

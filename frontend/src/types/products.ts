@@ -73,6 +73,8 @@ export interface PreviewLine {
   one_time_total: number;
   monthly_total: number;
   parent_component_id: string | null;
+  // Phase 7 D8 — false on PAPI-priced lines (read-only resale price).
+  price_editable?: boolean;
 }
 
 export interface PreviewResult {
@@ -86,4 +88,5 @@ export interface PreviewResult {
   monthly_total: number;
   recurring_total_at_interval: number;
   projected_term_cost: number;
+  price_editable?: boolean;
 }

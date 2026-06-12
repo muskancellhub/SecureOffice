@@ -74,11 +74,8 @@ class OrderLine(Base):
         Enum(QuoteLineType, name='order_line_type_v1', native_enum=False),
         nullable=False,
     )
-    catalog_item_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey('catalog_items.id', ondelete='SET NULL'),
-        nullable=True,
-    )
+    # Legacy snapshot id (catalog_items is retired — column kept for history, no FK).
+    catalog_item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     name_snapshot: Mapped[str] = mapped_column('name', String(255), nullable=False)
     sku_snapshot: Mapped[str | None] = mapped_column('sku', String(128), nullable=True)
     vendor_snapshot: Mapped[str | None] = mapped_column('vendor', String(128), nullable=True, default='CDW')

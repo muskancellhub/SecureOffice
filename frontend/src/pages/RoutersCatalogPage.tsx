@@ -3,6 +3,7 @@ import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
+import BundleConfigurator from '../components/BundleConfigurator';
 import { useAuth } from '../context/AuthContext';
 import { useShop } from '../context/ShopContext';
 import type { CatalogItem } from '../types/commerce';
@@ -52,7 +53,7 @@ const papiImageOf = (item: CatalogItem): string => String(item.attributes?.image
 export const RoutersCatalogPage = () => {
   const { accessToken } = useAuth();
   const navigate = useNavigate();
-  const { cart, addRouterToCart, updateLineQuantity, removeLine } = useShop();
+  const { cart, addProductToCart, updateLineQuantity, removeLine } = useShop();
   const [searchParams] = useSearchParams();
   const initialTab = TABS.find((t) => t.cats?.includes(searchParams.get('category') || ''))?.key || 'all';
 
@@ -68,14 +69,41 @@ export const RoutersCatalogPage = () => {
   const [busyItemId, setBusyItemId] = useState<string | null>(null);
   const [failedImg, setFailedImg] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
+  // Bundling configurator popup (Phase 7 D9).
+  const [configuring, setConfiguring] = useState<CatalogItem | null>(null);
   const PAGE_SIZE = 16;
 
   const cartLineMap = useMemo(() => {
     const map = new Map<string, { lineId: string; quantity: number }>();
     if (!cart?.lines) return map;
-    for (const line of cart.lines) map.set(line.catalog_item_id, { lineId: line.id, quantity: line.quantity });
+    for (const line of cart.lines) {
+      // Component-model carts: track the configured product's parent line.
+      if (line.product_id && (line.is_parent || !line.applies_to_line_id)) {
+        if (!map.has(line.product_id)) map.set(line.product_id, { lineId: line.id, quantity: line.quantity });
+      }
+    }
     return map;
   }, [cart]);
+
+  const openConfigurator = async (item: CatalogItem) => {
+    if (!accessToken) return;
+    setBusyItemId(item.id);
+    try {
+      // Detail carries the per-tenant priced component rows.
+      const detail = await commerceApi.getCatalogItem(accessToken, item.id);
+      const active = detail.components ?? [];
+      if (active.length > 1) {
+        setConfiguring(detail);
+      } else {
+        // Flat single-component device — no popup needed.
+        await addProductToCart(detail.product_id ?? detail.id, { quantity: 1 });
+      }
+    } catch (err: any) {
+      setError(extractApiError(err, 'Failed to load product configuration'));
+    } finally {
+      setBusyItemId(null);
+    }
+  };
 
   useEffect(() => {
     if (!accessToken) return;
@@ -287,7 +315,7 @@ export const RoutersCatalogPage = () => {
                       </button>
                     </div>
                   ) : (
-                    <button className="cat2-add" onClick={() => addRouterToCart(item.id, 1)}>
+                    <button className="cat2-add" disabled={isBusy} onClick={() => openConfigurator(item)}>
                       <ShoppingCart size={15} /> Add
                     </button>
                   )}
@@ -297,6 +325,18 @@ export const RoutersCatalogPage = () => {
           );
         })}
       </div>
+
+      {configuring && (
+        <BundleConfigurator
+          product={configuring}
+          onClose={() => setConfiguring(null)}
+          onConfirm={async (selections, financialModel, interval) => {
+            await addProductToCart(configuring.product_id ?? configuring.id, {
+              selections, financialModel, interval, quantity: 1,
+            });
+          }}
+        />
+      )}
 
       {pageCount > 1 && (
         <nav className="cat2-pager" aria-label="Catalog pages">

@@ -117,7 +117,16 @@ export const getCart = async (accessToken: string) => {
 
 export const addCartLine = async (
   accessToken: string,
-  payload: { catalog_item_id: string; quantity?: number; applies_to_line_id?: string },
+  payload: {
+    // Phase 7: either a configured product or a single standalone component.
+    product_id?: string;
+    component_id?: string;
+    selections?: Record<string, number>;
+    quantity?: number;
+    financial_model?: 'CAPEX' | 'OPEX';
+    interval?: 'MONTH' | 'YEAR';
+    applies_to_line_id?: string;
+  },
 ) => {
   const { data } = await api.post('/cart/lines', payload, { headers: authHeaders(accessToken) });
   return data as Cart;
@@ -126,7 +135,7 @@ export const addCartLine = async (
 export const updateCartLine = async (
   accessToken: string,
   lineId: string,
-  payload: { quantity?: number; catalog_item_id?: string },
+  payload: { quantity?: number },
 ) => {
   const { data } = await api.patch(`/cart/lines/${lineId}`, payload, { headers: authHeaders(accessToken) });
   return data as Cart;

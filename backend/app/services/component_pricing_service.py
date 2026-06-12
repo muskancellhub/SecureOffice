@@ -1,11 +1,15 @@
-"""Component pricing engine (Secure Office, Phase 2).
+"""Component pricing engine (Secure Office, Phase 2; per-tenant rules Phase 7).
 
 Computes CAPEX / OPEX prices for products assembled from product_components.
-Pinned to the §3 worked example: a 90X1 OPEX 36-mo quote with one voice line +
-SIM resolves to $82.88/mo (lease 19.78 + controller 9.30 + line 13.80 + SIM 40).
+Pinned worked example (Phase 7 D6): a 90X1 OPEX 36-mo quote with one voice line
++ SIM for a 20%-margin tenant resolves to $42.88/mo (lease 19.78 + controller
+9.30 + line 13.80) plus a $30 one-time SIM.
 
-This engine ONLY handles product_id / component_id lines. Legacy catalog_item_id
-lines stay on PricingService (discount-off-list). See docs/plans/phase-2-pricing-engine.md.
+Phase 7 (one catalog): this engine prices EVERY sellable surface. Margin
+precedence is D2 — override (tenant+SKU) → customer_pricing.default_margin_pct
+(tenant-wide, nullable) → products.margin_pct → component margin → 25% global.
+PAPI-sourced products resell at PAPI's exact price (zero margin, read-only, D8).
+See docs/plans/phase-2-pricing-engine.md and phase-7.
 """
 from __future__ import annotations
 
@@ -33,8 +37,19 @@ MONTHS_PER_YEAR = Decimal('12')
 # Under OPEX, only *hardware* one-time components are financed into a lease MRC;
 # install / professional-services stay one-time even under OPEX.
 FINANCEABLE_TYPES = {ComponentType.DEVICE, ComponentType.ACCESSORY}
-# Components billed at a flat final price with NO margin applied (PAPI SIM, §6 exception).
+# Components billed at a flat final price with NO margin applied (SIM, D6).
 FLAT_PRICE_TYPES = {ComponentType.SIM, ComponentType.BACKUP_SIM}
+# Final fallback when no override / tenant default / SKU / component margin is
+# set (Phase 7 D2/D7).
+GLOBAL_DEFAULT_MARGIN = Decimal('0.25')
+
+
+def is_papi_product(product: Product) -> bool:
+    """PAPI-sourced products resell at PAPI's exact price — zero margin,
+    not editable (Phase 7 D8). SIM components are exempt (D6) but PAPI
+    devices never carry one."""
+    attrs = product.attributes or {}
+    return str(attrs.get('source_type') or '').lower() == 'paapi' or (product.vendor or '').strip().upper() == 'PAPI'
 
 
 def _d(value, *, fallback: Decimal = Decimal('0')) -> Decimal:
@@ -93,27 +108,26 @@ class ComponentPricingService:
         )
 
     def _resolve_margin(self, component, product, override, customer_pricing) -> tuple[Decimal, str]:
-        """Margin precedence (see module/plan note — DEVIATION D1 from §6 literal order).
+        """Markup-on-cost precedence (Phase 7 D2, locked).
 
-        override_margin_pct  (per-tenant per-product/component — Decision #2)
-          -> product_components.margin_pct (per-component baseline — Decision #13)
-          -> products.margin_pct           (SKU baseline)
-          -> customer_pricing.default_margin_pct (tenant default tier — fallback)
+        override_margin_pct (per-tenant per-SKU/component)
+          -> customer_pricing.default_margin_pct (tenant-wide; nullable, null = inherit)
+          -> products.margin_pct                 (SKU default)
+          -> product_components.margin_pct       (per-component baseline)
+          -> GLOBAL_DEFAULT_MARGIN (25%)
 
-        Rationale: §6 lists default_margin_pct above the catalog margins, but Phase 1
-        created that column NOT NULL DEFAULT 0.20, so the literal order would make the
-        CONFIRMED per-component margin (#13) permanently unreachable. Treating the
-        tenant default as the *fallback* honors both #2 (override wins) and #13.
+        The tenant-wide default became nullable in Phase 7 so "tenant hasn't
+        customized" is distinguishable from a real 0%.
         """
         if override is not None and override.override_margin_pct is not None:
             return _d(override.override_margin_pct), 'override_margin_pct'
-        if component.margin_pct is not None:
-            return _d(component.margin_pct), 'component.margin_pct'
-        if product.margin_pct is not None:
-            return _d(product.margin_pct), 'product.margin_pct'
         if customer_pricing is not None and customer_pricing.default_margin_pct is not None:
             return _d(customer_pricing.default_margin_pct), 'customer.default_margin_pct'
-        return Decimal('0'), 'none'
+        if product.margin_pct is not None:
+            return _d(product.margin_pct), 'product.margin_pct'
+        if component.margin_pct is not None:
+            return _d(component.margin_pct), 'component.margin_pct'
+        return GLOBAL_DEFAULT_MARGIN, 'global_default'
 
     def _default_financing(self, tenant_id=None) -> FinancingTerms | None:
         """The active default term for ``tenant_id`` (multi-tenant Phase 1).
@@ -157,9 +171,16 @@ class ComponentPricingService:
 
         is_flat = component.component_type in FLAT_PRICE_TYPES or bool((component.attributes or {}).get('flat_price'))
         is_one_time = component.billing == 'ONE_TIME'
+        # PAPI zero-margin (D8): resell at PAPI's exact cost; markup AND
+        # overrides are ignored. SIM/flat components are exempt (D6) so a
+        # tenant-priced SIM (override_unit_price) still works.
+        papi_locked = is_papi_product(product) and not is_flat
 
         # Resolve the pre-cadence unit base (cost * (1+margin)), honoring overrides.
-        if override is not None and override.override_unit_price is not None:
+        if papi_locked:
+            unit_base = _d(component.vendor_cost)
+            margin, margin_source = Decimal('0'), 'papi_fixed'
+        elif override is not None and override.override_unit_price is not None:
             unit_base = _d(override.override_unit_price)
             margin, margin_source = Decimal('0'), 'override_unit_price'
         elif is_flat:
@@ -205,6 +226,7 @@ class ComponentPricingService:
             'vendor_cost': _d(component.vendor_cost),
             'margin_pct': margin,
             'margin_source': margin_source,
+            'price_editable': not papi_locked,
             'billing': billing,
             'interval': eff_interval,
             'financed': financed,
@@ -307,9 +329,144 @@ class ComponentPricingService:
             'interval': interval,
             'term_months': term_months,
             'annual_rate_pct': annual_rate,
+            'price_editable': not is_papi_product(product),
             'lines': priced_lines,
             'one_time_total': _money(one_time_total),
             'monthly_total': _money(monthly_total),
             'recurring_total_at_interval': recurring_total_at_interval,
             'projected_term_cost': projected_term_cost,
         }
+
+    # ── standalone components (à-la-carte, Phase 7 D10) ─────────────────────
+    def price_standalone_component(
+        self,
+        component_id,
+        *,
+        qty: int = 1,
+        financial_model: str = 'CAPEX',
+        interval: str = 'MONTH',
+        tenant_id=None,
+    ) -> dict:
+        """Price ONE component without its product's required tree — "add one
+        more line" / "buy just a SIM" / "router only". The caller is responsible
+        for the requires-a-device / capacity validation."""
+        cid = self._parse_uuid(component_id, field_name='component_id')
+        component = self.db.get(ProductComponent, cid)
+        if component is None or not component.is_active:
+            raise NotFoundError('Component not found')
+        product = self.db.get(Product, component.product_id)
+        if product is None or not product.is_active:
+            raise NotFoundError('Product not found')
+
+        financial_model = (financial_model or 'CAPEX').upper()
+        interval = (interval or 'MONTH').upper()
+        qty = int(qty)
+        if qty <= 0:
+            raise AppError('qty must be > 0', 422)
+
+        customer_pricing = None
+        if tenant_id is not None:
+            customer_pricing = self.db.get(CustomerPricing, self._parse_uuid(tenant_id, field_name='tenant_id'))
+        financing = self._default_financing(tenant_id)
+        annual_rate = _d(financing.annual_rate_pct) if financing else Decimal('0.05')
+        term_months = financing.term_months if financing else 36
+        override = self._resolve_override(tenant_id, product_id=product.id, component_id=component.id)
+
+        line = self.price_component(
+            component, product=product, financial_model=financial_model, interval=interval,
+            qty=qty, customer_pricing=customer_pricing, override=override,
+            annual_rate=annual_rate, term_months=term_months,
+        )
+        line['parent_component_id'] = None
+        return {
+            'product': {
+                'id': str(product.id),
+                'sku': product.sku,
+                'name': product.name,
+                'vendor': product.vendor,
+            },
+            'financial_model': financial_model,
+            'interval': interval,
+            'term_months': term_months,
+            'annual_rate_pct': annual_rate,
+            'price_editable': line['price_editable'],
+            'lines': [line],
+            'one_time_total': line['one_time_total'],
+            'monthly_total': line['monthly_total'],
+        }
+
+    # ── bulk catalog pricing (Phase 7 WS3 — customer catalog reads) ──────────
+    def price_catalog_entries(self, products: list[Product], *, tenant_id=None) -> dict[str, dict]:
+        """Headline per-tenant pricing for a page of products, batched.
+
+        Returns {product_id: {'one_time_price', 'monthly_price',
+        'managed_service_monthly', 'price_editable', 'billing'}} computed from
+        required components (CAPEX headline + recurring $/mo) plus the priced
+        MANAGED_SERVICE component, even when optional. One query per table —
+        never one per product.
+        """
+        if not products:
+            return {}
+        product_ids = [p.id for p in products]
+        components = self.db.scalars(
+            select(ProductComponent).where(
+                ProductComponent.product_id.in_(product_ids),
+                ProductComponent.is_active.is_(True),
+            )
+        ).all()
+
+        customer_pricing = None
+        overrides_by_component: dict = {}
+        overrides_by_product: dict = {}
+        if tenant_id is not None:
+            tid = self._parse_uuid(tenant_id, field_name='tenant_id')
+            customer_pricing = self.db.get(CustomerPricing, tid)
+            for o in self.db.scalars(
+                select(CustomerPriceOverride).where(CustomerPriceOverride.tenant_id == tid)
+            ):
+                if o.component_id is not None:
+                    overrides_by_component[o.component_id] = o
+                elif o.product_id is not None:
+                    overrides_by_product[o.product_id] = o
+
+        financing = self._default_financing(tenant_id)
+        annual_rate = _d(financing.annual_rate_pct) if financing else Decimal('0.05')
+        term_months = financing.term_months if financing else 36
+
+        by_product: dict = {p.id: p for p in products}
+        result: dict[str, dict] = {
+            str(p.id): {
+                'one_time_price': Decimal('0'),
+                'monthly_price': Decimal('0'),
+                'managed_service_monthly': None,
+                'price_editable': not is_papi_product(p),
+            }
+            for p in products
+        }
+        for c in components:
+            product = by_product.get(c.product_id)
+            if product is None:
+                continue
+            override = overrides_by_component.get(c.id) or overrides_by_product.get(c.product_id)
+            entry = result[str(c.product_id)]
+            if c.component_type == ComponentType.MANAGED_SERVICE and entry['managed_service_monthly'] is None:
+                ms_line = self.price_component(
+                    c, product=product, financial_model='CAPEX', interval='MONTH',
+                    qty=1, customer_pricing=customer_pricing, override=override,
+                    annual_rate=annual_rate, term_months=term_months,
+                )
+                entry['managed_service_monthly'] = ms_line['monthly_unit']
+            if not c.is_required:
+                continue
+            line = self.price_component(
+                c, product=product, financial_model='CAPEX', interval='MONTH',
+                qty=c.default_qty, customer_pricing=customer_pricing, override=override,
+                annual_rate=annual_rate, term_months=term_months,
+            )
+            entry['one_time_price'] += line['one_time_total']
+            entry['monthly_price'] += line['monthly_total']
+
+        for entry in result.values():
+            entry['one_time_price'] = _money(entry['one_time_price'])
+            entry['monthly_price'] = _money(entry['monthly_price'])
+        return result

@@ -10,7 +10,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.catalog import CatalogItem, CatalogItemType
+from app.models.catalog import CatalogItemType
 from app.models.order import Order, OrderLine
 from app.models.quote import Quote, QuoteLine
 from app.models.cart import Cart, CartLine
@@ -164,28 +164,36 @@ def _infer_device_category(msg_lower: str) -> str | None:
 
 
 def _retrieve_catalog(db: Session, tenant_id: str, message: str) -> str:
-    """Search catalog items relevant to the query."""
+    """Search the product-backed catalog (priced for the tenant, Phase 7)."""
+    from app.services.catalog_service import CatalogService
+
+    service = CatalogService(db)
     msg_lower = message.lower()
-    q = db.query(CatalogItem).filter(CatalogItem.is_active.is_(True))
 
     # Detect T-Mobile / PAPI intent — filter by source
     tmobile = _is_tmobile_intent(msg_lower)
-    if tmobile:
-        q = q.filter(CatalogItem.attributes['source_type'].astext == 'paapi')
 
     # Narrow by device category if mentioned
     cat_filter = _infer_device_category(msg_lower)
-    if cat_filter:
-        q = q.filter(CatalogItem.attributes['category'].astext == cat_filter)
 
     # Narrow by type if message suggests it
+    item_type = None
     if not tmobile and not cat_filter:
         if any(kw in msg_lower for kw in ['service', 'managed service', 'monitoring', 'backup']):
-            q = q.filter(CatalogItem.type == CatalogItemType.SERVICE)
+            item_type = CatalogItemType.SERVICE
         elif any(kw in msg_lower for kw in ['device', 'router', 'switch', 'firewall', 'access point', 'hardware']):
-            q = q.filter(CatalogItem.type == CatalogItemType.DEVICE)
+            item_type = CatalogItemType.DEVICE
 
-    # Text search across name, vendor, sku, description (skip if already filtered by source/category)
+    def _list(**extra):
+        return service.list_items(
+            item_type=item_type, category=cat_filter, service_kind=None,
+            source_type='paapi' if tmobile else None,
+            sort='recommended', page=1, page_size=25, tenant_id=tenant_id, **extra,
+        )
+
+    items = _list()
+
+    # Text search across name/vendor/sku/description (skip if already filtered).
     if not tmobile and not cat_filter:
         search_terms = [w for w in msg_lower.split() if len(w) > 2 and w not in (
             'the', 'and', 'for', 'how', 'much', 'does', 'what', 'are', 'can', 'you',
@@ -194,25 +202,23 @@ def _retrieve_catalog(db: Session, tenant_id: str, message: str) -> str:
             'service', 'services', 'product', 'products',
         )]
         if search_terms:
-            filters = []
-            for term in search_terms[:5]:
-                pattern = f'%{term}%'
-                filters.append(CatalogItem.name.ilike(pattern))
-                filters.append(CatalogItem.vendor.ilike(pattern))
-                filters.append(CatalogItem.sku.ilike(pattern))
-                filters.append(CatalogItem.description.ilike(pattern))
-            q = q.filter(or_(*filters))
+            terms = search_terms[:5]
 
-    items = q.order_by(CatalogItem.name).limit(25).all()
+            def _matches(entry) -> bool:
+                blob = ' '.join(
+                    str(part or '') for part in (entry.name, entry.vendor, entry.sku, entry.description)
+                ).lower()
+                return any(term in blob for term in terms)
+
+            matched = [entry for entry in items if _matches(entry)]
+            if matched:
+                items = matched
 
     if not items and not tmobile:
         # Fallback: return top items
-        items = (
-            db.query(CatalogItem)
-            .filter(CatalogItem.is_active.is_(True))
-            .order_by(CatalogItem.name)
-            .limit(10)
-            .all()
+        items = service.list_items(
+            item_type=None, category=None, service_kind=None,
+            sort='recommended', page=1, page_size=10, tenant_id=tenant_id,
         )
 
     source_label = 'T-Mobile Device Catalog' if tmobile else 'CATALOG'

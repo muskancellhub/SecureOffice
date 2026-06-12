@@ -1,3 +1,10 @@
+"""Legacy quote-header pricing helpers (Phase 7).
+
+The discount-off-list model (list_prices / resolve_list_price) is retired —
+ComponentPricingService owns every live price. What survives here:
+customer/deal pricing rows (the deal-discount endpoint + opex_eligible /
+default_discount_pct storage) and the shared money quantizers.
+"""
 from __future__ import annotations
 
 import uuid
@@ -5,8 +12,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from app.core.exceptions import AppError, ForbiddenError, NotFoundError
-from app.models.catalog import CatalogItem
-from app.models.pricing import CustomerPricing, DealPricing, ListPrice
+from app.models.pricing import CustomerPricing, DealPricing
 from app.models.quote import BillingType, Quote, QuoteStatus
 from app.models.user import UserRole
 from app.services.audit_logger import audit
@@ -53,13 +59,6 @@ class PricingService:
             raise AppError(f'Invalid {field_name}', 400)
 
     @staticmethod
-    def default_vendor_for_item(item: CatalogItem) -> str:
-        if item.vendor:
-            return item.vendor
-        attrs = item.attributes or {}
-        return str(attrs.get('source_vendor') or attrs.get('vendor') or 'CDW')
-
-    @staticmethod
     def calculate_final_unit_price(*, list_price: float | Decimal, default_discount_pct: float | Decimal, incremental_discount_pct: float | Decimal) -> Decimal:
         base = PricingService._to_decimal(list_price)
         default_pct = PricingService._to_decimal(default_discount_pct)
@@ -88,30 +87,6 @@ class PricingService:
         audit.log('customer_discount_changed',
                   old_discount_pct=old_pct, new_discount_pct=float(pct))
         return pricing
-
-    def resolve_list_price(self, *, tenant_id: str | uuid.UUID, catalog_item: CatalogItem, vendor: str | None = None) -> ListPrice:
-        tenant_uuid = tenant_id if isinstance(tenant_id, uuid.UUID) else self._parse_uuid(str(tenant_id), field_name='tenant_id')
-        effective_vendor = (vendor or self.default_vendor_for_item(catalog_item) or 'CDW').strip() or 'CDW'
-
-        stmt = select(ListPrice).where(
-            ListPrice.tenant_id == tenant_uuid,
-            ListPrice.catalog_item_id == catalog_item.id,
-            ListPrice.vendor == effective_vendor,
-        )
-        row = self.db.scalar(stmt)
-        if row:
-            return row
-
-        row = ListPrice(
-            tenant_id=tenant_uuid,
-            catalog_item_id=catalog_item.id,
-            vendor=effective_vendor,
-            list_price=self._quantize_money(self._to_decimal(catalog_item.price)),
-            currency=catalog_item.currency,
-        )
-        self.db.add(row)
-        self.db.flush()
-        return row
 
     def get_or_create_deal_pricing(self, quote: Quote) -> DealPricing:
         row = self.db.get(DealPricing, quote.id)

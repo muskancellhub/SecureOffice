@@ -8,6 +8,7 @@ from app.schemas.pricing import (
     ComponentPreviewRequest,
     CustomerPricingResponse,
     DealPricingResponse,
+    StandaloneComponentPreviewRequest,
     UpdateCustomerPricingRequest,
     UpdateDealPricingRequest,
 )
@@ -70,7 +71,8 @@ def update_customer_commercial(
     p = ProductAdminService(db).update_customer_commercial(tenant_id, payload.model_dump(exclude_unset=True))
     return CommercialResponse(
         tenant_id=str(p.tenant_id), default_discount_pct=float(p.default_discount_pct),
-        default_margin_pct=float(p.default_margin_pct), opex_eligible=p.opex_eligible,
+        default_margin_pct=float(p.default_margin_pct) if p.default_margin_pct is not None else None,
+        opex_eligible=p.opex_eligible,
         credit_status=p.credit_status, credit_limit=float(p.credit_limit) if p.credit_limit is not None else None,
         updated_at=p.updated_at,
     )
@@ -99,20 +101,42 @@ def upsert_price_override(
 def component_preview(
     payload: ComponentPreviewRequest,
     current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
     db: Session = Depends(get_db),
 ):
     """Compute the CAPEX/OPEX price tree for a product (Phase 2). No persistence.
 
     Lives at /pricing/component-preview rather than /quotes/preview because the
     latter already serves the network-design BOM preview. Decimal values are
-    JSON-encoded as numbers by FastAPI's jsonable_encoder.
+    JSON-encoded as numbers by FastAPI's jsonable_encoder. Priced for the
+    EFFECTIVE tenant (X-Tenant-Id for SUPER_ADMIN) so the admin grid and the
+    tenant switcher reprice live (Phase 7).
     """
     return ComponentPricingService(db).price_product(
         payload.product_id,
         financial_model=payload.financial_model,
         interval=payload.interval,
         selections=payload.selections,
-        tenant_id=current_user.get('tenant_id'),
+        tenant_id=ctx.effective_tenant_id,
+    )
+
+
+@router.post('/component-preview/standalone')
+def standalone_component_preview(
+    payload: StandaloneComponentPreviewRequest,
+    current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db),
+):
+    """Price a single component à-la-carte (Phase 7 D10) — one extra voice
+    line, a SIM, a router-only accessory — without re-pricing the whole
+    product tree."""
+    return ComponentPricingService(db).price_standalone_component(
+        payload.component_id,
+        qty=payload.qty,
+        financial_model=payload.financial_model,
+        interval=payload.interval,
+        tenant_id=ctx.effective_tenant_id,
     )
 
 

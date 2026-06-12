@@ -1,6 +1,25 @@
 export type CatalogItemType = 'DEVICE' | 'SERVICE';
 export type BillingCycle = 'ONE_TIME' | 'MONTHLY' | 'YEARLY';
 
+/** Per-component row on a catalog detail entry (Phase 7 — bundling configurator). */
+export interface CatalogComponent {
+  id: string;
+  component_type: string;
+  label: string;
+  vendor_component_sku?: string | null;
+  uom: string;
+  billing: 'ONE_TIME' | 'RECURRING';
+  interval?: string | null;
+  is_required: boolean;
+  default_qty: number;
+  financial_model: string;
+  unit_price: number;
+  monthly_unit: number;
+  one_time_unit: number;
+  price_editable: boolean;
+  attributes: Record<string, any>;
+}
+
 export interface CatalogItem {
   id: string;
   type: CatalogItemType;
@@ -17,15 +36,28 @@ export interface CatalogItem {
   managed_service_price?: number | null;
   is_active?: boolean;
   created_at: string;
+  // Phase 7 — product-backed catalog, priced per tenant.
+  product_id?: string;
+  one_time_price?: number;
+  monthly_price?: number;
+  price_editable?: boolean;
+  components?: CatalogComponent[] | null;
 }
 
 export interface CartLine {
   id: string;
-  catalog_item_id: string;
+  catalog_item_id?: string | null;
+  product_id?: string | null;
+  component_id?: string | null;
+  component_type?: string | null;
   item_name: string;
   item_type: string;
   category?: string | null;
   billing_cycle?: string | null;
+  financial_model?: string | null;
+  financed?: boolean;
+  standalone?: boolean;
+  is_parent?: boolean;
   quantity: number;
   unit_price: number;
   currency: string;

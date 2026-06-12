@@ -76,10 +76,36 @@ export interface CommercialConfig {
 export const updateCustomerCommercial = async (
   accessToken: string,
   tenantId: string,
-  payload: { default_margin_pct?: number; opex_eligible?: boolean; credit_status?: string; credit_limit?: number },
+  payload: { default_margin_pct?: number | null; opex_eligible?: boolean; credit_status?: string; credit_limit?: number },
 ) => {
   const { data } = await api.patch(`/pricing/customers/${tenantId}/commercial`, payload, {
     headers: authHeaders(accessToken),
   });
   return data as CommercialConfig;
+};
+
+// ── per-tenant per-SKU price overrides (Phase 7 D2) ──────────────────────────
+export interface PriceOverride {
+  id: string;
+  tenant_id: string;
+  product_id: string | null;
+  component_id: string | null;
+  override_margin_pct: number | null;
+  override_unit_price: number | null;
+}
+
+export const upsertPriceOverride = async (
+  accessToken: string,
+  tenantId: string,
+  payload: {
+    product_id?: string;
+    component_id?: string;
+    override_margin_pct?: number | null;
+    override_unit_price?: number | null;
+  },
+) => {
+  const { data } = await api.post(`/pricing/customers/${tenantId}/price-overrides`, payload, {
+    headers: authHeaders(accessToken),
+  });
+  return data as PriceOverride;
 };

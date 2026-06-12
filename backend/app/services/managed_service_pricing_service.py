@@ -1,3 +1,11 @@
+"""Per-SKU managed-service pricing for network designs (product-backed).
+
+Phase 7: the per-device managed-service price is the product's optional
+MANAGED_SERVICE component, priced per tenant by ComponentPricingService
+(markup applies on top of the admin-set cost — D4). BOM line ``item_id``s may
+be product ids or pre-unification catalog ids; both resolve via the WS1
+legacy mapping.
+"""
 from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP
@@ -6,9 +14,11 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
-from app.models.catalog import CatalogItem, CatalogItemType
 from app.models.network_design import NetworkDesign
+from app.models.product import ComponentType, Product
 from app.services.audit_logger import audit
+from app.services.catalog_unification import map_products_for_identifiers
+from app.services.component_pricing_service import ComponentPricingService
 from app.services.catalog_service import (
     CATEGORY_TO_MS_GROUP,
     MANAGED_SERVICE_CATEGORIES,
@@ -21,26 +31,39 @@ MONEY_QUANT = Decimal('0.01')
 class ManagedServicePricingService:
     def __init__(self, db: Session):
         self.db = db
+        self.pricing = ComponentPricingService(db)
 
     # ── helpers ──────────────────────────────────────────────────
 
     @staticmethod
-    def _item_category(item: CatalogItem) -> str | None:
-        return (item.attributes or {}).get('category')
+    def _product_category(product: Product) -> str | None:
+        return (product.attributes or {}).get('category')
 
     @staticmethod
-    def _ms_price(item: CatalogItem) -> Decimal | None:
-        if item.managed_service_price is None:
-            return None
-        return Decimal(str(item.managed_service_price))
+    def _is_device(product: Product) -> bool:
+        if any(c.component_type == ComponentType.DEVICE for c in product.components):
+            return True
+        return str((product.attributes or {}).get('item_type') or '').upper() != 'SERVICE'
+
+    def _ms_prices_for(self, products: list[Product], tenant_id) -> dict[str, Decimal | None]:
+        """{product_id: per-tenant MANAGED_SERVICE monthly price or None}."""
+        priced = self.pricing.price_catalog_entries(products, tenant_id=tenant_id)
+        out: dict[str, Decimal | None] = {}
+        for product in products:
+            entry = priced.get(str(product.id), {})
+            ms = entry.get('managed_service_monthly')
+            out[str(product.id)] = Decimal(str(ms)) if ms is not None else None
+        return out
 
     # ── core calculation ────────────────────────────────────────
 
     def get_category_summary(
         self,
         bom_lines: list[dict[str, Any]],
-        catalog_items_by_id: dict[str, CatalogItem],
+        products_by_ref: dict[str, Product],
         config: dict[str, Any],
+        *,
+        tenant_id=None,
     ) -> list[dict[str, Any]]:
         """Return per-group breakdown given BOM lines and a managed-services config.
 
@@ -55,6 +78,8 @@ class ManagedServicePricingService:
         else:
             enabled = set(MANAGED_SERVICE_CATEGORIES.keys())
         excluded_ids = set(config.get('excluded_item_ids') or [])
+
+        ms_prices = self._ms_prices_for(list({id(p): p for p in products_by_ref.values()}.values()), tenant_id)
 
         # Accumulate per group
         groups: dict[str, dict] = {}
@@ -76,27 +101,28 @@ class ManagedServicePricingService:
             if not item_id or qty <= 0:
                 continue
 
-            item = catalog_items_by_id.get(item_id)
-            if not item or item.type != CatalogItemType.DEVICE:
+            product = products_by_ref.get(str(item_id))
+            if not product or not self._is_device(product):
                 continue
 
-            category = self._item_category(item)
+            category = self._product_category(product)
             ms_group = CATEGORY_TO_MS_GROUP.get(category or '')
             if not ms_group:
                 continue
 
-            ms_price = self._ms_price(item)
+            ms_price = ms_prices.get(str(product.id))
             if ms_price is None:
                 continue
 
             g = groups[ms_group]
             g['device_count'] += qty
 
-            is_excluded = str(item.id) in excluded_ids
+            # Exclusions may reference the legacy id or the product id.
+            is_excluded = bool({str(item_id), str(product.id)} & excluded_ids)
             device_entry = {
-                'item_id': str(item.id),
-                'name': item.name,
-                'sku': item.sku,
+                'item_id': str(product.id),
+                'name': product.name,
+                'sku': product.sku,
                 'category': category,
                 'quantity': qty,
                 'managed_service_price': float(ms_price),
@@ -120,6 +146,10 @@ class ManagedServicePricingService:
                 result.append(g)
         return result
 
+    def _products_for_bom(self, bom_lines: list[dict[str, Any]]) -> dict[str, Product]:
+        item_ids = [line.get('item_id') for line in bom_lines if line.get('item_id')]
+        return map_products_for_identifiers(self.db, item_ids)
+
     def calculate_for_design(self, design_id: str) -> dict[str, Any]:
         """Full computation for a network design's managed services."""
         design = self.db.get(NetworkDesign, design_id)
@@ -130,14 +160,10 @@ class ManagedServicePricingService:
         bom_lines = bom.get('line_items', [])
         config = design.managed_services_json or {}
 
-        # Collect all item_ids referenced in BOM
-        item_ids = [line.get('item_id') for line in bom_lines if line.get('item_id')]
-        catalog_items_by_id = {}
-        if item_ids:
-            items = self.db.query(CatalogItem).filter(CatalogItem.id.in_(item_ids)).all()
-            catalog_items_by_id = {str(i.id): i for i in items}
-
-        categories = self.get_category_summary(bom_lines, catalog_items_by_id, config)
+        products_by_ref = self._products_for_bom(bom_lines)
+        categories = self.get_category_summary(
+            bom_lines, products_by_ref, config, tenant_id=design.tenant_id
+        )
         grand_total = sum(c['monthly_total'] for c in categories if c.get('enabled'))
 
         return {
@@ -190,12 +216,12 @@ class ManagedServicePricingService:
         bom = design.bom_json or {}
         bom_lines = bom.get('line_items', [])
 
-        item_ids = [l.get('item_id') for l in bom_lines if l.get('item_id')]
-        if not item_ids:
+        products_by_ref = self._products_for_bom(bom_lines)
+        if not products_by_ref:
             return []
-
-        items = self.db.query(CatalogItem).filter(CatalogItem.id.in_(item_ids)).all()
-        items_by_id = {str(i.id): i for i in items}
+        ms_prices = self._ms_prices_for(
+            list({id(p): p for p in products_by_ref.values()}.values()), design.tenant_id
+        )
 
         lines = []
         for bom_line in bom_lines:
@@ -204,25 +230,25 @@ class ManagedServicePricingService:
             if not item_id or qty <= 0:
                 continue
 
-            item = items_by_id.get(item_id)
-            if not item or item.type != CatalogItemType.DEVICE:
+            product = products_by_ref.get(str(item_id))
+            if not product or not self._is_device(product):
                 continue
 
-            category = self._item_category(item)
+            category = self._product_category(product)
             ms_group = CATEGORY_TO_MS_GROUP.get(category or '')
             if not ms_group or ms_group not in enabled:
                 continue
 
-            if str(item.id) in excluded_ids:
+            if {str(item_id), str(product.id)} & excluded_ids:
                 continue
 
-            ms_price = self._ms_price(item)
+            ms_price = ms_prices.get(str(product.id))
             if ms_price is None or ms_price <= 0:
                 continue
 
             lines.append({
-                'name': f'Managed Service – {item.name}',
-                'sku': f'MS-{item.sku}',
+                'name': f'Managed Service – {product.name}',
+                'sku': f'MS-{product.sku}',
                 'vendor': 'Secure Office',
                 'qty': qty,
                 'unit_price': float(ms_price),
@@ -230,8 +256,8 @@ class ManagedServicePricingService:
                 'interval': 'MONTH',
                 'metadata': {
                     'source': 'managed_service_per_sku',
-                    'source_device_id': str(item.id),
-                    'source_device_sku': item.sku,
+                    'source_device_id': str(product.id),
+                    'source_device_sku': product.sku,
                     'ms_group': ms_group,
                     'category': category,
                 },

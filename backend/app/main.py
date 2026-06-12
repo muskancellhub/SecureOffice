@@ -102,6 +102,19 @@ def startup() -> None:
         conn.execute(_text('CREATE SEQUENCE IF NOT EXISTS order_public_id_seq'))
     Base.metadata.create_all(bind=engine)
     apply_runtime_migrations()
+    # Phase 7 — one catalog: backfill any legacy catalog_items rows into
+    # products, then drop the legacy tables (locked decision — not in
+    # production, no archive window). Both steps are idempotent no-ops once
+    # the table is gone.
+    from app.services.catalog_unification import (
+        drop_legacy_catalog_tables,
+        migrate_catalog_items_to_products,
+    )
+    with SessionLocal() as db:
+        result = migrate_catalog_items_to_products(db)
+        if not result.get('skipped'):
+            logger.info('Catalog unification: migrated %d legacy catalog_items rows', result['migrated'])
+    drop_legacy_catalog_tables()
     with SessionLocal() as db:
         CatalogService(db).seed_managed_services()
         CatalogService(db).seed_partner_devices()

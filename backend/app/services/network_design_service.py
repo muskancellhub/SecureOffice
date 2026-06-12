@@ -8,7 +8,9 @@ from typing import Any, Callable
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.core.exceptions import AppError, ForbiddenError, NotFoundError, UnauthorizedError
-from app.models.catalog import BillingCycle, CatalogItem, CatalogItemType
+from app.models.product import ComponentType as ProductComponentType
+from app.models.product import Product
+from app.services.catalog_unification import find_product_by_id_or_legacy
 from app.models.lifecycle import Asset, AssetStatus, WorkflowInstance, WorkflowStatus, WorkflowStep, WorkflowStepStatus
 from app.models.network_design import NetworkDesign, NetworkDesignStatus
 from app.models.onboarding import TenantOnboarding
@@ -598,13 +600,27 @@ class NetworkDesignService:
         return BillingType.ONE_TIME, None
 
     @staticmethod
-    def _billing_from_catalog_item(item: CatalogItem | None) -> tuple[BillingType, BillingInterval | None]:
-        if not item:
+    def _product_is_service(product: Product | None) -> bool:
+        if not product:
+            return False
+        if any(c.component_type == ProductComponentType.DEVICE for c in product.components):
+            return False
+        return str((product.attributes or {}).get('item_type') or '').upper() == 'SERVICE'
+
+    @staticmethod
+    def _billing_from_product(product: Product | None) -> tuple[BillingType, BillingInterval | None]:
+        """Headline billing from the product's primary (required) component
+        (Phase 7 — products replaced catalog_items)."""
+        if not product:
             return BillingType.ONE_TIME, None
-        if item.billing_cycle == BillingCycle.MONTHLY:
-            return BillingType.RECURRING, BillingInterval.MONTH
-        if item.billing_cycle == BillingCycle.YEARLY:
-            return BillingType.RECURRING, BillingInterval.YEAR
+        for comp in product.components:
+            if comp.is_required and comp.billing == 'RECURRING':
+                interval = BillingInterval.YEAR if comp.interval == 'YEAR' else BillingInterval.MONTH
+                # One-time hardware beats recurring add-ons for the headline.
+                if not any(
+                    c.is_required and c.billing == 'ONE_TIME' for c in product.components
+                ):
+                    return BillingType.RECURRING, interval
         return BillingType.ONE_TIME, None
 
     @classmethod
@@ -640,20 +656,17 @@ class NetworkDesignService:
             return OrderStatus.SHIPPED
         return OrderStatus.ACTIVE
 
-    def _find_catalog_item_from_bom_line(self, line: dict[str, Any]) -> CatalogItem | None:
+    def _find_product_from_bom_line(self, line: dict[str, Any]) -> Product | None:
+        """BOM item_ids may be product ids or pre-unification catalog ids;
+        both resolve via the WS1 legacy mapping (then sku as last resort)."""
         item_id = self._clean_text(line.get('item_id') or line.get('itemId'))
         if item_id:
-            try:
-                item = self.db.get(CatalogItem, self._parse_uuid(item_id, field_name='item_id'))
-                if item:
-                    return item
-            except AppError:
-                pass
-
+            product = find_product_by_id_or_legacy(self.db, item_id)
+            if product:
+                return product
         sku = self._clean_text(line.get('sku'))
         if sku:
-            stmt = select(CatalogItem).where(CatalogItem.sku == sku)
-            return self.db.scalar(stmt)
+            return find_product_by_id_or_legacy(self.db, sku)
         return None
 
     def _replace_quote_lines_from_bom(self, quote: Quote, bom: dict[str, Any]) -> None:
@@ -675,20 +688,20 @@ class NetworkDesignService:
             source_type = self._clean_text(line.get('source_type') or line.get('sourceType')) or 'generated'
             selection_reason = self._clean_text(line.get('selection_reason') or line.get('selectionReason'))
 
-            catalog_item = self._find_catalog_item_from_bom_line(line)
+            product = self._find_product_from_bom_line(line)
             line_type = self._line_type_for_category(category)
             billing_type, interval = self._billing_defaults_for_category(category)
-            if catalog_item:
-                line_type = QuoteLineType.SERVICE if catalog_item.type == CatalogItemType.SERVICE else QuoteLineType.DEVICE
-                billing_type, interval = self._billing_from_catalog_item(catalog_item)
+            if product:
+                line_type = QuoteLineType.SERVICE if self._product_is_service(product) else QuoteLineType.DEVICE
+                billing_type, interval = self._billing_from_product(product)
 
             quote_line = QuoteLine(
                 quote_id=quote.id,
                 line_type=line_type,
-                catalog_item_id=catalog_item.id if catalog_item else None,
+                product_id=product.id if product else None,
                 name_snapshot=name,
                 sku_snapshot=self._clean_text(line.get('sku')),
-                vendor_snapshot=self._clean_text(line.get('vendor')) or (catalog_item.vendor if catalog_item else None),
+                vendor_snapshot=self._clean_text(line.get('vendor')) or (product.vendor if product else None),
                 qty=quantity,
                 list_price_snapshot=list_price,
                 final_unit_price_snapshot=unit_price,
@@ -765,6 +778,8 @@ class NetworkDesignService:
                 order_id=order.id,
                 line_type=quote_line.line_type,
                 catalog_item_id=quote_line.catalog_item_id,
+                product_id=quote_line.product_id,
+                component_id=quote_line.component_id,
                 name_snapshot=quote_line.name_snapshot,
                 sku_snapshot=quote_line.sku_snapshot,
                 vendor_snapshot=quote_line.vendor_snapshot,

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Laptop, Minus, Network, Plus, RadioTower, Router as RouterIcon, Server, ShieldCheck, ShoppingCart, Smartphone, Wifi } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import * as commerceApi from '../api/commerceApi';
+import BundleConfigurator from '../components/BundleConfigurator';
 import { useAuth } from '../context/AuthContext';
 import { useShop } from '../context/ShopContext';
 import type { CatalogItem } from '../types/commerce';
@@ -23,13 +24,15 @@ export const RouterDetailsPage = () => {
   const { itemId } = useParams();
   const { accessToken } = useAuth();
   const navigate = useNavigate();
-  const { addRouterToCart } = useShop();
+  const { addProductToCart } = useShop();
   const [item, setItem] = useState<CatalogItem | null>(null);
   const [qty, setQty] = useState(1);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
+  const [showConfigurator, setShowConfigurator] = useState(false);
+  const [goToCartAfterAdd, setGoToCartAfterAdd] = useState(false);
 
   useEffect(() => {
     if (!accessToken || !itemId) return;
@@ -55,11 +58,19 @@ export const RouterDetailsPage = () => {
     return fallback;
   }, [item]);
 
+  const hasBundle = (item?.components?.length ?? 0) > 1;
+
   const onAdd = async () => {
     if (!item) return;
+    if (hasBundle) {
+      // Phase 7 D9: bundled solutions configure before landing in the cart.
+      setGoToCartAfterAdd(false);
+      setShowConfigurator(true);
+      return;
+    }
     setBusy(true);
     try {
-      await addRouterToCart(item.id, qty);
+      await addProductToCart(item.product_id ?? item.id, { quantity: qty });
     } finally {
       setBusy(false);
     }
@@ -67,9 +78,14 @@ export const RouterDetailsPage = () => {
 
   const onBuyNow = async () => {
     if (!item) return;
+    if (hasBundle) {
+      setGoToCartAfterAdd(true);
+      setShowConfigurator(true);
+      return;
+    }
     setBusy(true);
     try {
-      await addRouterToCart(item.id, qty);
+      await addProductToCart(item.product_id ?? item.id, { quantity: qty });
       navigate('/shop/cart');
     } finally {
       setBusy(false);
@@ -153,6 +169,19 @@ export const RouterDetailsPage = () => {
             <button className="cdx-buynow" onClick={onBuyNow} disabled={busy}>Buy now</button>
           </div>
         </div>
+      )}
+
+      {item && showConfigurator && (
+        <BundleConfigurator
+          product={item}
+          onClose={() => setShowConfigurator(false)}
+          onConfirm={async (selections, financialModel, interval) => {
+            await addProductToCart(item.product_id ?? item.id, {
+              selections, financialModel, interval, quantity: qty,
+            });
+            if (goToCartAfterAdd) navigate('/shop/cart');
+          }}
+        />
       )}
     </section>
   );

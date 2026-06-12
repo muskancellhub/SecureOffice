@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
-from app.models.catalog import CatalogItem, CatalogItemType
+from app.models.catalog import CatalogItemType
 
 
 class DesignXService:
@@ -35,11 +34,15 @@ class DesignXService:
         return categories
 
     def _pick_catalog_item(self, *, item_type: CatalogItemType, category: str | None = None):
-        stmt = select(CatalogItem).where(CatalogItem.type == item_type, CatalogItem.is_active.is_(True))
-        if category:
-            stmt = stmt.where(CatalogItem.attributes['category'].astext == category)
-        stmt = stmt.order_by(CatalogItem.price.asc(), CatalogItem.created_at.desc())
-        return self.db.scalar(stmt)
+        # Product-backed (Phase 7): cheapest active product entry of the
+        # requested type/category, priced at the global default markup.
+        from app.services.catalog_service import CatalogService
+
+        entries = CatalogService(self.db).list_items(
+            item_type=item_type, category=category, service_kind=None,
+            sort='price_low', page=1, page_size=1,
+        )
+        return entries[0] if entries else None
 
     @staticmethod
     def _device_quantity(category: str, *, employees: int, sites: int) -> int:

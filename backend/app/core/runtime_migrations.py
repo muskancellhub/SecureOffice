@@ -555,38 +555,13 @@ def apply_runtime_migrations() -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_network_designs_tenant_status ON network_designs (tenant_id, status)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_network_designs_created_by ON network_designs (created_by)"))
 
-        # Catalog vendor fields.
-        conn.execute(text("ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS vendor VARCHAR(128)"))
-        conn.execute(text("ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS vendor_sku VARCHAR(255)"))
-        conn.execute(text("UPDATE catalog_items SET vendor = COALESCE(vendor, 'CDW') WHERE vendor IS NULL"))
-        conn.execute(text("UPDATE catalog_items SET vendor_sku = COALESCE(vendor_sku, sku) WHERE vendor_sku IS NULL"))
-
-        # Quote line pricing snapshots.
+        # Quote line pricing snapshots. catalog_item_id is a legacy snapshot
+        # column (Phase 7: the catalog_items table is retired — no FK).
         conn.execute(text("ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS catalog_item_id UUID"))
         conn.execute(text("ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS list_price_snapshot NUMERIC(12, 2)"))
         conn.execute(text("UPDATE quote_lines SET list_price_snapshot = unit_price WHERE list_price_snapshot IS NULL"))
         conn.execute(text("ALTER TABLE quote_lines ALTER COLUMN list_price_snapshot SET DEFAULT 0"))
         conn.execute(text("ALTER TABLE quote_lines ALTER COLUMN list_price_snapshot SET NOT NULL"))
-
-        conn.execute(
-            text(
-                """
-                DO $$
-                BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1
-                        FROM pg_constraint
-                        WHERE conname = 'quote_lines_catalog_item_id_fkey'
-                    ) THEN
-                        ALTER TABLE quote_lines
-                        ADD CONSTRAINT quote_lines_catalog_item_id_fkey
-                        FOREIGN KEY (catalog_item_id) REFERENCES catalog_items(id) ON DELETE SET NULL;
-                    END IF;
-                END
-                $$;
-                """
-            )
-        )
 
         # Order schema extension for quote linkage + fulfillment dates + expanded statuses.
         conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS quote_id UUID"))
@@ -714,34 +689,17 @@ def apply_runtime_migrations() -> None:
             )
         )
 
-        # Order line pricing snapshots.
+        # Order line pricing snapshots. catalog_item_id is a legacy snapshot
+        # column (Phase 7: the catalog_items table is retired — no FK).
         conn.execute(text("ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS catalog_item_id UUID"))
         conn.execute(text("ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS list_price_snapshot NUMERIC(12, 2)"))
         conn.execute(text("UPDATE order_lines SET list_price_snapshot = unit_price WHERE list_price_snapshot IS NULL"))
         conn.execute(text("ALTER TABLE order_lines ALTER COLUMN list_price_snapshot SET DEFAULT 0"))
         conn.execute(text("ALTER TABLE order_lines ALTER COLUMN list_price_snapshot SET NOT NULL"))
 
-        conn.execute(
-            text(
-                """
-                DO $$
-                BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1
-                        FROM pg_constraint
-                        WHERE conname = 'order_lines_catalog_item_id_fkey'
-                    ) THEN
-                        ALTER TABLE order_lines
-                        ADD CONSTRAINT order_lines_catalog_item_id_fkey
-                        FOREIGN KEY (catalog_item_id) REFERENCES catalog_items(id) ON DELETE SET NULL;
-                    END IF;
-                END
-                $$;
-                """
-            )
-        )
-
-        # Pricing tables (tenant-scoped list + default customer + per-deal discounts).
+        # Pricing tables (customer commercial config + per-deal discounts).
+        # Phase 7 dropped the legacy list_prices table — the component engine
+        # owns every live price (cost × (1 + markup)).
         conn.execute(
             text(
                 """
@@ -753,25 +711,6 @@ def apply_runtime_migrations() -> None:
                 """
             )
         )
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS list_prices (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-                    catalog_item_id UUID NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
-                    vendor VARCHAR(128) NOT NULL DEFAULT 'CDW',
-                    list_price NUMERIC(12, 2) NOT NULL,
-                    currency VARCHAR(8) NOT NULL DEFAULT 'USD',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    CONSTRAINT uq_list_prices_tenant_item_vendor UNIQUE (tenant_id, catalog_item_id, vendor)
-                )
-                """
-            )
-        )
-        # Ensure existing databases created before this migration have the correct default on id.
-        conn.execute(text("ALTER TABLE list_prices ALTER COLUMN id SET DEFAULT gen_random_uuid()"))
         conn.execute(
             text(
                 """
@@ -794,20 +733,7 @@ def apply_runtime_migrations() -> None:
                 """
             )
         )
-        conn.execute(
-            text(
-                """
-                INSERT INTO list_prices (tenant_id, catalog_item_id, vendor, list_price, currency)
-                SELECT t.id, c.id, COALESCE(c.vendor, 'CDW'), c.price, c.currency
-                FROM tenants t
-                CROSS JOIN catalog_items c
-                GROUP BY t.id, c.id, c.vendor, c.price, c.currency
-                ON CONFLICT (tenant_id, catalog_item_id, vendor) DO NOTHING
-                """
-            )
-        )
 
-        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_list_prices_tenant_item ON list_prices (tenant_id, catalog_item_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_deal_pricing_quote_id ON deal_pricing (quote_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_orders_quote_id ON orders (quote_id)"))
 
@@ -911,41 +837,50 @@ def apply_runtime_migrations() -> None:
             )
         )
 
-        # ── Managed-service per-SKU pricing column on catalog_items ──
-        conn.execute(text(
-            "ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS managed_service_price NUMERIC(12, 2)"
-        ))
-
-        # Seed default managed-service prices by device category
+        # ── Legacy managed_service_price seeding by category ──
+        # Retired in Phase 7: the per-SKU managed-service price now lives on
+        # each product's MANAGED_SERVICE component. The WS1 backfill seeds it
+        # for devices that still carried one (default $15.50, D7). Old
+        # catalog_items rows (if the table still exists pre-cutover) get their
+        # category defaults so the backfill carries them over.
         conn.execute(text("""
-            UPDATE catalog_items SET managed_service_price = 10.00
-            WHERE managed_service_price IS NULL AND type = 'DEVICE'
-              AND attributes->>'category' IN ('router','wifi_ap','switch','firewall','cellular_gateway')
-        """))
-        conn.execute(text("""
-            UPDATE catalog_items SET managed_service_price = 5.00
-            WHERE managed_service_price IS NULL AND type = 'DEVICE'
-              AND attributes->>'category' IN ('security_appliance','camera','sensor')
-        """))
-        conn.execute(text("""
-            UPDATE catalog_items SET managed_service_price = 2.00
-            WHERE managed_service_price IS NULL AND type = 'DEVICE'
-              AND attributes->>'category' = 'laptop'
-        """))
-        conn.execute(text("""
-            UPDATE catalog_items SET managed_service_price = 0.25
-            WHERE managed_service_price IS NULL AND type = 'DEVICE'
-              AND attributes->>'category' = 'phone'
-        """))
-        conn.execute(text("""
-            UPDATE catalog_items SET managed_service_price = 1.50
-            WHERE managed_service_price IS NULL AND type = 'DEVICE'
-              AND attributes->>'category' = 'tablet'
-        """))
-        conn.execute(text("""
-            UPDATE catalog_items SET managed_service_price = 1.00
-            WHERE managed_service_price IS NULL AND type = 'DEVICE'
-              AND attributes->>'category' = 'hotspot'
+            DO $$
+            BEGIN
+                IF to_regclass('public.catalog_items') IS NOT NULL THEN
+                    EXECUTE 'ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS managed_service_price NUMERIC(12, 2)';
+                    EXECUTE $sql$
+                        UPDATE catalog_items SET managed_service_price = 10.00
+                        WHERE managed_service_price IS NULL AND type = 'DEVICE'
+                          AND attributes->>'category' IN ('router','wifi_ap','switch','firewall','cellular_gateway')
+                    $sql$;
+                    EXECUTE $sql$
+                        UPDATE catalog_items SET managed_service_price = 5.00
+                        WHERE managed_service_price IS NULL AND type = 'DEVICE'
+                          AND attributes->>'category' IN ('security_appliance','camera','sensor')
+                    $sql$;
+                    EXECUTE $sql$
+                        UPDATE catalog_items SET managed_service_price = 2.00
+                        WHERE managed_service_price IS NULL AND type = 'DEVICE'
+                          AND attributes->>'category' = 'laptop'
+                    $sql$;
+                    EXECUTE $sql$
+                        UPDATE catalog_items SET managed_service_price = 0.25
+                        WHERE managed_service_price IS NULL AND type = 'DEVICE'
+                          AND attributes->>'category' = 'phone'
+                    $sql$;
+                    EXECUTE $sql$
+                        UPDATE catalog_items SET managed_service_price = 1.50
+                        WHERE managed_service_price IS NULL AND type = 'DEVICE'
+                          AND attributes->>'category' = 'tablet'
+                    $sql$;
+                    EXECUTE $sql$
+                        UPDATE catalog_items SET managed_service_price = 1.00
+                        WHERE managed_service_price IS NULL AND type = 'DEVICE'
+                          AND attributes->>'category' = 'hotspot'
+                    $sql$;
+                END IF;
+            END
+            $$;
         """))
 
         # ── Managed-services selection on network_designs ──
@@ -1061,7 +996,6 @@ def apply_runtime_migrations() -> None:
                 leasing_pct        NUMERIC(6,4),
                 default_qty        INTEGER NOT NULL DEFAULT 1,
                 is_required        BOOLEAN NOT NULL DEFAULT TRUE,
-                catalog_item_id    UUID REFERENCES catalog_items(id) ON DELETE SET NULL,
                 is_active          BOOLEAN NOT NULL DEFAULT TRUE,
                 attributes         JSONB NOT NULL DEFAULT '{}'::jsonb,
                 created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1129,7 +1063,28 @@ def apply_runtime_migrations() -> None:
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_cpo_tenant_product ON customer_price_overrides (tenant_id, product_id) WHERE product_id IS NOT NULL"))
 
         # §4.5 customer_pricing: cost-plus-margin model alongside legacy discount.
-        conn.execute(text("ALTER TABLE customer_pricing ADD COLUMN IF NOT EXISTS default_margin_pct NUMERIC(6,4) NOT NULL DEFAULT 0.2000"))
+        # Phase 7 D2: nullable — NULL means "not customized", inheriting the 25%
+        # global default in the engine. One-shot (guarded on the old NOT NULL
+        # state so a tenant that later genuinely picks 20% isn't wiped on the
+        # next boot): rows still at the old 0.20 column default reset to NULL.
+        conn.execute(text("ALTER TABLE customer_pricing ADD COLUMN IF NOT EXISTS default_margin_pct NUMERIC(6,4)"))
+        conn.execute(text(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = 'customer_pricing'
+                      AND column_name = 'default_margin_pct' AND is_nullable = 'NO'
+                ) THEN
+                    ALTER TABLE customer_pricing ALTER COLUMN default_margin_pct DROP NOT NULL;
+                    ALTER TABLE customer_pricing ALTER COLUMN default_margin_pct DROP DEFAULT;
+                    UPDATE customer_pricing SET default_margin_pct = NULL WHERE default_margin_pct = 0.2000;
+                END IF;
+            END
+            $$;
+            """
+        ))
         conn.execute(text("ALTER TABLE customer_pricing ADD COLUMN IF NOT EXISTS credit_status VARCHAR(16) NOT NULL DEFAULT 'PENDING'"))
         conn.execute(text("ALTER TABLE customer_pricing ADD COLUMN IF NOT EXISTS credit_limit NUMERIC(12,2)"))
         conn.execute(text("ALTER TABLE customer_pricing ADD COLUMN IF NOT EXISTS opex_eligible BOOLEAN NOT NULL DEFAULT FALSE"))
@@ -1247,6 +1202,88 @@ def apply_runtime_migrations() -> None:
             """
         ))
 
+        # ── Phase 7: one catalog — cart on the component model (WS4/WS7) ──
+        # cart_lines gains product/component refs; catalog_item_id becomes a
+        # bare nullable snapshot column (FKs to catalog_items are dropped here
+        # so the table itself can be dropped after the WS1 backfill; the
+        # backfill + DROP TABLE run from startup, see
+        # catalog_unification.migrate_catalog_items_to_products /
+        # drop_legacy_catalog_tables).
+        conn.execute(text(
+            "ALTER TABLE cart_lines ADD COLUMN IF NOT EXISTS product_id UUID REFERENCES products(id) ON DELETE RESTRICT"
+        ))
+        conn.execute(text(
+            "ALTER TABLE cart_lines ADD COLUMN IF NOT EXISTS component_id UUID REFERENCES product_components(id) ON DELETE RESTRICT"
+        ))
+        conn.execute(text("ALTER TABLE cart_lines ALTER COLUMN catalog_item_id DROP NOT NULL"))
+        conn.execute(text(
+            """
+            DO $$
+            DECLARE fk RECORD;
+            BEGIN
+                -- Drop every FK that still points at catalog_items (cart/quote/
+                -- order lines, product_components, anything else).
+                FOR fk IN
+                    SELECT con.conname, rel.relname
+                    FROM pg_constraint con
+                    JOIN pg_class rel ON rel.oid = con.conrelid
+                    JOIN pg_class frel ON frel.oid = con.confrelid
+                    WHERE con.contype = 'f' AND frel.relname = 'catalog_items'
+                LOOP
+                    EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', fk.relname, fk.conname);
+                END LOOP;
+            END
+            $$;
+            """
+        ))
+        # The legacy per-component catalog link is gone with the table.
+        conn.execute(text("ALTER TABLE product_components DROP COLUMN IF EXISTS catalog_item_id"))
+        # D6 one-shot: SIM moved $40 → $30. The MIX seed no longer rewrites
+        # pricing on existing rows (admin edits win), so correct stragglers here.
+        conn.execute(text(
+            """
+            UPDATE product_components SET vendor_cost = 30.00
+            WHERE component_type IN ('SIM','BACKUP_SIM')
+              AND vendor_component_sku IN ('PAPI-SIM','PAPI-SIM-BACKUP')
+              AND vendor_cost = 40.00
+            """
+        ))
+        # Retail reference for the admin grid: components without an MSRP get a
+        # dummy 1.5× placeholder (PAPI keeps cost = retail). Re-runnable: only
+        # touches NULLs; the MIX seed overwrites its own rows with MSA values.
+        conn.execute(text(
+            """
+            UPDATE product_components pc SET msrp = ROUND(pc.vendor_cost * 1.5, 2)
+            FROM products p
+            WHERE pc.product_id = p.id AND pc.msrp IS NULL AND pc.vendor_cost > 0
+              AND COALESCE(p.attributes->>'source_type', '') != 'paapi' AND UPPER(p.vendor) != 'PAPI'
+            """
+        ))
+        conn.execute(text(
+            """
+            UPDATE product_components pc SET msrp = pc.vendor_cost
+            FROM products p
+            WHERE pc.product_id = p.id AND pc.msrp IS NULL AND pc.vendor_cost > 0
+              AND (COALESCE(p.attributes->>'source_type', '') = 'paapi' OR UPPER(p.vendor) = 'PAPI')
+            """
+        ))
+        # Exactly one source per cart line: a legacy snapshot OR a component.
+        conn.execute(text(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'cart_lines_one_source_check'
+                ) THEN
+                    ALTER TABLE cart_lines
+                    ADD CONSTRAINT cart_lines_one_source_check
+                    CHECK ((catalog_item_id IS NOT NULL)::int + (component_id IS NOT NULL)::int = 1);
+                END IF;
+            END
+            $$;
+            """
+        ))
+
         _apply_rls_policies(conn)
 
 
@@ -1273,7 +1310,7 @@ def _apply_rls_policies(conn) -> None:
     rls_tables = (
         'users', 'quotes', 'orders', 'contracts', 'subscriptions', 'invoices',
         'payments', 'assets', 'network_designs', 'carts', 'customer_pricing',
-        'customer_price_overrides', 'list_prices', 'tenant_order_notification_settings',
+        'customer_price_overrides', 'tenant_order_notification_settings',
         'tenant_onboarding', 'financing_terms', 'tenant_settings',
     )
 

@@ -188,7 +188,9 @@ class TestUnifiedCatalogAndBom(unittest.TestCase):
         ]
 
         self.service = CatalogService(FakeDB())
-        self.service.repo = FakeRepo(self.items)
+        # Phase 7: list_items reads products via the _fetch_entries seam;
+        # FakeItem duck-types ProductCatalogEntry (same field names).
+        self.service._fetch_entries = lambda **kw: list(self.items)
 
     def test_unified_catalog_filters_by_source_vendor_category(self):
         all_items = self.service.list_items(item_type=None, category=None, service_kind=None)

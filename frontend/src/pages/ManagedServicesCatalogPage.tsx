@@ -57,7 +57,7 @@ const openAssistant = () => {
 
 export const ManagedServicesCatalogPage = () => {
   const { accessToken } = useAuth();
-  const { cart, addRouterToCart, updateLineQuantity, removeLine } = useShop();
+  const { cart, addComponentToCart, addRouterToCart, updateLineQuantity, removeLine } = useShop();
   const [devices, setDevices] = useState<CatalogItem[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -86,7 +86,10 @@ export const ManagedServicesCatalogPage = () => {
     const map = new Map<string, { lineId: string; quantity: number }>();
     if (!cart?.lines) return map;
     for (const line of cart.lines) {
-      map.set(line.catalog_item_id, { lineId: line.id, quantity: line.quantity });
+      // Standalone managed-service component lines are keyed by their product.
+      if (line.product_id && line.component_type === 'MANAGED_SERVICE') {
+        map.set(line.product_id, { lineId: line.id, quantity: line.quantity });
+      }
     }
     return map;
   }, [cart]);
@@ -101,8 +104,17 @@ export const ManagedServicesCatalogPage = () => {
   const handleAdd = async (device: CatalogItem) => {
     try {
       setBusyId(device.id);
-      await addRouterToCart(device.id, 1);
-      setNotice(`${device.name} added to cart.`);
+      // Phase 7 D4/D10: the managed service is the device's MANAGED_SERVICE
+      // component, sellable standalone at the tenant's price.
+      const full = accessToken ? await commerceApi.getCatalogItem(accessToken, device.id) : device;
+      const msComponent = (full.components ?? []).find((c) => c.component_type === 'MANAGED_SERVICE');
+      if (msComponent) {
+        await addComponentToCart(msComponent.id, 1);
+        setNotice(`Managed service for ${device.name} added to cart.`);
+      } else {
+        await addRouterToCart(device.id, 1);
+        setNotice(`${device.name} added to cart.`);
+      }
     } catch (err: any) {
       setError(extractApiError(err, 'Failed to add to cart'));
     } finally {

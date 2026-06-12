@@ -7,8 +7,9 @@ catalog_items table. Idempotent: re-running upserts by sku /
 (product_id, component_type, vendor_component_sku).
 
 Pricing math is NOT applied here — this only stores cost / MSRP / margin /
-leasing inputs and capacity metadata. The §3 worked example (660 / 19.78 /
-82.88) is reproduced by the Phase 2 ComponentPricingService.
+leasing inputs and capacity metadata. The Phase 7 worked example (a 20% tenant:
+660 / 19.78 / $42.88-per-month + $30 one-time SIM) is reproduced by the Phase 2
+ComponentPricingService.
 """
 from __future__ import annotations
 
@@ -21,7 +22,8 @@ from app.models.financing import FinancingTerms
 from app.models.product import ComponentType, ComponentUom, FinancialModel, Product, ProductComponent
 
 MIX_VENDOR = 'MIX Networks'
-DEFAULT_MARGIN = Decimal('0.20')   # manager's worked example
+# Phase 7 D2: products no longer pin a margin — NULL inherits the per-tenant
+# markup (override → tenant default → 25% global) resolved by the engine.
 DEFAULT_LEASING = Decimal('0.05')  # per-SKU 'Leasing %ge' column
 
 # Vendor-level commercial terms — notes only, NOT per-quote math (spec §10).
@@ -91,54 +93,58 @@ SHARED_COMPONENTS = [
      ComponentUom.PER_SEAT, 'RECURRING', 'MONTH', False, True, {'msrp': 19.95}),
     (ComponentType.LINE_CHARGE, 'Non-Continental DID add-on (AK/HI/PR)', 'SERV1986', '3.50',
      ComponentUom.PER_LINE, 'RECURRING', 'MONTH', False, True,
-     {'nrc': 3.50, 'requires_component_type': 'DEVICE'}),
-    # SIM — sourced from PAPI, flat $40 FINAL price, no margin (engine special-case §6).
-    # Billed ONE-TIME (a SIM card is bought once) per product-owner decision 2026-06-04,
-    # overriding §3's worked example which folded $40 into the monthly total.
-    (ComponentType.SIM, 'Carrier SIM (PAPI)', 'PAPI-SIM', '40.00',
+     {'nrc': 3.50, 'requires_component_type': 'DEVICE', 'msrp': 9.95}),
+    # SIM — flat $30 one-time FINAL price, no margin (Phase 7 D6). Per-tenant
+    # price changes go through customer_price_overrides.override_unit_price,
+    # which the engine already lets beat the flat price.
+    (ComponentType.SIM, 'Carrier SIM (PAPI)', 'PAPI-SIM', '30.00',
      ComponentUom.PER_DEVICE, 'ONE_TIME', None, False, True,
-     {'consumes': {'max_sims': 1}, 'flat_price': True, 'source': 'PAPI'}),
-    (ComponentType.BACKUP_SIM, 'Backup Carrier SIM (PAPI)', 'PAPI-SIM-BACKUP', '40.00',
+     {'consumes': {'max_sims': 1}, 'flat_price': True, 'source': 'PAPI', 'msrp': 49.95}),
+    (ComponentType.BACKUP_SIM, 'Backup Carrier SIM (PAPI)', 'PAPI-SIM-BACKUP', '30.00',
      ComponentUom.PER_DEVICE, 'ONE_TIME', None, False, False,
-     {'consumes': {'max_sims': 1}, 'flat_price': True, 'source': 'PAPI'}),
+     {'consumes': {'max_sims': 1}, 'flat_price': True, 'source': 'PAPI', 'msrp': 49.95}),
     # Managed service — per-SKU price (admin-set in /shop/services later).
     (ComponentType.MANAGED_SERVICE, 'Managed Service', 'MIX-MS', '15.50',
-     ComponentUom.PER_DEVICE, 'RECURRING', 'MONTH', False, True, {}),
+     ComponentUom.PER_DEVICE, 'RECURRING', 'MONTH', False, True, {'msrp': 24.95}),
     # Install / professional services (one-time).
     (ComponentType.INSTALLATION, 'Staging/Kitting/Provisioning', 'SERV1987', '40.00',
-     ComponentUom.PER_DEVICE, 'ONE_TIME', None, False, True, {}),
+     ComponentUom.PER_DEVICE, 'ONE_TIME', None, False, True, {'msrp': 59.95}),
     (ComponentType.PROFESSIONAL_SERVICES, 'On-site Installation', 'SERV1817', '150.00',
-     ComponentUom.PER_HOUR, 'ONE_TIME', None, False, True, {'min_hours': 2}),
+     ComponentUom.PER_HOUR, 'ONE_TIME', None, False, True, {'min_hours': 2, 'msrp': 250.00}),
     (ComponentType.PROFESSIONAL_SERVICES, 'Remote Install Assistance', 'SERV069', '125.00',
-     ComponentUom.PER_HOUR, 'ONE_TIME', None, False, True, {}),
+     ComponentUom.PER_HOUR, 'ONE_TIME', None, False, True, {'msrp': 199.95}),
     (ComponentType.PROFESSIONAL_SERVICES, 'Remote Training/Support', 'SERV049', '200.00',
-     ComponentUom.PER_HOUR, 'ONE_TIME', None, False, True, {'setup_fee': 500}),
+     ComponentUom.PER_HOUR, 'ONE_TIME', None, False, True, {'setup_fee': 500, 'msrp': 250.00}),
     # Accessories (CAPEX one-time, optional).
     (ComponentType.ACCESSORY, 'Power Inverter', 'PROD7933', '30.00',
-     ComponentUom.PER_DEVICE, 'ONE_TIME', None, False, True, {}),
+     ComponentUom.PER_DEVICE, 'ONE_TIME', None, False, True, {'msrp': 49.95}),
     (ComponentType.ACCESSORY, 'Replacement Power Supply', 'PROD7643', '22.00',
-     ComponentUom.PER_DEVICE, 'ONE_TIME', None, False, True, {}),
+     ComponentUom.PER_DEVICE, 'ONE_TIME', None, False, True, {'msrp': 34.95}),
     (ComponentType.ACCESSORY, 'Replacement Battery', 'PROD7956', '106.25',
-     ComponentUom.PER_DEVICE, 'ONE_TIME', None, False, True, {}),
+     ComponentUom.PER_DEVICE, 'ONE_TIME', None, False, True, {'msrp': 159.95}),
     # Ancillary licenses/services — loaded INACTIVE by default; activate as offered.
     (ComponentType.LICENSE, '911 Services', 'SERV052', '0.59',
-     ComponentUom.PER_DID, 'RECURRING', 'MONTH', False, False, {}),
+     ComponentUom.PER_DID, 'RECURRING', 'MONTH', False, False, {'msrp': 0.99}),
     (ComponentType.LICENSE, 'Additional USA/Canada DID', 'SERV100', '0.20',
-     ComponentUom.PER_DID, 'RECURRING', 'MONTH', False, False, {'nrc': 0.50}),
+     ComponentUom.PER_DID, 'RECURRING', 'MONTH', False, False, {'nrc': 0.50, 'msrp': 0.50}),
     (ComponentType.LICENSE, 'Caller ID (Inbound)', 'SERV013', '2.00',
-     ComponentUom.PER_DID, 'RECURRING', 'MONTH', False, False, {}),
+     ComponentUom.PER_DID, 'RECURRING', 'MONTH', False, False, {'msrp': 4.95}),
     (ComponentType.LICENSE, 'CNAM Registration/Storage', 'SERV1990', '2.00',
-     ComponentUom.PER_DID, 'ONE_TIME', None, False, False, {'is_nrc': True}),
+     ComponentUom.PER_DID, 'ONE_TIME', None, False, False, {'is_nrc': True, 'msrp': 4.95}),
     (ComponentType.MANAGED_SERVICE, 'Call Recording', 'SERV077', '1.00',
-     ComponentUom.PER_SEAT, 'RECURRING', 'MONTH', False, False, {}),
+     ComponentUom.PER_SEAT, 'RECURRING', 'MONTH', False, False, {'msrp': 2.95}),
     (ComponentType.LICENSE, 'Toll-Free Service', 'SERV027', '1.50',
-     ComponentUom.PER_DID, 'RECURRING', 'MONTH', False, False, {}),
+     ComponentUom.PER_DID, 'RECURRING', 'MONTH', False, False, {'msrp': 2.95}),
 ]
 
 
 def _upsert_product(db, spec) -> Product:
+    """Identity/metadata always sync from the MSA; COMMERCIAL fields
+    (margin/leasing/is_active) are seeded only on first create so the admin
+    portal's edits survive restarts (the seed runs on every boot)."""
     prod = db.scalar(select(Product).where(Product.sku == spec['sku']))
-    if prod is None:
+    created = prod is None
+    if created:
         prod = Product(sku=spec['sku'])
         db.add(prod)
     prod.vendor = MIX_VENDOR
@@ -147,10 +153,20 @@ def _upsert_product(db, spec) -> Product:
     prod.name = spec['name']
     prod.description = spec['description']
     prod.default_financial_model = FinancialModel.BOTH
-    prod.margin_pct = DEFAULT_MARGIN
-    prod.leasing_pct = DEFAULT_LEASING
-    prod.is_active = True
-    prod.attributes = {'capacity': spec['capacity'], 'vendor_terms': MIX_VENDOR_TERMS}
+    if created:
+        prod.margin_pct = None  # inherit (Phase 7 D2)
+        prod.leasing_pct = DEFAULT_LEASING
+        prod.is_active = True
+    prod.attributes = {
+        **(prod.attributes or {}),
+        'capacity': spec['capacity'],
+        'vendor_terms': MIX_VENDOR_TERMS,
+        'sellable': spec['sellable'],
+        'category': 'router',
+        'product_type': 'router',
+        'source_type': 'mix',
+        'source_name': 'mix_seed',
+    }
     db.flush()
     return prod
 
@@ -158,6 +174,9 @@ def _upsert_product(db, spec) -> Product:
 def _upsert_component(db, product_id, *, component_type, label, vendor_sku, cost, uom,
                       billing, interval, required, active, attributes, msrp=None,
                       financial_model=FinancialModel.BOTH):
+    """Pricing (cost/MSRP/margins) and availability are seeded only on first
+    create — the admin grid owns them afterwards. Structural fields keep
+    syncing from the MSA definitions."""
     comp = db.scalar(
         select(ProductComponent).where(
             ProductComponent.product_id == product_id,
@@ -165,21 +184,26 @@ def _upsert_component(db, product_id, *, component_type, label, vendor_sku, cost
             ProductComponent.vendor_component_sku == vendor_sku,
         )
     )
-    if comp is None:
+    created = comp is None
+    if created:
         comp = ProductComponent(
             product_id=product_id, component_type=component_type, vendor_component_sku=vendor_sku
         )
         db.add(comp)
     comp.financial_model = financial_model
     comp.label = label
-    comp.vendor_cost = Decimal(cost)
-    comp.msrp = Decimal(msrp) if msrp is not None else None
     comp.uom = uom
     comp.billing = billing
     comp.interval = interval
     comp.is_required = required
-    comp.is_active = active
     comp.attributes = attributes or {}
+    if created:
+        comp.vendor_cost = Decimal(cost)
+        comp.msrp = Decimal(msrp) if msrp is not None else None
+        comp.is_active = active
+    elif comp.msrp is None and msrp is not None:
+        # Backfill newly-documented MSRPs without clobbering admin edits.
+        comp.msrp = Decimal(msrp)
     db.flush()
     return comp
 
@@ -203,12 +227,14 @@ def seed_mix_products(db) -> dict:
             msrp=spec['device_msrp'], financial_model=FinancialModel.BOTH,
         )
         component_count += 1
-        # Required MAINTENANCE / Cloud Controller component.
+        # Required MAINTENANCE / Cloud Controller component. The MSA prices the
+        # maintenance fee but lists no MSRP — dummy retail reference applied.
         _upsert_component(
             db, prod.id, component_type=ComponentType.MAINTENANCE,
             label='Cloud Controller / Maintenance', vendor_sku=spec['maint_sku'],
             cost=spec['maint_cost'], uom=ComponentUom.PER_DEVICE, billing='RECURRING',
             interval='MONTH', required=True, active=True, attributes={},
+            msrp='12.95' if spec['sku'] == '90X1' else '9.95',
         )
         component_count += 1
         # Shared add-ons only on sellable devices (skip the NFR lab unit).

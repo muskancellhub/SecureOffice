@@ -4,7 +4,6 @@ import logging
 import uuid
 from decimal import Decimal
 from app.core.exceptions import AppError, ForbiddenError, NotFoundError, UnauthorizedError
-from app.models.catalog import BillingCycle, CatalogItem, CatalogItemType
 from app.models.order import OrderStatus
 from app.models.quote import BillingInterval, BillingType, QuoteLineType, QuoteStatus
 from app.models.product import Bundle, ComponentType, Product, ProductComponent
@@ -14,6 +13,7 @@ from app.repositories.order_repository import OrderRepository
 from app.repositories.quote_repository import QuoteRepository
 from app.repositories.user_repository import UserRepository
 from app.services.audit_logger import audit
+from app.services.catalog_unification import find_product_by_id_or_legacy
 from app.services.lifecycle_service import LifecycleService
 from app.services.onboarding_service import OnboardingService
 from app.services.order_notification_service import OrderNotificationService
@@ -68,20 +68,6 @@ class QuoteService:
             raise ForbiddenError('Quote not found for current user')
 
     @staticmethod
-    def _billing_from_catalog_item(item: CatalogItem) -> tuple[BillingType, BillingInterval | None]:
-        if item.billing_cycle == BillingCycle.MONTHLY:
-            return BillingType.RECURRING, BillingInterval.MONTH
-        if item.billing_cycle == BillingCycle.YEARLY:
-            return BillingType.RECURRING, BillingInterval.YEAR
-        return BillingType.ONE_TIME, None
-
-    @staticmethod
-    def _line_type_from_catalog_item(item: CatalogItem) -> QuoteLineType:
-        if item.type == CatalogItemType.SERVICE:
-            return QuoteLineType.SERVICE
-        return QuoteLineType.DEVICE
-
-    @staticmethod
     def _normalize_pricing_basis(raw_basis: str | None) -> str:
         value = (raw_basis or '').strip().upper()
         if value == 'PER_SITE':
@@ -96,14 +82,41 @@ class QuoteService:
         multiplier = max(1, int(requested_qty or 1))
         return max(1, int(router_qty)) * multiplier
 
-    def _catalog_item_by_id(self, item_id: str, *, field_name: str = 'catalog_item_id') -> CatalogItem:
-        item_uuid = self._parse_uuid(item_id, field_name=field_name)
-        item = self.db.get(CatalogItem, item_uuid)
-        if not item or not item.is_active:
-            raise NotFoundError('Catalog item not found')
-        return item
+    def _product_by_ref(self, ref, *, field_name: str) -> Product:
+        product = find_product_by_id_or_legacy(self.db, ref)
+        if not product or not product.is_active:
+            raise NotFoundError(f'Product not found for {field_name}')
+        return product
 
-    def _build_line_candidates_from_draft(self, draft_solution: dict) -> tuple[list[dict], str]:
+    @staticmethod
+    def _scale_engine_result(result: dict, multiplier: int) -> dict:
+        """Multiply an engine result by a device count (draft routers ship qty
+        N of the same assembly)."""
+        multiplier = max(1, int(multiplier))
+        if multiplier == 1:
+            return result
+        for line in result['lines']:
+            line['qty'] = int(line['qty']) * multiplier
+            line['line_total'] = line['unit_price'] * line['qty']
+            line['monthly_total'] = line['monthly_unit'] * line['qty']
+            line['one_time_total'] = line['one_time_unit'] * line['qty']
+        result['one_time_total'] = result['one_time_total'] * multiplier
+        result['monthly_total'] = result['monthly_total'] * multiplier
+        return result
+
+    def _primary_component(self, product: Product) -> ProductComponent:
+        comps = sorted(
+            (c for c in product.components if c.is_active),
+            key=lambda c: (not c.is_required, c.component_type.value),
+        )
+        if not comps:
+            raise AppError(f'Product {product.sku} has no active components', 400)
+        return comps[0]
+
+    # ── draft-solution (design flow) assembly, on the component engine ───────
+    def _draft_groups(self, current_user: dict, draft_solution: dict) -> tuple[list[dict], str]:
+        """Each draft router → a priced engine result (+ priced attached
+        services). Returns (groups, currency)."""
         requirements = draft_solution.get('requirements') or {}
         routers = draft_solution.get('routers') or []
         if not routers:
@@ -111,170 +124,158 @@ class QuoteService:
 
         num_sites = int(requirements.get('num_sites') or 1)
         currency = str(draft_solution.get('currency') or 'USD').upper()
-        candidates: list[dict] = []
+        cps = ComponentPricingService(self.db)
+        groups: list[dict] = []
 
         for index, router_input in enumerate(routers):
-            router_item = self._catalog_item_by_id(router_input.get('catalog_item_id', ''), field_name='router.catalog_item_id')
-            if router_item.type != CatalogItemType.DEVICE:
-                raise AppError('Router entries must reference DEVICE catalog items', 400)
-
-            router_qty = max(1, int(router_input.get('qty') or 1))
-            router_temp_id = f'router-{index}'
-            router_attrs = router_item.attributes or {}
-            router_metadata = {
-                'category': router_attrs.get('category'),
-                'router_specs': router_attrs.get('specs') or {},
-                'router_brand': router_attrs.get('brand'),
-                'router_model': router_attrs.get('model'),
-                'requirements': requirements,
-            }
-
-            billing_type, interval = self._billing_from_catalog_item(router_item)
-            candidates.append(
-                {
-                    'temp_id': router_temp_id,
-                    'parent_temp_id': None,
-                    'catalog_item': router_item,
-                    'qty': router_qty,
-                    'line_type': self._line_type_from_catalog_item(router_item),
-                    'billing_type': billing_type,
-                    'interval': interval,
-                    'metadata_json': router_metadata,
-                }
+            product = self._product_by_ref(
+                router_input.get('catalog_item_id') or router_input.get('product_id'),
+                field_name='router.catalog_item_id',
             )
+            router_qty = max(1, int(router_input.get('qty') or 1))
+            result = cps.price_product(
+                product.id, financial_model='CAPEX', interval='MONTH',
+                selections={}, tenant_id=current_user['tenant_id'],
+            )
+            self._scale_engine_result(result, router_qty)
 
-            attached_services = router_input.get('attached_services') or []
-            for service_index, service_input in enumerate(attached_services):
-                service_item = self._catalog_item_by_id(
-                    service_input.get('catalog_item_id', ''),
+            services: list[dict] = []
+            for service_index, service_input in enumerate(router_input.get('attached_services') or []):
+                service_product = self._product_by_ref(
+                    service_input.get('catalog_item_id') or service_input.get('product_id'),
                     field_name=f'router[{index}].attached_services[{service_index}].catalog_item_id',
                 )
-                if service_item.type != CatalogItemType.SERVICE:
-                    raise AppError('Attached services must reference SERVICE catalog items', 400)
-
-                service_attrs = service_item.attributes or {}
+                service_attrs = service_product.attributes or {}
                 allowed_categories = service_attrs.get('applies_to_categories') or []
                 if allowed_categories and 'router' not in allowed_categories:
                     raise AppError('Selected service cannot be attached to a router', 400)
-
-                requested_basis = service_input.get('pricing_basis')
-                configured_basis = service_attrs.get('pricing_basis')
-                pricing_basis = self._normalize_pricing_basis(requested_basis or configured_basis)
+                pricing_basis = self._normalize_pricing_basis(
+                    service_input.get('pricing_basis') or service_attrs.get('pricing_basis')
+                )
                 service_qty = self._service_quantity(
                     router_qty=router_qty,
                     requested_qty=service_input.get('qty'),
                     pricing_basis=pricing_basis,
                     num_sites=num_sites,
                 )
-
-                service_billing_type, service_interval = self._billing_from_catalog_item(service_item)
-                service_metadata = {
-                    'category': service_attrs.get('category'),
-                    'service_kind': service_attrs.get('service_kind'),
-                    'service_tier': service_attrs.get('tier'),
-                    'pricing_basis': pricing_basis,
-                    'router_catalog_item_id': str(router_item.id),
-                }
-
-                candidates.append(
-                    {
-                        'temp_id': f'{router_temp_id}-service-{service_index}',
-                        'parent_temp_id': router_temp_id,
-                        'catalog_item': service_item,
-                        'qty': service_qty,
-                        'line_type': self._line_type_from_catalog_item(service_item),
-                        'billing_type': service_billing_type,
-                        'interval': service_interval,
-                        'metadata_json': service_metadata,
-                    }
+                component = self._primary_component(service_product)
+                service_result = cps.price_standalone_component(
+                    component.id, qty=service_qty, financial_model='CAPEX',
+                    interval='MONTH', tenant_id=current_user['tenant_id'],
                 )
+                services.append({
+                    'product': service_product,
+                    'result': service_result,
+                    'metadata': {
+                        'category': service_attrs.get('category'),
+                        'service_kind': service_attrs.get('service_kind'),
+                        'service_tier': service_attrs.get('tier'),
+                        'pricing_basis': pricing_basis,
+                        'router_product_id': str(product.id),
+                    },
+                })
 
-        return candidates, currency
+            groups.append({
+                'product': product,
+                'result': result,
+                'metadata': {
+                    'category': (product.attributes or {}).get('category'),
+                    'router_brand': (product.attributes or {}).get('brand'),
+                    'router_model': (product.attributes or {}).get('model'),
+                    'requirements': requirements,
+                },
+                'services': services,
+            })
 
-    def _build_line_candidates_from_cart(self, current_user: dict) -> tuple[list[dict], str]:
+        return groups, currency
+
+    # ── cart assembly (component lines only — Phase 7 WS4) ──────────────────
+    def _cart_groups(self, current_user: dict) -> tuple[list[dict], str]:
+        """Re-price the cart's component lines per tenant. Product lines are
+        grouped back into {component_id: qty} selections; standalone lines are
+        priced alone."""
         cart = self.cart_repo.get_or_create_active_cart(current_user['user_id'], current_user['tenant_id'])
         if not cart.lines:
             raise AppError('Cart is empty', 400)
 
-        candidates: list[dict] = []
-        for line in cart.lines:
-            item = self.db.get(CatalogItem, line.catalog_item_id)
-            if not item or not item.is_active:
-                raise NotFoundError('Cart contains an inactive or missing catalog item')
-
-            billing_type, interval = self._billing_from_catalog_item(item)
-            snapshot = line.price_snapshot or {}
-            metadata = {
-                'category': snapshot.get('category'),
-                'attributes': snapshot.get('attributes') or {},
-                'source_cart_line_id': str(line.id),
-            }
-
-            candidates.append(
-                {
-                    'temp_id': str(line.id),
-                    'parent_temp_id': str(line.applies_to_line_id) if line.applies_to_line_id else None,
-                    'catalog_item': item,
-                    'qty': line.quantity,
-                    'line_type': self._line_type_from_catalog_item(item),
-                    'billing_type': billing_type,
-                    'interval': interval,
-                    'metadata_json': metadata,
-                }
-            )
-
+        cps = ComponentPricingService(self.db)
+        groups: list[dict] = []
         currency = cart.lines[0].currency if cart.lines else 'USD'
-        return candidates, currency
 
-    def _price_candidates(
-        self,
-        current_user: dict,
-        candidates: list[dict],
-        *,
-        incremental_discount_pct: Decimal = Decimal('0'),
-    ) -> tuple[list[dict], Decimal, Decimal, Decimal, Decimal]:
-        customer_pricing = self.pricing_service.get_or_create_customer_pricing(current_user['tenant_id'])
-        default_pct = Decimal(str(customer_pricing.default_discount_pct))
+        legacy = [l for l in cart.lines if l.component_id is None]
+        if legacy:
+            raise AppError('Cart contains legacy items from before the catalog migration — please remove and re-add them', 409)
 
-        one_time_total = Decimal('0')
-        monthly_total = Decimal('0')
+        standalone_lines = [l for l in cart.lines if (l.price_snapshot or {}).get('standalone')]
+        grouped_lines = [l for l in cart.lines if not (l.price_snapshot or {}).get('standalone')]
 
-        priced_candidates: list[dict] = []
-        for candidate in candidates:
-            item = candidate['catalog_item']
-            list_price_row = self.pricing_service.resolve_list_price(tenant_id=current_user['tenant_id'], catalog_item=item)
-            final_unit_price = self.pricing_service.calculate_final_unit_price(
-                list_price=list_price_row.list_price,
-                default_discount_pct=default_pct,
-                incremental_discount_pct=incremental_discount_pct,
+        by_product: dict[str, dict] = {}
+        for line in grouped_lines:
+            snapshot = line.price_snapshot or {}
+            key = str(line.product_id)
+            group = by_product.setdefault(key, {'selections': {}, 'financial_model': None, 'cart_line_ids': []})
+            group['selections'][str(line.component_id)] = line.quantity
+            group['cart_line_ids'].append(str(line.id))
+            if snapshot.get('is_parent') and snapshot.get('financial_model'):
+                group['financial_model'] = snapshot['financial_model']
+
+        for product_key, group in by_product.items():
+            product = self.db.get(Product, self._parse_uuid(product_key, field_name='product_id'))
+            if product is None or not product.is_active:
+                raise NotFoundError('Cart contains an inactive or missing product')
+            financial_model = self._resolve_financial_model(
+                current_user, group['financial_model'] or 'CAPEX'
             )
-
-            line_total = final_unit_price * Decimal(candidate['qty'])
-            if candidate['billing_type'] == BillingType.RECURRING:
-                monthly_total += line_total
-            else:
-                one_time_total += line_total
-
-            priced_candidates.append(
-                {
-                    **candidate,
-                    'catalog_item_id': item.id,
-                    'name_snapshot': item.name,
-                    'sku_snapshot': item.sku,
-                    'vendor_snapshot': list_price_row.vendor or item.vendor or self.pricing_service.default_vendor_for_item(item),
-                    'list_price_snapshot': float(list_price_row.list_price),
-                    'final_unit_price_snapshot': float(final_unit_price),
-                }
+            result = cps.price_product(
+                product.id, financial_model=financial_model, interval='MONTH',
+                selections=group['selections'], tenant_id=current_user['tenant_id'],
             )
+            self._validate_requires_device(result)
+            self._check_capacity(product, result)
+            groups.append({
+                'product': product,
+                'result': result,
+                'metadata': {'source_cart_line_ids': group['cart_line_ids']},
+                'services': [],
+            })
 
-        projected_12_month_cost = one_time_total + (monthly_total * Decimal('12'))
-        return (
-            priced_candidates,
-            self.pricing_service._quantize_money(one_time_total),
-            self.pricing_service._quantize_money(monthly_total),
-            self.pricing_service._quantize_money(projected_12_month_cost),
-            default_pct,
-        )
+        for line in standalone_lines:
+            component = self.db.get(ProductComponent, line.component_id)
+            product = self.db.get(Product, line.product_id)
+            if component is None or product is None:
+                raise NotFoundError('Cart contains an inactive or missing component')
+            result = cps.price_standalone_component(
+                component.id, qty=line.quantity,
+                financial_model=(line.price_snapshot or {}).get('financial_model') or 'CAPEX',
+                interval='MONTH', tenant_id=current_user['tenant_id'],
+            )
+            groups.append({
+                'product': product,
+                'result': result,
+                'metadata': {'standalone': True, 'source_cart_line_ids': [str(line.id)]},
+                'services': [],
+            })
+
+        return groups, currency
+
+    @staticmethod
+    def _sum_group_totals(groups: list[dict]) -> tuple[Decimal, Decimal]:
+        one_time = Decimal('0')
+        monthly = Decimal('0')
+        for group in groups:
+            one_time += group['result']['one_time_total']
+            monthly += group['result']['monthly_total']
+            for service in group['services']:
+                one_time += service['result']['one_time_total']
+                monthly += service['result']['monthly_total']
+        return one_time, monthly
+
+    @staticmethod
+    def _header_financial_model(groups: list[dict]) -> str:
+        models = {group['result']['financial_model'] for group in groups}
+        if len(models) == 1:
+            return models.pop()
+        return 'MIXED'
 
     def preview_quote(self, current_user: dict, draft_solution: dict) -> dict:
         self._assert_user_exists(current_user)
@@ -284,20 +285,17 @@ class QuoteService:
         # quotes is a separate phase — see docs/plans/multi-tenant-config.md.
         if not self.onboarding_service.is_onboarding_complete(current_user['tenant_id']):
             raise AppError('Complete onboarding before creating a procurement request', 400)
-        candidates, currency = self._build_line_candidates_from_draft(draft_solution)
-        _, one_time_total, monthly_total, projected_12_month_cost, default_pct = self._price_candidates(
-            current_user,
-            candidates,
-            incremental_discount_pct=Decimal('0'),
-        )
+        groups, currency = self._draft_groups(current_user, draft_solution)
+        one_time_total, monthly_total = self._sum_group_totals(groups)
+        projected = self.pricing_service._quantize_money(one_time_total + monthly_total * Decimal('12'))
         self.db.commit()
 
         return {
-            'one_time_total': float(one_time_total),
-            'monthly_total': float(monthly_total),
-            'projected_12_month_cost': float(projected_12_month_cost),
+            'one_time_total': float(self.pricing_service._quantize_money(one_time_total)),
+            'monthly_total': float(self.pricing_service._quantize_money(monthly_total)),
+            'projected_12_month_cost': float(projected),
             'currency': currency,
-            'default_discount_pct': float(default_pct),
+            'default_discount_pct': 0.0,
             'incremental_discount_pct': 0.0,
         }
 
@@ -307,17 +305,16 @@ class QuoteService:
             raise AppError('Complete onboarding before creating a procurement request', 400)
 
         if payload and payload.get('draft_solution'):
-            candidates, currency = self._build_line_candidates_from_draft(payload['draft_solution'])
+            groups, currency = self._draft_groups(current_user, payload['draft_solution'])
         else:
-            candidates, currency = self._build_line_candidates_from_cart(current_user)
+            groups, currency = self._cart_groups(current_user)
 
-        (
-            priced_candidates,
-            one_time_total,
-            monthly_total,
-            projected_12_month_cost,
-            _,
-        ) = self._price_candidates(current_user, candidates, incremental_discount_pct=Decimal('0'))
+        one_time_total, monthly_total = self._sum_group_totals(groups)
+        one_time_total = self.pricing_service._quantize_money(one_time_total)
+        monthly_total = self.pricing_service._quantize_money(monthly_total)
+        projected_12_month_cost = self.pricing_service._quantize_money(
+            one_time_total + monthly_total * Decimal('12')
+        )
 
         quote = self.quote_repo.create(
             tenant_id=self._parse_uuid(current_user['tenant_id'], field_name='tenant_id'),
@@ -332,34 +329,25 @@ class QuoteService:
         # Ensure a deal-pricing row exists for this quote.
         self.pricing_service.get_or_create_deal_pricing(quote)
 
-        ordered_candidates = sorted(
-            priced_candidates,
-            key=lambda row: 1 if row['line_type'] == QuoteLineType.SERVICE else 0,
-        )
-        quote_line_id_by_temp_id: dict[str, str] = {}
-
-        for candidate in ordered_candidates:
-            parent_line_id = None
-            parent_temp_id = candidate.get('parent_temp_id')
-            if parent_temp_id:
-                parent_line_id = quote_line_id_by_temp_id.get(parent_temp_id)
-
-            created_line = self.quote_repo.add_line(
-                quote_id=quote.id,
-                line_type=candidate['line_type'],
-                catalog_item_id=candidate['catalog_item_id'],
-                name_snapshot=candidate['name_snapshot'],
-                sku_snapshot=candidate['sku_snapshot'],
-                vendor_snapshot=candidate['vendor_snapshot'],
-                qty=int(candidate['qty']),
-                list_price_snapshot=float(candidate['list_price_snapshot']),
-                final_unit_price_snapshot=float(candidate['final_unit_price_snapshot']),
-                billing_type=candidate['billing_type'],
-                interval=candidate['interval'],
-                metadata_json=candidate['metadata_json'] or {},
-                parent_line_id=parent_line_id,
+        for group in groups:
+            line_ids = self._write_component_lines(
+                quote, group['product'], group['result'], group['result']['financial_model'],
+                extra_metadata=group['metadata'],
             )
-            quote_line_id_by_temp_id[candidate['temp_id']] = str(created_line.id)
+            parent_line_id = None
+            device_line = next(
+                (l for l in group['result']['lines'] if l['component_type'] == ComponentType.DEVICE.value),
+                None,
+            )
+            if device_line is not None:
+                parent_line_id = line_ids.get(device_line['component_id'])
+            for service in group['services']:
+                self._write_component_lines(
+                    quote, service['product'], service['result'], service['result']['financial_model'],
+                    extra_metadata=service['metadata'], parent_line_id=parent_line_id,
+                )
+        quote.financial_model = self._header_financial_model(groups)
+        quote.subscription_interval = 'MONTH'
 
         # ── Inject managed-service per-SKU lines if design_id is provided ──
         design_id = (payload or {}).get('design_id')
@@ -400,7 +388,10 @@ class QuoteService:
             quote_id=str(quote.id),
             source='draft_solution' if (payload and payload.get('draft_solution')) else 'cart',
             design_id=design_id,
-            line_count=len(ordered_candidates),
+            line_count=sum(
+                len(g['result']['lines']) + sum(len(s['result']['lines']) for s in g['services'])
+                for g in groups
+            ),
             one_time_total=float(one_time_total),
             monthly_total=float(quote.monthly_total),
         )
@@ -418,7 +409,8 @@ class QuoteService:
         return billing, interval
 
     def _check_capacity(self, product, result: dict) -> None:
-        """Block over-subscription of a device's capacity (§5, block + warn)."""
+        """Block over-subscription of a device's capacity (§5, block + warn).
+        Capacity scales with the device count (qty 2 devices → 16 FXS ports)."""
         from sqlalchemy import select
         comp_ids = [self._parse_uuid(l['component_id'], field_name='component_id') for l in result['lines']]
         if not comp_ids:
@@ -427,7 +419,13 @@ class QuoteService:
             str(c.id): c
             for c in self.db.scalars(select(ProductComponent).where(ProductComponent.id.in_(comp_ids)))
         }
-        provided = (product.attributes or {}).get('capacity') or {}
+        device_qty = next(
+            (int(l['qty']) for l in result['lines'] if l['component_type'] == ComponentType.DEVICE.value), 1
+        )
+        provided = {
+            k: v * max(1, device_qty)
+            for k, v in ((product.attributes or {}).get('capacity') or {}).items()
+        }
         consumers = [
             ((comps[l['component_id']].attributes or {}).get('consumes'), l['qty'])
             for l in result['lines'] if l['component_id'] in comps
@@ -448,7 +446,8 @@ class QuoteService:
                     f"{line['component_type']} requires a device line in the same quote", 400
                 )
 
-    def _component_line_kwargs(self, quote_id, product, financial_model, result, line, parent_line_id):
+    def _component_line_kwargs(self, quote_id, product, financial_model, result, line, parent_line_id,
+                               extra_metadata: dict | None = None):
         billing_type, interval = self._billing_from_engine_line(line)
         line_type = QuoteLineType.DEVICE if line['component_type'] == ComponentType.DEVICE.value else QuoteLineType.SERVICE
         leasing = None
@@ -472,6 +471,7 @@ class QuoteService:
                 'margin_source': line['margin_source'],
                 'financed': line['financed'],
                 'source': 'component_engine',
+                **(extra_metadata or {}),
             },
             'parent_line_id': parent_line_id,
             'component_type': line['component_type'],
@@ -484,19 +484,27 @@ class QuoteService:
             'term_months': term,
         }
 
-    def _write_component_lines(self, quote, product, result, financial_model) -> None:
-        """Append one product's computed tree to a quote (device parent first)."""
+    def _write_component_lines(self, quote, product, result, financial_model,
+                               extra_metadata: dict | None = None,
+                               parent_line_id=None) -> dict[str, str]:
+        """Append one product's computed tree to a quote (device parent first).
+        Returns {component_id: quote_line_id} so callers can attach follow-on
+        lines (e.g. draft-solution managed services) under the device."""
         ordered = sorted(result['lines'], key=lambda l: 0 if l['component_type'] == ComponentType.DEVICE.value else 1)
         quote_line_id_by_component_id: dict[str, str] = {}
         for line in ordered:
-            parent_line_id = None
+            line_parent_id = parent_line_id
             parent_cid = line.get('parent_component_id')
             if parent_cid:
-                parent_line_id = quote_line_id_by_component_id.get(parent_cid)
+                line_parent_id = quote_line_id_by_component_id.get(parent_cid) or parent_line_id
             created = self.quote_repo.add_line(
-                **self._component_line_kwargs(quote.id, product, financial_model, result, line, parent_line_id)
+                **self._component_line_kwargs(
+                    quote.id, product, financial_model, result, line, line_parent_id,
+                    extra_metadata=extra_metadata,
+                )
             )
             quote_line_id_by_component_id[line['component_id']] = str(created.id)
+        return quote_line_id_by_component_id
 
     def _persist_component_tree(self, quote, product, result, financial_model) -> None:
         """Replace the quote's component lines with one product's computed tree."""

@@ -85,7 +85,9 @@ def setup():
             company_setup_completed=True, payment_validation_status='VERIFIED',
             operations_address={'line1': '1 Main St', 'city': 'Austin', 'state': 'TX', 'postal_code': '78701'},
             billing_same_as_operations=True))
-        db.add(CustomerPricing(tenant_id=tid, opex_eligible=True))
+        # Phase 7: pin the tenant-wide markup at 20% (D2) so totals stay the
+        # manager's worked-example numbers.
+        db.add(CustomerPricing(tenant_id=tid, opex_eligible=True, default_margin_pct=Decimal('0.20')))
         db.commit()
 
     cu = {'user_id': str(uid), 'tenant_id': str(tid), 'role': UserRole.ADMIN.value}

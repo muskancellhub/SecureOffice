@@ -30,6 +30,14 @@ class CatalogItemResponse(BaseModel):
     notes: str | None = None
     raw_source: dict | None = None
 
+    # Phase 7 — product-backed catalog, priced per tenant.
+    product_id: str | None = None
+    one_time_price: float | None = None
+    monthly_price: float | None = None
+    price_editable: bool = True
+    # Per-component rows for the bundling configurator (detail endpoint only).
+    components: list[dict] | None = None
+
 
 class CatalogSyncResponse(BaseModel):
     synced_count: int

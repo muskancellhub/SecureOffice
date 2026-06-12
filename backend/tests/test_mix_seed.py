@@ -60,16 +60,15 @@ def test_line_charge_costs_and_uom():
     assert seat[3] == '5.50' and seat[4] == ComponentUom.PER_SEAT
 
 
-def test_sim_is_flat_forty_one_time_no_margin():
+def test_sim_is_flat_thirty_one_time_no_margin():
     sim = _shared('PAPI-SIM')
-    assert sim[0] == ComponentType.SIM and sim[3] == '40.00'
+    assert sim[0] == ComponentType.SIM and sim[3] == '30.00'  # Phase 7 D6
     assert sim[5] == 'ONE_TIME' and sim[6] is None  # one-time, not monthly (2026-06-04)
     assert sim[9]['flat_price'] is True and sim[9]['source'] == 'PAPI'
     assert sim[9]['consumes'] == {'max_sims': 1}
 
 
-def test_default_margin_and_leasing():
-    assert mix_seed.DEFAULT_MARGIN == Decimal('0.20')
+def test_default_leasing():
     assert mix_seed.DEFAULT_LEASING == Decimal('0.05')
 
 
@@ -127,7 +126,7 @@ def test_migrations_and_seed_idempotent(db_available):
 
         p90x1 = db.scalar(select(Product).where(Product.sku == '90X1'))
         assert p90x1 is not None
-        assert Decimal(p90x1.margin_pct) == Decimal('0.20')
+        assert p90x1.margin_pct is None  # Phase 7 D2: inherit per-tenant markup
         assert Decimal(p90x1.leasing_pct) == Decimal('0.05')
         assert p90x1.attributes['capacity']['fxs_port'] == 8
 
@@ -141,7 +140,7 @@ def test_migrations_and_seed_idempotent(db_available):
         assert Decimal(by_sku['SERV2158'].vendor_cost) == Decimal('7.75')
         assert by_sku['SERV2158'].billing == 'RECURRING' and by_sku['SERV2158'].interval == 'MONTH'
         assert Decimal(by_sku['SERV1970'].vendor_cost) == Decimal('11.50')
-        assert Decimal(by_sku['PAPI-SIM'].vendor_cost) == Decimal('40')
+        assert Decimal(by_sku['PAPI-SIM'].vendor_cost) == Decimal('30')
         assert by_sku['PAPI-SIM'].attributes['flat_price'] is True
 
         # NFR lab unit carries only DEVICE + MAINTENANCE.

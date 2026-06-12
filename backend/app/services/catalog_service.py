@@ -1,16 +1,34 @@
+"""Product-backed catalog service (Phase 7 — one catalog).
+
+Every importer (CDW, PAPI, Excel, seeds) writes ``products`` /
+``product_components`` via :mod:`app.services.catalog_unification`; every read
+returns :class:`ProductCatalogEntry` objects priced for the requesting tenant by
+:class:`ComponentPricingService`. Entries deliberately quack like the retired
+``catalog_items`` rows (id/sku/name/price/attributes/managed_service_price/…)
+so the BOM, design and chatbot surfaces keep working unchanged.
+"""
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import AppError, ForbiddenError, NotFoundError
-from app.models.catalog import BillingCycle, CatalogItem, CatalogItemType
+from app.models.catalog import BillingCycle, CatalogItemType
+from app.models.product import ComponentType, Product, ProductComponent
 from app.models.user import UserRole
-from app.repositories.catalog_repository import CatalogRepository
 from app.services.audit_logger import audit
+from app.services.catalog_unification import (
+    deactivate_products_for_source,
+    find_product_by_id_or_legacy,
+    upsert_product_from_catalog_row,
+)
+from app.services.component_pricing_service import ComponentPricingService, is_papi_product
 from app.services.network_vendor_catalog_loader import (
     NETWORK_VENDOR_CATALOG_SOURCE_NAME,
     load_network_vendor_catalog,
@@ -35,6 +53,32 @@ for _group, _cats in MANAGED_SERVICE_CATEGORIES.items():
         CATEGORY_TO_MS_GROUP[_cat] = _group
 
 
+@dataclass
+class ProductCatalogEntry:
+    """A product priced for one tenant, shaped like a legacy catalog item."""
+
+    id: str
+    product_id: str
+    type: CatalogItemType
+    name: str
+    sku: str
+    vendor: str | None
+    vendor_sku: str | None
+    description: str | None
+    price: float
+    currency: str
+    billing_cycle: BillingCycle
+    is_active: bool
+    availability: str | None
+    attributes: dict
+    managed_service_price: float | None
+    created_at: datetime
+    one_time_price: float = 0.0
+    monthly_price: float = 0.0
+    price_editable: bool = True
+    components: list[dict] | None = None
+
+
 class CatalogService:
     NETWORK_CATEGORIES = {
         'wifi_ap',
@@ -52,7 +96,7 @@ class CatalogService:
 
     def __init__(self, db):
         self.db = db
-        self.repo = CatalogRepository(db)
+        self.pricing = ComponentPricingService(db)
 
     @staticmethod
     def _to_float(value, default: float = 0.0) -> float:
@@ -93,6 +137,89 @@ class CatalogService:
             return int(match.group(1))
         return 0
 
+    # ── entry construction ───────────────────────────────────────────────────
+    @staticmethod
+    def _entry_type(product: Product) -> CatalogItemType:
+        for comp in product.components:
+            if comp.component_type == ComponentType.DEVICE:
+                return CatalogItemType.DEVICE
+        item_type = str((product.attributes or {}).get('item_type') or '').upper()
+        if item_type == 'SERVICE':
+            return CatalogItemType.SERVICE
+        return CatalogItemType.DEVICE
+
+    @staticmethod
+    def _entry_billing(one_time_price: float, monthly_price: float, product: Product) -> BillingCycle:
+        if one_time_price > 0:
+            return BillingCycle.ONE_TIME
+        for comp in product.components:
+            if comp.is_required and comp.billing == 'RECURRING':
+                return BillingCycle.YEARLY if comp.interval == 'YEAR' else BillingCycle.MONTHLY
+        return BillingCycle.MONTHLY if monthly_price > 0 else BillingCycle.ONE_TIME
+
+    def _entry_from_product(self, product: Product, pricing: dict) -> ProductCatalogEntry:
+        one_time = float(pricing.get('one_time_price') or 0)
+        monthly = float(pricing.get('monthly_price') or 0)
+        ms_monthly = pricing.get('managed_service_monthly')
+        attrs = dict(product.attributes or {})
+        return ProductCatalogEntry(
+            id=str(product.id),
+            product_id=str(product.id),
+            type=self._entry_type(product),
+            name=product.name,
+            sku=product.sku,
+            vendor=product.vendor,
+            vendor_sku=product.vendor_sku,
+            description=product.description,
+            price=one_time if one_time > 0 else monthly,
+            currency=str(attrs.get('currency') or 'USD'),
+            billing_cycle=self._entry_billing(one_time, monthly, product),
+            is_active=product.is_active,
+            availability=attrs.get('availability'),
+            attributes=attrs,
+            managed_service_price=float(ms_monthly) if ms_monthly is not None else None,
+            created_at=product.created_at,
+            one_time_price=one_time,
+            monthly_price=monthly,
+            price_editable=bool(pricing.get('price_editable', True)),
+        )
+
+    def _entries_for_products(self, products: list[Product], *, tenant_id=None) -> list[ProductCatalogEntry]:
+        pricing = self.pricing.price_catalog_entries(products, tenant_id=tenant_id)
+        return [self._entry_from_product(p, pricing.get(str(p.id), {})) for p in products]
+
+    def _component_listing(self, product: Product, *, tenant_id=None) -> list[dict]:
+        """All active components priced individually (configurator rows, D9)."""
+        rows: list[dict] = []
+        for comp in sorted(product.components, key=lambda c: (not c.is_required, c.component_type.value)):
+            if not comp.is_active:
+                continue
+            priced = self.pricing.price_standalone_component(
+                comp.id, qty=max(1, comp.default_qty), financial_model='CAPEX',
+                interval='MONTH', tenant_id=tenant_id,
+            )
+            line = priced['lines'][0]
+            rows.append({
+                'id': str(comp.id),
+                'component_type': comp.component_type.value,
+                'label': comp.label,
+                'vendor_component_sku': comp.vendor_component_sku,
+                'uom': comp.uom.value,
+                'billing': comp.billing,
+                'interval': comp.interval,
+                'is_required': comp.is_required,
+                'default_qty': comp.default_qty,
+                'financial_model': comp.financial_model.value
+                if hasattr(comp.financial_model, 'value') else str(comp.financial_model),
+                'unit_price': float(line['unit_price']),
+                'monthly_unit': float(line['monthly_unit']),
+                'one_time_unit': float(line['one_time_unit']),
+                'price_editable': bool(line['price_editable']),
+                'attributes': comp.attributes or {},
+            })
+        return rows
+
+    # ── importers (all write products — Phase 7 WS1) ─────────────────────────
     @staticmethod
     def _normalize_router_item(item: dict) -> dict:
         sku = str(item.get('sku') or '').strip()
@@ -117,13 +244,46 @@ class CatalogService:
         return {
             'sku': sku,
             'name': name,
+            'item_type': 'DEVICE',
             'vendor': str(item.get('vendor') or 'CDW').strip() or 'CDW',
             'vendor_sku': str(item.get('vendor_sku') or sku).strip() or sku,
             'description': item.get('description'),
             'price': CatalogService._to_float(item.get('price')),
             'currency': str(item.get('currency') or 'USD').upper(),
+            'billing_cycle': 'ONE_TIME',
             'availability': item.get('availability'),
             'attributes': attributes,
+        }
+
+    def _upsert_rows(self, rows: list[dict]) -> tuple[list[Product], int, int]:
+        products: list[Product] = []
+        created = 0
+        updated = 0
+        for row in rows:
+            existed = self.db.scalar(select(Product.id).where(Product.sku == row['sku'])) is not None
+            products.append(upsert_product_from_catalog_row(self.db, row))
+            if existed:
+                updated += 1
+            else:
+                created += 1
+        return products, created, updated
+
+    def _sync_result(self, products: list[Product], created: int, updated: int, errors: list[str], **extra) -> dict:
+        # Re-load with components so the response entries can derive type/billing.
+        ids = [p.id for p in products]
+        loaded = []
+        if ids:
+            loaded = list(self.db.scalars(
+                select(Product).where(Product.id.in_(ids)).options(selectinload(Product.components))
+            ).all())
+            loaded.sort(key=lambda p: ids.index(p.id))
+        return {
+            'items': self._entries_for_products(loaded),
+            'synced_count': len(products),
+            'created_count': created,
+            'updated_count': updated,
+            'errors': errors,
+            **extra,
         }
 
     def upsert_router_items(self, items: list[dict]) -> dict:
@@ -135,97 +295,46 @@ class CatalogService:
             except AppError as exc:
                 errors.append(f'row {idx}: {exc.message}')
 
-        upserted = []
-        created_count = 0
-        updated_count = 0
-        for row in normalized:
-            item, created = self.repo.upsert_item(
-                item_type=CatalogItemType.DEVICE,
-                sku=row['sku'],
-                name=row['name'],
-                vendor=row['vendor'],
-                vendor_sku=row['vendor_sku'],
-                description=row['description'],
-                price=row['price'],
-                currency=row['currency'],
-                billing_cycle=BillingCycle.ONE_TIME,
-                availability=row['availability'],
-                attributes=row['attributes'],
-            )
-            upserted.append(item)
-            if created:
-                created_count += 1
-            else:
-                updated_count += 1
+        products, created, updated = self._upsert_rows(normalized)
         self.db.commit()
-        return {
-            'items': upserted,
-            'synced_count': len(upserted),
-            'created_count': created_count,
-            'updated_count': updated_count,
-            'errors': errors,
-        }
+        return self._sync_result(products, created, updated, errors)
 
     def upsert_network_vendor_catalog(self, file_path: str | None = None) -> dict:
         loaded = load_network_vendor_catalog(file_path)
         errors = list(loaded.errors)
 
-        upserted: list[CatalogItem] = []
-        created_count = 0
-        updated_count = 0
+        rows: list[dict] = []
         active_skus: set[str] = set()
-
         for row in loaded.rows:
             attrs = dict(row['attributes'] or {})
             if row.get('price') is None:
                 attrs['price_unavailable'] = True
-
-            item, created = self.repo.upsert_item(
-                item_type=CatalogItemType.DEVICE,
-                sku=row['sku'],
-                name=row['name'],
-                vendor=row['vendor'],
-                vendor_sku=row['vendor_sku'],
-                description=row['description'],
-                price=row['price'] if row.get('price') is not None else 0.0,
-                currency=row['currency'],
-                billing_cycle=BillingCycle.ONE_TIME,
-                availability=row['availability'] or 'in_stock',
-                attributes=attrs,
-            )
-            upserted.append(item)
+            rows.append({
+                'sku': row['sku'],
+                'name': row['name'],
+                'item_type': 'DEVICE',
+                'vendor': row['vendor'],
+                'vendor_sku': row['vendor_sku'],
+                'description': row['description'],
+                'price': row['price'] if row.get('price') is not None else 0.0,
+                'currency': row['currency'],
+                'billing_cycle': 'ONE_TIME',
+                'availability': row['availability'] or 'in_stock',
+                'attributes': attrs,
+            })
             active_skus.add(row['sku'])
-            if created:
-                created_count += 1
-            else:
-                updated_count += 1
 
+        products, created, updated = self._upsert_rows(rows)
         # Spreadsheet is source-of-truth: stale rows from the same source are deactivated.
-        stale_items = list(
-            self.db.scalars(
-                select(CatalogItem).where(
-                    CatalogItem.attributes['source_type'].astext == 'excel',
-                    CatalogItem.attributes['source_name'].astext == NETWORK_VENDOR_CATALOG_SOURCE_NAME,
-                )
-            ).all()
+        deactivated_count = deactivate_products_for_source(
+            self.db, source_type='excel', source_name=NETWORK_VENDOR_CATALOG_SOURCE_NAME,
+            active_skus=active_skus,
         )
-        deactivated_count = 0
-        for item in stale_items:
-            if item.sku not in active_skus and item.is_active:
-                item.is_active = False
-                deactivated_count += 1
-
         self.db.commit()
-
-        return {
-            'items': upserted,
-            'synced_count': len(upserted),
-            'created_count': created_count,
-            'updated_count': updated_count,
-            'deactivated_count': deactivated_count,
-            'skipped_count': loaded.skipped_count,
-            'errors': errors,
-        }
+        return self._sync_result(
+            products, created, updated, errors,
+            deactivated_count=deactivated_count, skipped_count=loaded.skipped_count,
+        )
 
     def seed_managed_services(self) -> list:
         seed_items = [
@@ -282,36 +391,33 @@ class CatalogService:
             },
         ]
 
-        upserted = []
-        for row in seed_items:
-            item, _ = self.repo.upsert_item(
-                item_type=CatalogItemType.SERVICE,
-                sku=row['sku'],
-                name=row['name'],
-                vendor='Secure Office',
-                vendor_sku=row['sku'],
-                description=f"{row['name']} monthly plan",
-                price=row['price'],
-                currency='USD',
-                billing_cycle=BillingCycle.MONTHLY,
-                availability='in_stock',
-                attributes=row['attributes'],
-            )
-            upserted.append(item)
+        rows = [
+            {
+                'sku': row['sku'],
+                'name': row['name'],
+                'item_type': 'SERVICE',
+                'vendor': 'Secure Office',
+                'vendor_sku': row['sku'],
+                'description': f"{row['name']} monthly plan",
+                'price': row['price'],
+                'currency': 'USD',
+                'billing_cycle': 'MONTHLY',
+                'availability': 'in_stock',
+                'attributes': row['attributes'],
+            }
+            for row in seed_items
+        ]
+        products, _, _ = self._upsert_rows(rows)
         self.db.commit()
-        return upserted
+        return products
 
     def seed_partner_devices(self) -> list:
         seed_items = [
             {
-                'type': CatalogItemType.DEVICE,
                 'sku': 'PAPI-LAPTOP-ULTRA-14',
                 'name': 'PAPI UltraBook 14',
-                'vendor': 'PAPI',
                 'description': 'Business laptop for employee productivity workloads',
                 'price': 1299.0,
-                'billing_cycle': BillingCycle.ONE_TIME,
-                'availability': 'in_stock',
                 'attributes': {
                     'category': 'laptop',
                     'product_type': 'laptop',
@@ -325,14 +431,10 @@ class CatalogService:
                 },
             },
             {
-                'type': CatalogItemType.DEVICE,
                 'sku': 'PAPI-LAPTOP-PRO-15',
                 'name': 'PAPI ProBook 15',
-                'vendor': 'PAPI',
                 'description': 'High-performance laptop for engineering and design users',
                 'price': 1599.0,
-                'billing_cycle': BillingCycle.ONE_TIME,
-                'availability': 'in_stock',
                 'attributes': {
                     'category': 'laptop',
                     'product_type': 'laptop',
@@ -346,14 +448,10 @@ class CatalogService:
                 },
             },
             {
-                'type': CatalogItemType.DEVICE,
                 'sku': 'PAPI-PHONE-BIZ-5G',
                 'name': 'PAPI BizPhone 5G',
-                'vendor': 'PAPI',
                 'description': 'Business smartphone with secure mobile management profile',
                 'price': 799.0,
-                'billing_cycle': BillingCycle.ONE_TIME,
-                'availability': 'in_stock',
                 'attributes': {
                     'category': 'phone',
                     'product_type': 'phone',
@@ -367,31 +465,32 @@ class CatalogService:
             },
         ]
 
-        upserted = []
-        for row in seed_items:
-            item, _ = self.repo.upsert_item(
-                item_type=row['type'],
-                sku=row['sku'],
-                name=row['name'],
-                vendor=row['vendor'],
-                vendor_sku=row['sku'],
-                description=row['description'],
-                price=row['price'],
-                currency='USD',
-                billing_cycle=row['billing_cycle'],
-                availability=row['availability'],
-                attributes=row['attributes'],
-            )
-            upserted.append(item)
+        rows = [
+            {
+                'sku': row['sku'],
+                'name': row['name'],
+                'item_type': 'DEVICE',
+                'vendor': 'PAPI',
+                'vendor_sku': row['sku'],
+                'description': row['description'],
+                'price': row['price'],
+                'currency': 'USD',
+                'billing_cycle': 'ONE_TIME',
+                'availability': 'in_stock',
+                'attributes': row['attributes'],
+            }
+            for row in seed_items
+        ]
+        products, _, _ = self._upsert_rows(rows)
         self.db.commit()
-        return upserted
+        return products
 
     def seed_mix_products(self) -> dict:
         """Idempotently seed the MIX Networks component catalog (Phase 1).
 
-        Writes to products / product_components (not catalog_items). Delegates to
-        app.services.mix_seed; returns a {'products','components','financing_terms'}
-        summary. Safe to call on every startup.
+        Delegates to app.services.mix_seed; returns a
+        {'products','components','financing_terms'} summary. Safe to call on
+        every startup.
         """
         from app.services.mix_seed import seed_mix_products as _seed
         return _seed(self.db)
@@ -538,11 +637,13 @@ class CatalogService:
                 {
                     'sku': sku,
                     'name': variant_name,
+                    'item_type': 'DEVICE',
                     'vendor': 'PAPI',
                     'vendor_sku': part_number,
                     'description': short_desc,
                     'price': offer_price,
                     'currency': 'USD',
+                    'billing_cycle': 'ONE_TIME',
                     'availability': availability,
                     'attributes': attributes,
                 }
@@ -551,7 +652,10 @@ class CatalogService:
         return rows
 
     def upsert_papi_products(self, raw_products: list[dict]) -> dict:
-        """Normalize PAPI API products and upsert into catalog."""
+        """Normalize PAPI API products and upsert into the product catalog.
+
+        PAPI products are flagged ``source_type='paapi'`` so the engine resells
+        them at PAPI's exact price (zero margin, read-only — D8)."""
         errors: list[str] = []
         all_rows: list[dict] = []
         for idx, product in enumerate(raw_products):
@@ -561,41 +665,24 @@ class CatalogService:
             except Exception as exc:
                 errors.append(f'product {idx} ({product.get("name", "?")}): {exc}')
 
-        upserted = []
-        created_count = 0
-        updated_count = 0
+        products: list[Product] = []
+        created = 0
+        updated = 0
         for row in all_rows:
             try:
-                item, created = self.repo.upsert_item(
-                    item_type=CatalogItemType.DEVICE,
-                    sku=row['sku'],
-                    name=row['name'],
-                    vendor=row['vendor'],
-                    vendor_sku=row['vendor_sku'],
-                    description=row['description'],
-                    price=row['price'],
-                    currency=row['currency'],
-                    billing_cycle=BillingCycle.ONE_TIME,
-                    availability=row['availability'],
-                    attributes=row['attributes'],
-                )
-                upserted.append(item)
-                if created:
-                    created_count += 1
+                existed = self.db.scalar(select(Product.id).where(Product.sku == row['sku'])) is not None
+                products.append(upsert_product_from_catalog_row(self.db, row))
+                if existed:
+                    updated += 1
                 else:
-                    updated_count += 1
+                    created += 1
             except Exception as exc:
                 errors.append(f'upsert {row["sku"]}: {exc}')
 
         self.db.commit()
-        return {
-            'items': upserted,
-            'synced_count': len(upserted),
-            'created_count': created_count,
-            'updated_count': updated_count,
-            'errors': errors,
-        }
+        return self._sync_result(products, created, updated, errors)
 
+    # ── source inference (operates on entries / products alike) ──────────────
     def _infer_source_type(self, item) -> str:
         attrs = item.attributes or {}
         source_type = str(attrs.get('source_type') or '').strip().lower()
@@ -639,6 +726,7 @@ class CatalogService:
 
         return {
             'id': str(item.id),
+            'product_id': getattr(item, 'product_id', str(item.id)),
             'type': item.type,
             'name': item.name,
             'sku': item.sku,
@@ -661,7 +749,28 @@ class CatalogService:
             'model': attrs.get('model'),
             'notes': attrs.get('notes'),
             'raw_source': raw_source,
+            'one_time_price': getattr(item, 'one_time_price', float(item.price)),
+            'monthly_price': getattr(item, 'monthly_price', 0.0),
+            'price_editable': getattr(item, 'price_editable', True),
+            'components': getattr(item, 'components', None),
         }
+
+    # ── reads (per-tenant priced — Phase 7 WS3) ──────────────────────────────
+    def _load_products(self) -> list[Product]:
+        return list(self.db.scalars(
+            select(Product)
+            .where(Product.is_active.is_(True))
+            .options(selectinload(Product.components))
+            .order_by(Product.created_at.desc())
+        ).all())
+
+    def _fetch_entries(self, *, tenant_id=None, include_unsellable: bool = False) -> list[ProductCatalogEntry]:
+        """Load + price the full catalog. Seam for tests (override to inject
+        fake entries without a database)."""
+        products = self._load_products()
+        if not include_unsellable:
+            products = [p for p in products if (p.attributes or {}).get('sellable') is not False]
+        return self._entries_for_products(products, tenant_id=tenant_id)
 
     def list_items(
         self,
@@ -683,8 +792,28 @@ class CatalogService:
         sort: str | None = None,
         page: int = 1,
         page_size: int | None = None,
+        tenant_id=None,
+        include_unsellable: bool = False,
     ):
-        items = self.repo.list_items(item_type=item_type, category=category, service_kind=service_kind)
+        items = [
+            item for item in self._fetch_entries(tenant_id=tenant_id, include_unsellable=include_unsellable)
+            if item.is_active
+        ]
+
+        if item_type:
+            items = [item for item in items if item.type == item_type]
+
+        if category:
+            items = [
+                item for item in items
+                if str((item.attributes or {}).get('category') or '').lower() == category.lower()
+            ]
+
+        if service_kind:
+            items = [
+                item for item in items
+                if str((item.attributes or {}).get('service_kind') or '').lower() == service_kind.lower()
+            ]
 
         search_l = (search or '').strip().lower()
         if search_l:
@@ -785,6 +914,32 @@ class CatalogService:
 
         return items
 
+    def get_item_by_id(self, item_id: str, *, tenant_id=None, include_components: bool = False):
+        product = find_product_by_id_or_legacy(self.db, item_id)
+        if not product or not product.is_active:
+            raise NotFoundError('Catalog item not found')
+        # Touch the relationship so entry type/billing derivation has components.
+        _ = product.components
+        entry = self._entries_for_products([product], tenant_id=tenant_id)[0]
+        if include_components:
+            entry.components = self._component_listing(product, tenant_id=tenant_id)
+        return entry
+
+    # ── managed-service admin (per-SKU MS component — D4) ────────────────────
+    @staticmethod
+    def _require_ms_admin(current_user: dict) -> None:
+        if current_user.get('role') not in {UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value}:
+            raise ForbiddenError('Only ADMIN or SUPER_ADMIN can update managed services')
+
+    def _ms_component_for(self, product: Product) -> ProductComponent | None:
+        """The product's managed-service add-on component (not the primary
+        charge of a standalone SERVICE product)."""
+        candidates = [
+            c for c in product.components
+            if c.component_type == ComponentType.MANAGED_SERVICE and not c.is_required
+        ]
+        return candidates[0] if candidates else None
+
     def update_managed_service(
         self,
         current_user: dict,
@@ -794,40 +949,63 @@ class CatalogService:
         is_active: bool | None,
         features: Iterable[str] | None,
     ):
-        if current_user.get('role') not in {UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value}:
-            raise ForbiddenError('Only ADMIN or SUPER_ADMIN can update managed services')
+        self._require_ms_admin(current_user)
 
-        item = self.repo.get_by_id(item_id)
-        if not item:
+        product = find_product_by_id_or_legacy(self.db, item_id)
+        if not product:
             raise NotFoundError('Managed service not found')
-        if item.type != CatalogItemType.SERVICE or (item.attributes or {}).get('service_kind') != 'managed_router':
+        if (product.attributes or {}).get('service_kind') != 'managed_router':
             raise AppError('Target catalog item is not a managed router service', 400)
 
+        primary = next(
+            (c for c in product.components if c.component_type == ComponentType.MANAGED_SERVICE and c.is_required),
+            None,
+        )
         if price is not None:
             # Defense-in-depth: the schema enforces ge=0 at the API boundary, but
-            # update_managed_service is also reachable from internal callers that
-            # bypass it. A negative price would corrupt billing totals.
+            # this is also reachable from internal callers that bypass it.
             if float(price) < 0:
                 raise AppError('Price must be zero or greater', 400)
-            item.price = float(price)
+            if primary is not None:
+                primary.vendor_cost = Decimal(str(price))
         if is_active is not None:
-            item.is_active = is_active
+            product.is_active = is_active
+            for comp in product.components:
+                comp.is_active = is_active
         if features is not None:
-            attrs = dict(item.attributes or {})
+            attrs = dict(product.attributes or {})
             attrs['features'] = [str(f).strip() for f in features if str(f).strip()]
-            item.attributes = attrs
+            product.attributes = attrs
 
         self.db.commit()
-        self.db.refresh(item)
-        return item
+        self.db.refresh(product)
+        return self.get_item_by_id(str(product.id))
 
-    def get_item_by_id(self, item_id: str):
-        item = self.repo.get_by_id(item_id)
-        if not item:
-            item = self.repo.get_by_sku(item_id)
-        if not item or not item.is_active:
-            raise NotFoundError('Catalog item not found')
-        return item
+    def _set_device_ms_price(self, product: Product, managed_service_price: float | None) -> float | None:
+        """Upsert / deactivate the optional MANAGED_SERVICE component (D4)."""
+        component = self._ms_component_for(product)
+        old_price = float(component.vendor_cost) if component is not None and component.is_active else None
+        if managed_service_price is None:
+            if component is not None:
+                component.is_active = False
+            return old_price
+        if component is None:
+            component = ProductComponent(
+                product_id=product.id,
+                component_type=ComponentType.MANAGED_SERVICE,
+                vendor_component_sku=f'{product.sku}-MS',
+                label='Managed Service',
+                uom='PER_DEVICE',
+                billing='RECURRING',
+                interval='MONTH',
+                is_required=False,
+                default_qty=1,
+                attributes={'legacy_managed_service': True},
+            )
+            self.db.add(component)
+        component.vendor_cost = Decimal(str(managed_service_price))
+        component.is_active = True
+        return old_price
 
     def update_device_managed_service_price(
         self,
@@ -835,39 +1013,37 @@ class CatalogService:
         item_id: str,
         managed_service_price: float | None,
     ):
-        if current_user.get('role') not in {UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value}:
-            raise ForbiddenError('Only ADMIN or SUPER_ADMIN can update managed service pricing')
+        self._require_ms_admin(current_user)
 
-        item = self.repo.get_by_id(item_id)
-        if not item:
+        product = find_product_by_id_or_legacy(self.db, item_id)
+        if not product:
             raise NotFoundError('Catalog item not found')
-        if item.type != CatalogItemType.DEVICE:
-            raise AppError('Managed service pricing can only be set on DEVICE items', 400)
+        if is_papi_product(product):
+            raise AppError('PAPI devices do not carry a managed service (D8)', 400)
+        if managed_service_price is not None and float(managed_service_price) < 0:
+            raise AppError('Price must be zero or greater', 400)
 
-        old_price = float(item.managed_service_price) if item.managed_service_price is not None else None
-        item.managed_service_price = float(managed_service_price) if managed_service_price is not None else None
+        old_price = self._set_device_ms_price(product, managed_service_price)
         self.db.commit()
-        self.db.refresh(item)
-        audit.log('service_price_updated', catalog_item_id=str(item.id), item_sku=item.sku,
-                  old_price=old_price, new_price=item.managed_service_price)
-        return item
+        audit.log('service_price_updated', catalog_item_id=str(product.id), item_sku=product.sku,
+                  old_price=old_price, new_price=managed_service_price)
+        return self.get_item_by_id(str(product.id))
 
     def bulk_update_managed_service_prices(
         self,
         current_user: dict,
         updates: list[dict],
     ) -> int:
-        if current_user.get('role') not in {UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value}:
-            raise ForbiddenError('Only ADMIN or SUPER_ADMIN can update managed service pricing')
+        self._require_ms_admin(current_user)
 
         count = 0
         for entry in updates:
             item_id = entry.get('item_id')
             price = entry.get('managed_service_price')
-            item = self.repo.get_by_id(item_id)
-            if not item or item.type != CatalogItemType.DEVICE:
+            product = find_product_by_id_or_legacy(self.db, item_id)
+            if not product or is_papi_product(product):
                 continue
-            item.managed_service_price = float(price) if price is not None else None
+            self._set_device_ms_price(product, float(price) if price is not None else None)
             count += 1
         self.db.commit()
         audit.log('bulk_price_update', requested_count=len(updates), applied_count=count)

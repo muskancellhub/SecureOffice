@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.permissions import PERM_MANAGE_MANAGED_SERVICES
 from app.middleware.dependencies import get_current_user
+from app.middleware.tenant_context import TenantContext, get_tenant_context
 from app.models.catalog import CatalogItemType
 from app.schemas.catalog import (
     BulkUpdateManagedServicePricesRequest,
@@ -37,8 +38,11 @@ def list_catalog_items(
     page: int = Query(default=1, ge=1),
     page_size: int | None = Query(default=None, ge=1, le=250),
     _: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
     db: Session = Depends(get_db),
 ):
+    """Product-backed catalog (Phase 7 WS3), priced for the EFFECTIVE tenant —
+    switching the active tenant (X-Tenant-Id) reprices every card."""
     service = CatalogService(db)
     items = service.list_items(
         item_type=type,
@@ -58,14 +62,20 @@ def list_catalog_items(
         sort=sort,
         page=page,
         page_size=page_size,
+        tenant_id=ctx.effective_tenant_id,
     )
     return [CatalogItemResponse(**service.to_catalog_response_dict(item)) for item in items]
 
 
 @router.get('/catalog/{item_id}', response_model=CatalogItemResponse)
-def get_catalog_item(item_id: str, _: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_catalog_item(
+    item_id: str,
+    _: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db),
+):
     service = CatalogService(db)
-    item = service.get_item_by_id(item_id)
+    item = service.get_item_by_id(item_id, tenant_id=ctx.effective_tenant_id, include_components=True)
     return CatalogItemResponse(**service.to_catalog_response_dict(item))
 
 

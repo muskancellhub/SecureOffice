@@ -16,7 +16,8 @@ class CartRepository:
                 Cart.tenant_id == uuid.UUID(tenant_id),
                 Cart.status == CartStatus.ACTIVE,
             )
-            .options(selectinload(Cart.lines).selectinload(CartLine.catalog_item))
+            .options(selectinload(Cart.lines).selectinload(CartLine.product))
+            .options(selectinload(Cart.lines).selectinload(CartLine.component))
             .options(selectinload(Cart.lines).selectinload(CartLine.applies_to_line))
             .order_by(Cart.created_at.desc())
         )
@@ -38,7 +39,8 @@ class CartRepository:
         self,
         *,
         cart_id,
-        catalog_item_id,
+        product_id=None,
+        component_id=None,
         quantity: int,
         unit_price: float,
         currency: str,
@@ -47,7 +49,8 @@ class CartRepository:
     ) -> CartLine:
         line = CartLine(
             cart_id=cart_id,
-            catalog_item_id=catalog_item_id,
+            product_id=product_id,
+            component_id=component_id,
             quantity=quantity,
             unit_price=unit_price,
             currency=currency,
@@ -58,10 +61,10 @@ class CartRepository:
         self.db.flush()
         return line
 
-    def get_matching_line(self, *, cart_id, catalog_item_id, applies_to_line_id=None) -> CartLine | None:
+    def get_matching_line(self, *, cart_id, component_id, applies_to_line_id=None) -> CartLine | None:
         stmt = select(CartLine).where(
             CartLine.cart_id == cart_id,
-            CartLine.catalog_item_id == catalog_item_id,
+            CartLine.component_id == component_id,
         )
         if applies_to_line_id is None:
             stmt = stmt.where(CartLine.applies_to_line_id.is_(None))

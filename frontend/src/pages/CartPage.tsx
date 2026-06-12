@@ -158,7 +158,7 @@ export const CartPage = () => {
               const attached = serviceLinesByRouter.get(router.id) || [];
               const compatibleServices = servicesForCategory(managedServices, router.category);
               const isPickerOpen = expandedServicePicker === router.id;
-              const attachedServiceIds = new Set(attached.map((a) => a.catalog_item_id));
+              const attachedServiceIds = new Set(attached.map((a) => a.product_id || a.catalog_item_id));
               const hasService = attached.length > 0;
               const viz = deviceViz(router.category);
               const VizIcon = viz.icon;
@@ -191,16 +191,26 @@ export const CartPage = () => {
                       <div className="cpx-attached">
                         {attached.map((service) => {
                           const compatibleForSwap = servicesForCategory(managedServices, router.category);
+                          // Only standalone managed-router tiers are swappable;
+                          // bundled components (controller, SIM, lines) are not.
+                          const isTier = compatibleForSwap.some(
+                            (svc) => (svc.product_id || svc.id) === (service.product_id || service.catalog_item_id),
+                          );
+                          const recurring = service.billing_cycle === 'MONTHLY';
                           return (
                             <div key={service.id} className="cpx-svc-row">
                               <span className="cpx-svc-badge"><ShieldCheck size={14} /></span>
                               <div className="cpx-svc-info">
                                 <span className="cpx-svc-name">{service.item_name}</span>
-                                <span className="cpx-svc-price">{formatCurrency(service.unit_price)}/mo × {service.quantity}</span>
+                                <span className="cpx-svc-price">
+                                  {formatCurrency(service.unit_price)}{recurring ? '/mo' : ''} × {service.quantity}
+                                </span>
                               </div>
-                              <select value={service.catalog_item_id} onChange={(e) => changeServiceTier(service.id, e.target.value)} aria-label="Change tier">
-                                {compatibleForSwap.map((svc) => <option key={svc.id} value={svc.id}>{svc.name} — ${svc.price.toFixed(2)}/mo</option>)}
-                              </select>
+                              {isTier && (
+                                <select value={service.product_id || ''} onChange={(e) => changeServiceTier(service.id, e.target.value)} aria-label="Change tier">
+                                  {compatibleForSwap.map((svc) => <option key={svc.id} value={svc.product_id || svc.id}>{svc.name} — ${svc.price.toFixed(2)}/mo</option>)}
+                                </select>
+                              )}
                               <button className="cpx-remove cpx-remove-sm" onClick={() => removeLine(service.id)} aria-label="Remove service"><Trash2 size={14} /></button>
                             </div>
                           );

@@ -136,7 +136,8 @@ class UpdateCommercialRequest(BaseModel):
 class CommercialResponse(BaseModel):
     tenant_id: str
     default_discount_pct: float
-    default_margin_pct: float
+    # None = tenant hasn't customized → inherits the 25% global default (Phase 7 D2).
+    default_margin_pct: float | None = None
     opex_eligible: bool
     credit_status: str
     credit_limit: float | None = None

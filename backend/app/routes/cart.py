@@ -23,8 +23,8 @@ def _serialize_cart(cart) -> CartResponse:
                 applies_to_name = (parent.price_snapshot or {}).get('name')
 
         line_total = float(line.unit_price) * line.quantity
-        billing_cycle = snapshot.get('billing_cycle')
-        if billing_cycle == 'MONTHLY':
+        recurring = snapshot.get('billing') == 'RECURRING' or snapshot.get('billing_cycle') == 'MONTHLY'
+        if recurring:
             monthly_subtotal += line_total
         else:
             one_time_subtotal += line_total
@@ -32,11 +32,17 @@ def _serialize_cart(cart) -> CartResponse:
         lines.append(
             CartLineResponse(
                 id=str(line.id),
-                catalog_item_id=str(line.catalog_item_id),
+                product_id=str(line.product_id) if line.product_id else None,
+                component_id=str(line.component_id) if line.component_id else None,
+                component_type=snapshot.get('component_type'),
                 item_name=snapshot.get('name', ''),
                 item_type=snapshot.get('type', ''),
                 category=snapshot.get('category'),
-                billing_cycle=billing_cycle,
+                billing_cycle=snapshot.get('billing_cycle'),
+                financial_model=snapshot.get('financial_model'),
+                financed=bool(snapshot.get('financed')),
+                standalone=bool(snapshot.get('standalone')),
+                is_parent=bool(snapshot.get('is_parent')),
                 quantity=line.quantity,
                 unit_price=float(line.unit_price),
                 currency=line.currency,
@@ -53,9 +59,9 @@ def _serialize_cart(cart) -> CartResponse:
         id=str(cart.id),
         status=cart.status.value,
         lines=lines,
-        one_time_subtotal=one_time_subtotal,
-        monthly_subtotal=monthly_subtotal,
-        estimated_12_month_total=estimated_12_month_total,
+        one_time_subtotal=round(one_time_subtotal, 2),
+        monthly_subtotal=round(monthly_subtotal, 2),
+        estimated_12_month_total=round(estimated_12_month_total, 2),
         currency=currency,
     )
 
@@ -70,8 +76,12 @@ def get_cart(current_user: dict = Depends(get_current_user), db: Session = Depen
 def add_cart_line(payload: AddCartLineRequest, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     cart = CartService(db).add_line(
         current_user,
-        catalog_item_id=payload.catalog_item_id,
+        product_id=payload.product_id,
+        component_id=payload.component_id,
+        selections=payload.selections,
         quantity=payload.quantity,
+        financial_model=payload.financial_model,
+        interval=payload.interval,
         applies_to_line_id=payload.applies_to_line_id,
     )
     return _serialize_cart(cart)
@@ -88,7 +98,6 @@ def update_cart_line(
         current_user,
         line_id,
         quantity=payload.quantity,
-        catalog_item_id=payload.catalog_item_id,
     )
     return _serialize_cart(cart)
 

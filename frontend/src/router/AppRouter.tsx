@@ -20,7 +20,6 @@ import { CartPage } from '../pages/CartPage';
 import { AdminCatalogSyncPage } from '../pages/AdminCatalogSyncPage';
 import { AdminManagedServicesPage } from '../pages/AdminManagedServicesPage';
 import { AdminProductsPage } from '../pages/AdminProductsPage';
-import { AdminFinancingPage } from '../pages/AdminFinancingPage';
 import { AdminUserManagementPage } from '../pages/AdminUserManagementPage';
 import { AdminOrderNotificationsPage } from '../pages/AdminOrderNotificationsPage';
 import { BillingPage } from '../pages/BillingPage';
@@ -90,7 +89,8 @@ export const AppRouter = () => (
       <Route path="/shop/cart" element={<CartPage />} />
       <Route path="/shop/orders/:orderId" element={<OrderDetailsPage />} />
       <Route path="/shop/admin/products" element={<RequireSuperAdmin><AdminProductsPage /></RequireSuperAdmin>} />
-      <Route path="/shop/admin/financing" element={<RequireSuperAdmin><AdminFinancingPage /></RequireSuperAdmin>} />
+      {/* Phase 7 D5: financing is a tab on the products page now. */}
+      <Route path="/shop/admin/financing" element={<Navigate to="/shop/admin/products?tab=financing" replace />} />
       <Route path="/shop/admin/catalog-sync" element={<RequireSuperAdmin><AdminCatalogSyncPage /></RequireSuperAdmin>} />
       <Route path="/shop/admin/managed-services" element={<RequireSuperAdmin><AdminManagedServicesPage /></RequireSuperAdmin>} />
       <Route path="/shop/admin/user-access" element={<AdminUserManagementPage />} />

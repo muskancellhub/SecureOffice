@@ -100,6 +100,13 @@ This engine handles lines that reference `product_id`/`component_id`. Legacy `ca
 
 **Verified** (SIM reclassified ONE-TIME per product owner 2026-06-04 — see deviation D4): OPEX 90X1+voice+SIM = **42.88/mo + $40 one-time**, projected_term 1583.68; CAPEX = **$700 one-time + 23.10/mo** (device 660 + SIM 40); annual recurring = 514.56; lease 19.78; controller 9.30; line 13.80; SIM 40 (flat, one-time, no margin, not financed under OPEX).
 
+**Phase 7 update (2026-06-12, locked)** — the pinned example moved to per-tenant markup:
+- Margin precedence is now D2: `override (tenant+SKU)` → `customer_pricing.default_margin_pct` (tenant-wide, **nullable** — NULL inherits) → `products.margin_pct` → component margin → **`GLOBAL_DEFAULT_MARGIN = 0.25`**. The old D1 deviation is obsolete.
+- SIM is **$30 one-time** (D6); per-tenant SIM pricing via `override_unit_price` (beats `flat_price`).
+- Pinned example: a tenant at **20%** markup reproduces **$42.88/mo + $30 one-time** for the 90X1 (lease 19.78 + controller 9.30 + line 13.80; projected_term 1573.68). With no tenant markup the engine uses the 25% global default (device sells at 687.50).
+- PAPI-sourced products (`attributes.source_type='paapi'` / vendor PAPI) are zero-margin and ignore overrides — `margin_source='papi_fixed'`, `price_editable=false` (D8).
+- Tests: `tests/test_component_pricing.py` (rewritten for D2/D6/D8).
+
 **Deviations**
 - **D1 (margin precedence)** — reordered vs §6 literal text. Rationale: Phase 1 created `customer_pricing.default_margin_pct` NOT NULL DEFAULT 0.20, so §6's literal order would make the CONFIRMED per-component margin (Decision #13) permanently unreachable. **Needs manager sign-off** — if they truly want tenant-default to outrank catalog margins, flip the order (and make the column nullable). Worked example is unaffected (90X1 uses `product.margin_pct=0.20`).
 - **D2 (endpoint path)** — `/pricing/component-preview`, not `/quotes/preview` (collision).
