@@ -117,6 +117,16 @@ class Settings(BaseSettings):
 
     crewai_verbose: bool = Field(default=False, alias='CREWAI_VERBOSE')
 
+    # RAG guardrails 2.1 — secondary model-based injection classifier. Off by
+    # default: it adds an OpenAI call (cost + latency) and only runs on
+    # borderline inputs the deterministic filter didn't already block.
+    llm_guardrail_classifier_enabled: bool = Field(
+        default=False, alias='LLM_GUARDRAIL_CLASSIFIER_ENABLED'
+    )
+    llm_guardrail_classifier_model: str = Field(
+        default='gpt-4.1-mini', alias='LLM_GUARDRAIL_CLASSIFIER_MODEL'
+    )
+
     anam_api_key: str = Field(default='', alias='ANAM_API_KEY')
 
     zabbix_url: str = Field(default='', alias='ZABBIX_URL')

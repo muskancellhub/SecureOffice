@@ -5,6 +5,24 @@ import { useAuth } from '../context/AuthContext';
 import { askChatbot, type ChatMessage } from '../api/chatbotApi';
 
 /**
+ * Internal route: a single leading slash. Rejects protocol-relative ("//evil.com")
+ * which the browser treats as an external host.
+ */
+function isInternalHref(href: string): boolean {
+  return href.startsWith('/') && !href.startsWith('//');
+}
+
+/**
+ * Only https:// is allowed for external links — blocks javascript:, data:,
+ * vbscript:, http:, and other scheme abuse. The model is instructed to emit
+ * only internal /shop/... links, but per security principle #1 we enforce it in
+ * code rather than trusting the prompt (RAG plan 0.4).
+ */
+function isSafeExternalHref(href: string): boolean {
+  return /^https:\/\//i.test(href);
+}
+
+/**
  * Lightweight markdown renderer for chat messages.
  * Handles: [links](/path), **bold**, bullet points (• or -), and newlines.
  */
@@ -30,23 +48,29 @@ function renderMarkdown(text: string, onNavigate: (path: string) => void): React
         // Markdown link: [text](url)
         const linkText = match[1];
         const href = match[2];
-        const isInternal = href.startsWith('/');
-        parts.push(
-          <a
-            key={`${lineIdx}-${match.index}`}
-            href={href}
-            className="chatbot-link"
-            onClick={(e) => {
-              if (isInternal) {
-                e.preventDefault();
-                onNavigate(href);
-              }
-            }}
-            {...(!isInternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-          >
-            {linkText}
-          </a>
-        );
+        const isInternal = isInternalHref(href);
+        if (isInternal || isSafeExternalHref(href)) {
+          parts.push(
+            <a
+              key={`${lineIdx}-${match.index}`}
+              href={href}
+              className="chatbot-link"
+              onClick={(e) => {
+                if (isInternal) {
+                  e.preventDefault();
+                  onNavigate(href);
+                }
+              }}
+              {...(!isInternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+            >
+              {linkText}
+            </a>
+          );
+        } else {
+          // Disallowed scheme/host (javascript:, data:, http:, off-domain) —
+          // drop the anchor, keep the visible text only.
+          parts.push(linkText);
+        }
       } else if (match[3]) {
         // Bold: **text**
         parts.push(<strong key={`${lineIdx}-${match.index}`}>{match[3]}</strong>);

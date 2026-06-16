@@ -13,30 +13,31 @@ from typing import Any
 
 from crewai import Crew, Process, Task
 
+from app.services.audit_logger import audit
 from app.services.crew.agents import build_intake_agent
+from app.services.llm_guardrails import (
+    detect_injection,
+    sanitize_history,
+    sanitize_user_text,
+    secondary_guardrail_check,
+)
 
 logger = logging.getLogger(__name__)
 
+# Public, unauthenticated endpoint with no keyword denylist — the deterministic
+# pre-filter is the first input control here (RAG plan 0.5 / refinement #3).
+INTAKE_GUARDRAIL_ANSWER = (
+    "I can only help set up your business network profile. Tell me about your "
+    "business — what type it is, how many locations, the square footage, and "
+    "how many employees and customers you have."
+)
 
-ALLOWED_EXTRACT_KEYS = {
-    "businessType",
-    "locations",
-    "squareFootage",
-    "employees",
-    "peakCustomers",
-    "avgDailyCustomers",
-}
 
-ALLOWED_BUSINESS_TYPES = {
-    "Restaurant / QSR",
-    "Grocery store",
-    "Retail store",
-    "Office",
-    "Gym",
-    "Hotel",
-    "Convenience store",
-    "Warehouse",
-}
+# Output schema whitelist lives in the central guardrail policy (RAG plan 3.2).
+from app.core.guardrail_policy import (  # noqa: E402
+    ALLOWED_BUSINESS_TYPES,
+    ALLOWED_EXTRACT_KEYS,
+)
 
 
 def _parse_json_safely(text: str) -> dict[str, Any] | None:
@@ -114,6 +115,27 @@ class IntakeChatService:
     ) -> dict[str, Any]:
         history = history or []
         current_fields = current_fields or {}
+
+        # Deterministic pre-filter, then the optional model-based guardrail (2.1).
+        block_reason = detect_injection(message) or secondary_guardrail_check(message)
+        if block_reason:
+            logger.warning('intake guardrail blocked input: %s', block_reason)
+            # 1.2: public endpoint — record blocked attempts for incident review.
+            audit.log(
+                'intake_blocked', status='blocked', level=logging.WARNING,
+                reason=block_reason, message_len=len(message or ''),
+            )
+            return {
+                "answer": INTAKE_GUARDRAIL_ANSWER,
+                "extracted": {},
+                "is_complete": False,
+            }
+
+        # Strip invisible/bidi chars before the message enters the prompt.
+        message = sanitize_user_text(message)
+
+        # 2.3: sanitize replayed history turns before they re-enter the prompt.
+        history = sanitize_history(history) or []
 
         agent = build_intake_agent()
 
@@ -198,6 +220,15 @@ class IntakeChatService:
                 "Thanks — tell me more about your business so I can build the "
                 "right network for you."
             )
+
+        # 1.2: record the extraction outcome (keys only, never raw PII values).
+        audit.log(
+            'intake_query',
+            extracted_keys=','.join(sorted(extracted)) or '-',
+            is_complete=is_complete,
+            answer_len=len(answer),
+            message_preview=message[:200],
+        )
 
         return {
             "answer": answer,

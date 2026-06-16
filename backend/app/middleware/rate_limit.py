@@ -6,6 +6,7 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
+from app.core.guardrail_policy import LLM_RATE_LIMITS
 from app.core.request_context import resolve_client_ip
 from app.services.audit_logger import audit
 
@@ -24,14 +25,13 @@ AUTH_PATH_LIMITS: dict[str, tuple[int, int]] = {
     '/auth/signup': (5, 60),
     '/auth/vendor/signup': (5, 60),
     '/auth/refresh': (30, 60),
-    # Unauthenticated LLM endpoints. Each call spends OpenAI/Anam tokens billed
-    # to our account, so the default 120/min/IP is too lax — distributed
-    # attackers could drain budget. These are aggressive by design; if legitimate
-    # traffic spikes, bump via env + a Redis-backed limiter.
-    '/intake/chat': (5, 60),
-    '/anam/session': (5, 60),
-    '/anam/parse-intent': (10, 60),
 }
+
+# LLM-backed endpoints (intake/chat, anam/*, chatbot/ask) spend OpenAI/Anam
+# tokens billed to our account, so they get tight per-IP limits. The values
+# live in the central guardrail policy module so all LLM-surface policy is
+# auditable in one place (RAG plan 3.2).
+AUTH_PATH_LIMITS.update(LLM_RATE_LIMITS)
 
 
 # Client-IP resolution lives in app.core.request_context so rate limiting and
