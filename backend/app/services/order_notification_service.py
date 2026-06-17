@@ -71,8 +71,8 @@ class OrderNotificationService:
         self.db.refresh(settings_row)
         audit.log(
             'notification_recipients_changed',
-            added=sorted(set(normalized) - old_recipients),
-            removed=sorted(old_recipients - set(normalized)),
+            recipients_added=sorted(set(normalized) - old_recipients),
+            recipients_removed=sorted(old_recipients - set(normalized)),
             recipient_count=len(normalized),
         )
         logger.warning(

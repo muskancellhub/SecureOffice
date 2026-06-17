@@ -317,7 +317,14 @@ def generate_network_topology(
         design_id=payload.design_id,
         business_context=payload.business_context,
     )
-    audit.log('topology_generated', design_id=payload.design_id)
+    # BUG-AUD-011: record graph complexity, not just the design id.
+    _summary = result.get('summary') or {}
+    audit.log(
+        'topology_generated',
+        design_id=payload.design_id,
+        node_count=_summary.get('nodeCount', 0),
+        edge_count=_summary.get('edgeCount', 0),
+    )
 
     return GenerateNetworkTopologyResponse(
         topology=NetworkTopologyResponse.model_validate(result['topology']),
