@@ -22,6 +22,7 @@ import {
   calculateNetworkEstimate,
 } from '../calculator';
 import { intakeChat, IntakeChatMessage } from '../api/intakeChatApi';
+import { sanitizeCountInput } from '../utils/numericInput';
 import { AnamAvatar, AnamAvatarHandle } from './AnamAvatar';
 
 /* ------------------------------------------------------------------ */
@@ -100,6 +101,11 @@ const BUSINESS_TYPE_OPTIONS = [
 ];
 
 const INTERNET_TYPE_OPTIONS = ['Fiber', 'Cable', 'Cellular (5G / FWA)', 'DSL'];
+// BUG-006/007/008: fixed speed options replace the free-text field (no garbage,
+// no unbounded length).
+const INTERNET_SPEED_OPTIONS = [
+  '100 Mbps', '250 Mbps', '500 Mbps', '1 Gbps', '2 Gbps', '5 Gbps', '10 Gbps',
+];
 const YES_NO_OPTIONS = ['Yes', 'No'];
 const DOWNTIME_OPTIONS = ['Critical (store stops if internet fails)', 'Medium', 'Low'];
 const MANAGED_OPTIONS = ['Self-managed network', 'Managed network services'];
@@ -215,7 +221,7 @@ const ADVANCED_SECTIONS: SectionDef[] = [
     title: 'Connectivity Requirements',
     fields: [
       { key: 'internetType', label: 'Internet type', type: 'select', options: INTERNET_TYPE_OPTIONS },
-      { key: 'primaryInternetSpeed', label: 'Primary speed', type: 'text' },
+      { key: 'primaryInternetSpeed', label: 'Primary speed', type: 'select', options: INTERNET_SPEED_OPTIONS },
       { key: 'needsBackupInternet', label: 'Backup internet', type: 'select', options: YES_NO_OPTIONS },
       { key: 'guestWifiRequired', label: 'Guest Wi-Fi required?', type: 'select', options: YES_NO_OPTIONS },
     ],
@@ -446,6 +452,16 @@ export const BusinessIntakeModal = ({ open, onClose }: Props) => {
     [],
   );
 
+  // BUG-001/003: controlled <input type="number"> bypasses native min/step;
+  // reject negatives and decimals before they reach state (whole-count fields).
+  const updateNumericField = useCallback(
+    (key: keyof IntakeFormData, raw: string) => {
+      const next = sanitizeCountInput(raw);
+      if (next !== null) updateIntakeField(key, next);
+    },
+    [updateIntakeField],
+  );
+
   const highlightField = useCallback((key: string) => {
     setHighlightedFields((prev) => ({ ...prev, [key]: true }));
     setTimeout(() => {
@@ -648,8 +664,19 @@ export const BusinessIntakeModal = ({ open, onClose }: Props) => {
         <input
           type={field.type === 'number' ? 'number' : 'text'}
           min={field.type === 'number' ? '0' : undefined}
+          step={field.type === 'number' ? '1' : undefined}
+          // BUG-021: cap free-text length so a field can't bloat storage/payload.
+          maxLength={field.type === 'text' ? 500 : undefined}
           value={val}
-          onChange={(e) => onChange(e.target.value)}
+          // BUG-001/003: reject negatives and decimals on numeric (count) fields.
+          onChange={(e) => {
+            if (field.type === 'number') {
+              const next = sanitizeCountInput(e.target.value);
+              if (next !== null) onChange(next);
+            } else {
+              onChange(e.target.value);
+            }
+          }}
           disabled={disabled}
         />
       </div>
@@ -827,8 +854,9 @@ export const BusinessIntakeModal = ({ open, onClose }: Props) => {
                   <input
                     type="number"
                     min="0"
+                    step="1"
                     value={intakeData.locations}
-                    onChange={(e) => updateIntakeField('locations', e.target.value)}
+                    onChange={(e) => updateNumericField('locations', e.target.value)}
                     placeholder="1"
                   />
                 </div>
@@ -837,8 +865,9 @@ export const BusinessIntakeModal = ({ open, onClose }: Props) => {
                   <input
                     type="number"
                     min="0"
+                    step="1"
                     value={intakeData.squareFootage}
-                    onChange={(e) => updateIntakeField('squareFootage', e.target.value)}
+                    onChange={(e) => updateNumericField('squareFootage', e.target.value)}
                     placeholder="5000"
                   />
                 </div>
@@ -847,8 +876,9 @@ export const BusinessIntakeModal = ({ open, onClose }: Props) => {
                   <input
                     type="number"
                     min="0"
+                    step="1"
                     value={intakeData.employees}
-                    onChange={(e) => updateIntakeField('employees', e.target.value)}
+                    onChange={(e) => updateNumericField('employees', e.target.value)}
                     placeholder="15"
                   />
                 </div>
@@ -857,8 +887,9 @@ export const BusinessIntakeModal = ({ open, onClose }: Props) => {
                   <input
                     type="number"
                     min="0"
+                    step="1"
                     value={intakeData.peakCustomers}
-                    onChange={(e) => updateIntakeField('peakCustomers', e.target.value)}
+                    onChange={(e) => updateNumericField('peakCustomers', e.target.value)}
                     placeholder="50"
                   />
                 </div>
@@ -871,9 +902,10 @@ export const BusinessIntakeModal = ({ open, onClose }: Props) => {
                   <input
                     type="number"
                     min="0"
+                    step="1"
                     value={intakeData.avgDailyCustomers}
                     onChange={(e) =>
-                      updateIntakeField('avgDailyCustomers', e.target.value)
+                      updateNumericField('avgDailyCustomers', e.target.value)
                     }
                     placeholder="200"
                   />

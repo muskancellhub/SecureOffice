@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AnamAvatar } from '../components/AnamAvatar';
 import { EnvironmentType, NetworkCalculatorInput, ObstructionType, WifiStandard, calculateNetworkEstimate } from '../calculator';
 import { useAuth } from '../context/AuthContext';
+import { sanitizeCountInput } from '../utils/numericInput';
 
 interface IntakeFormData {
   businessType: string;
@@ -76,6 +77,11 @@ const BUSINESS_TYPE_OPTIONS = [
 ];
 
 const INTERNET_TYPE_OPTIONS = ['Fiber', 'Cable', 'Cellular (5G / FWA)', 'DSL'];
+// BUG-006/007/008: a fixed set of speeds replaces the free-text field so it
+// can't store garbage ("the give", "abc123") or unbounded-length strings.
+const INTERNET_SPEED_OPTIONS = [
+  '100 Mbps', '250 Mbps', '500 Mbps', '1 Gbps', '2 Gbps', '5 Gbps', '10 Gbps',
+];
 const YES_NO_OPTIONS = ['Yes', 'No'];
 const DOWNTIME_OPTIONS = ['Critical (store stops if internet fails)', 'Medium', 'Low'];
 const MANAGED_OPTIONS = ['Self-managed network', 'Managed network services'];
@@ -241,7 +247,20 @@ const NumericField = ({
 }) => (
   <label data-field={fieldKey}>
     <span>{label}</span>
-    <input type="number" min={0} inputMode="numeric" value={value} onChange={(e) => onChange(e.target.value)} required={required} />
+    <input
+      type="number"
+      min={0}
+      step={1}
+      inputMode="numeric"
+      value={value}
+      // BUG-001/003: controlled inputs bypass native min/step; reject negatives
+      // and decimals here (these fields are whole, non-negative counts).
+      onChange={(e) => {
+        const next = sanitizeCountInput(e.target.value);
+        if (next !== null) onChange(next);
+      }}
+      required={required}
+    />
   </label>
 );
 
@@ -407,10 +426,7 @@ export const BusinessIntakePage = () => {
             <h3>{sectionNo()}. Connectivity Requirements</h3>
             <div className="intake-grid">
               <SelectField fieldKey="internetType" label="Internet type" value={intakeData.internetType} options={INTERNET_TYPE_OPTIONS} onChange={(next) => updateIntakeField('internetType', next)} required />
-              <label data-field="primaryInternetSpeed">
-                <span>Primary internet speed (optional)</span>
-                <input type="text" placeholder="e.g. 500 Mbps" value={intakeData.primaryInternetSpeed} onChange={(e) => updateIntakeField('primaryInternetSpeed', e.target.value)} />
-              </label>
+              <SelectField fieldKey="primaryInternetSpeed" label="Primary internet speed (optional)" value={intakeData.primaryInternetSpeed} options={INTERNET_SPEED_OPTIONS} onChange={(next) => updateIntakeField('primaryInternetSpeed', next)} />
               <SelectField fieldKey="needsBackupInternet" label="Need backup internet?" value={intakeData.needsBackupInternet} options={YES_NO_OPTIONS} onChange={(next) => updateIntakeField('needsBackupInternet', next)} />
               <SelectField fieldKey="guestWifiRequired" label="Guest Wi-Fi required?" value={intakeData.guestWifiRequired} options={YES_NO_OPTIONS} onChange={(next) => updateIntakeField('guestWifiRequired', next)} />
             </div>
@@ -503,7 +519,7 @@ export const BusinessIntakePage = () => {
               <SelectField fieldKey="hubspot" label="HubSpot" value={intakeData.hubspot} options={YES_NO_OPTIONS} onChange={(next) => updateIntakeField('hubspot', next)} />
               <label data-field="otherSaasTools">
                 <span>Other SaaS tools</span>
-                <input type="text" placeholder="Optional" value={intakeData.otherSaasTools} onChange={(e) => updateIntakeField('otherSaasTools', e.target.value)} />
+                <input type="text" maxLength={500} placeholder="Optional" value={intakeData.otherSaasTools} onChange={(e) => updateIntakeField('otherSaasTools', e.target.value)} />
               </label>
             </div>
           </section>

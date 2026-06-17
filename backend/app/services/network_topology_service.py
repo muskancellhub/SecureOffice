@@ -110,9 +110,11 @@ class NetworkTopologyService:
     ]
 
     def _as_int(self, value: Any, default: int = 0) -> int:
+        # BUG-010/012: parse via float and round to nearest so a decimal count
+        # ("2.5"->2, "0.7"->1) doesn't raise and silently fall back to 0.
         try:
-            return int(value)
-        except (TypeError, ValueError):
+            return int(round(float(value)))
+        except (TypeError, ValueError, OverflowError):
             return default
 
     def _normalize_category(self, raw_category: Any, name: str) -> str:

@@ -306,5 +306,46 @@ class TestNetworkTopologyService(unittest.TestCase):
         self.assertGreater(artifact['summary']['edgeCount'], 0)
 
 
+class TestDeviceCountCoercion(unittest.TestCase):
+    """BUG-010/011 — backend robustness for device counts. Even though the
+    intake UI now blocks bad input, the calculator must not silently corrupt
+    data when a decimal or negative count arrives from any other client."""
+
+    def setUp(self):
+        self.topology = NetworkTopologyService()
+
+    def test_decimal_string_rounds_to_nearest_not_zero(self):
+        # BUG-010: int("2.5") used to raise -> silent 0; now rounds to nearest.
+        self.assertEqual(self.topology._as_int('2.5'), 2)
+        self.assertEqual(self.topology._as_int('3.9'), 4)
+        # BUG-012: "0.7" tablets must round up to 1, not truncate to 0.
+        self.assertEqual(self.topology._as_int('0.7'), 1)
+
+    def test_non_numeric_and_none_fall_back_to_default(self):
+        self.assertEqual(self.topology._as_int('abc'), 0)
+        self.assertEqual(self.topology._as_int(None), 0)
+        self.assertEqual(self.topology._as_int('', 5), 5)
+
+    def test_integers_and_int_strings_unchanged(self):
+        self.assertEqual(self.topology._as_int(7), 7)
+        self.assertEqual(self.topology._as_int('7'), 7)
+
+    def test_negative_count_clamped_per_field_before_summing(self):
+        # BUG-011: a negative desktop count must not cancel positive laptops.
+        from app.services.network_bom_service import NetworkBomService
+
+        bom = NetworkBomService(None)
+        ctx = {'laptops': '8', 'desktops': '-3'}
+        self.assertEqual(bom._sum_business_counts(ctx, 'laptops', 'desktops'), 8)
+
+    def test_decimal_count_rounds_in_sum(self):
+        from app.services.network_bom_service import NetworkBomService
+
+        bom = NetworkBomService(None)
+        self.assertEqual(bom._sum_business_counts({'laptops': '2.5'}, 'laptops'), 2)
+        # BUG-012: a fractional tablet count rounds up rather than vanishing.
+        self.assertEqual(bom._sum_business_counts({'tablets': '0.7'}, 'tablets'), 1)
+
+
 if __name__ == '__main__':
     unittest.main()
