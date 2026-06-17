@@ -7,6 +7,7 @@ from app.models.company import Company
 from app.models.catalog import CatalogItemType, BillingCycle
 from app.models.cart import Cart, CartLine, CartStatus
 from app.models.integration_log import IntegrationSyncLog, SyncStatus
+from app.models.audit_log import AuditLog
 from app.models.quote import Quote, QuoteStatus, QuoteLine, QuoteLineType, BillingType, BillingInterval
 from app.models.order import Order, OrderStatus, OrderLine
 from app.models.pricing import CustomerPricing, DealPricing

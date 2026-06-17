@@ -22,6 +22,7 @@ from app.services.audit_logger import audit
 from app.models import User, UserRole, UserType
 from app.models.tenant import Tenant, TenantType
 from app.models.vendor import Vendor
+from app.routes.audit_logs import router as audit_logs_router
 from app.routes.auth import router as auth_router
 from app.routes.billing import router as billing_router
 from app.routes.chatbot import router as chatbot_router
@@ -316,6 +317,7 @@ def health_check():
 
 
 app.include_router(auth_router)
+app.include_router(audit_logs_router)
 app.include_router(users_router)
 app.include_router(tenants_router)
 app.include_router(tenant_settings_router)

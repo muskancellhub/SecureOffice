@@ -213,6 +213,12 @@ def configure_logging(
     for h in list(audit_logger.handlers):
         audit_logger.removeHandler(h)
     audit_logger.addHandler(audit_handler)
+    # BUG-AUD-001: dual-write to the queryable audit_logs table. Local import
+    # avoids a circular import at module load (handler imports this module).
+    from app.core.audit_db_handler import DbAuditHandler
+    db_audit_handler = DbAuditHandler()
+    db_audit_handler.addFilter(redaction)
+    audit_logger.addHandler(db_audit_handler)
     audit_logger.propagate = False
 
     # Uvicorn: drop its default access line (the RequestContextMiddleware

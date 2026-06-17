@@ -196,6 +196,41 @@ def apply_runtime_migrations() -> None:
             )
         )
 
+        # BUG-AUD-001: make audit_logs append-only. A BEFORE UPDATE/DELETE
+        # trigger raises, so audited events can't be altered or removed even by
+        # the app role. Guarded on table existence so it is order-independent
+        # (the table itself is created by Base.metadata.create_all).
+        conn.execute(
+            text(
+                """
+                CREATE OR REPLACE FUNCTION audit_logs_block_mutation() RETURNS trigger AS $$
+                BEGIN
+                    RAISE EXCEPTION 'audit_logs is append-only; % is not permitted', TG_OP;
+                END;
+                $$ LANGUAGE plpgsql;
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.tables
+                        WHERE table_schema = 'public' AND table_name = 'audit_logs'
+                    ) THEN
+                        DROP TRIGGER IF EXISTS trg_audit_logs_no_mutation ON audit_logs;
+                        CREATE TRIGGER trg_audit_logs_no_mutation
+                            BEFORE UPDATE OR DELETE ON audit_logs
+                            FOR EACH ROW EXECUTE FUNCTION audit_logs_block_mutation();
+                    END IF;
+                END
+                $$;
+                """
+            )
+        )
+
         # Quote schema compatibility: support older installs that still use v1 column names.
         conn.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS created_by UUID"))
         conn.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS one_time_total NUMERIC(12, 2) NOT NULL DEFAULT 0"))
