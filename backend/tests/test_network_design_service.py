@@ -411,5 +411,69 @@ class TestNetworkDesignService(unittest.TestCase):
         self.assertGreaterEqual(self.service.synced.count(str(design.id)), 2)
 
 
+class TestDesignTenantSwitcher(unittest.TestCase):
+    """BUG-DESIGN-001 — a SUPER_ADMIN creating a design with the tenant switcher
+    active must save into the *switched* (effective) tenant, so the design shows
+    up in that tenant's (tenant-scoped) list instead of silently landing in the
+    actor's home tenant and appearing 'lost'."""
+
+    def setUp(self):
+        self.repo = FakeRepo()
+        self.onboarding_repo = FakeOnboarding()
+        self.super_admin_id = str(uuid.uuid4())
+        self.home_tenant = str(uuid.uuid4())    # CellHub
+        self.other_tenant = str(uuid.uuid4())   # company2 (switcher target)
+        self.service = DemoAwareNetworkDesignService(
+            FakeDB(),
+            repo=self.repo,
+            onboarding_repo=self.onboarding_repo,
+            user_repo=FakeUserRepo([self.super_admin_id]),
+            mail_notifier=lambda payload: None,
+        )
+        self.super_admin = {
+            'user_id': self.super_admin_id,
+            'tenant_id': self.home_tenant,
+            'role': 'SUPER_ADMIN',
+        }
+
+    def _draft_payload(self):
+        return {
+            'submit': False,
+            'status': 'draft',
+            'calculator_result': {'summary': {
+                'estimatedCapEx': 12500, 'recommendedIndoorAPs': 4, 'recommendedSwitches': 1,
+            }},
+            'bom': {'line_items': []},
+        }
+
+    def test_design_saved_into_switched_tenant_shows_in_that_tenants_list(self):
+        design = self.service.save_design(
+            self.super_admin, self._draft_payload(),
+            effective_tenant_id=self.other_tenant,
+        )
+        # Saved under the switched tenant, not the actor's home tenant.
+        self.assertEqual(str(design.tenant_id), self.other_tenant)
+        # Visible when listing the switched tenant (what the UI shows).
+        listed_ids = [str(r.id) for r in self.service.list_designs(
+            self.super_admin, effective_tenant_id=self.other_tenant)]
+        self.assertIn(str(design.id), listed_ids)
+        # And does not leak into the home tenant's list.
+        home_ids = [str(r.id) for r in self.service.list_designs(
+            self.super_admin, effective_tenant_id=self.home_tenant)]
+        self.assertNotIn(str(design.id), home_ids)
+
+    def test_no_switcher_still_saves_into_home_tenant(self):
+        # Behavior-preserving: effective == home (or None) keeps today's behavior.
+        design = self.service.save_design(
+            self.super_admin, self._draft_payload(),
+            effective_tenant_id=self.home_tenant,
+        )
+        self.assertEqual(str(design.tenant_id), self.home_tenant)
+
+    def test_effective_tenant_none_defaults_to_home(self):
+        design = self.service.save_design(self.super_admin, self._draft_payload())
+        self.assertEqual(str(design.tenant_id), self.home_tenant)
+
+
 if __name__ == '__main__':
     unittest.main()

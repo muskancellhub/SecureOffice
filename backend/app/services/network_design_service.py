@@ -962,8 +962,25 @@ class NetworkDesignService:
             'assetId': str(asset.id),
         }
 
-    def save_design(self, current_user: dict | None, payload: dict[str, Any]) -> NetworkDesign:
+    def save_design(
+        self,
+        current_user: dict | None,
+        payload: dict[str, Any],
+        effective_tenant_id: str | None = None,
+    ) -> NetworkDesign:
         self._assert_user_exists(current_user)
+
+        # BUG-DESIGN-001: honor the SUPER_ADMIN tenant switcher. When a different
+        # effective tenant is in play, act as that tenant for the whole save so
+        # the design (and its lead/onboarding/quote/order) land where the
+        # tenant-scoped design list will look for them. Cross-tenant access was
+        # already authorised upstream (resolve_tenant_context: SUPER_ADMIN only).
+        if (
+            current_user
+            and effective_tenant_id
+            and effective_tenant_id != current_user.get('tenant_id')
+        ):
+            current_user = {**current_user, 'tenant_id': effective_tenant_id}
 
         status = self._resolve_status_for_save(payload)
         lead_payload = self._normalize_lead_payload(payload.get('lead'), required=(status == NetworkDesignStatus.SUBMITTED))

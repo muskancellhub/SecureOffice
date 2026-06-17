@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Header, Request, Response, status
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,11 @@ from app.schemas.designs import (
     UpdateNetworkDesignMilestonesRequest,
     UpdateNetworkDesignStatusRequest,
 )
-from app.middleware.tenant_context import TenantContext, get_tenant_context
+from app.middleware.tenant_context import (
+    TenantContext,
+    get_tenant_context,
+    resolve_tenant_context,
+)
 from app.services.authorization_service import AuthorizationService
 from app.services.managed_service_pricing_service import ManagedServicePricingService
 from app.services.network_design_service import NetworkDesignService
@@ -162,13 +166,24 @@ def _serialize_detail(row, *, include_internal: bool, db=None) -> NetworkDesignD
 def save_design(
     payload: SaveNetworkDesignRequest,
     request: Request,
+    x_tenant_id: str | None = Header(default=None, alias='X-Tenant-Id'),
     db: Session = Depends(get_db),
 ):
     current_user = getattr(request.state, 'user', None)
     include_internal = _is_admin_actor(current_user)
+    # BUG-DESIGN-001: resolve the effective tenant (SUPER_ADMIN switcher) the
+    # same way GET /designs does, so a created design is saved to the tenant the
+    # list will display. Resolved manually (not via get_tenant_context dep) so
+    # the anonymous calculator-save flow keeps working without auth.
+    effective_tenant_id = None
+    if current_user:
+        effective_tenant_id = resolve_tenant_context(
+            x_tenant_id, current_user, db
+        ).effective_tenant_id
     design = NetworkDesignService(db).save_design(
         current_user=current_user,
         payload=payload.model_dump(by_alias=False, exclude_none=True),
+        effective_tenant_id=effective_tenant_id,
     )
     return _serialize_detail(design, include_internal=include_internal, db=db)
 
