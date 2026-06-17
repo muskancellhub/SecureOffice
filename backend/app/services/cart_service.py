@@ -153,10 +153,15 @@ class CartService:
             if is_parent:
                 parent_db_line = created
 
+        # BUG-AUD-005: include the human-readable name and the device unit price
+        # for financial auditability.
+        priced_line = device_line or (ordered[0] if ordered else None)
         audit.log(
             'cart_item_added',
             product_id=str(product.id),
             item_sku=product.sku,
+            item_name=product.name,
+            unit_price=float(priced_line['unit_price']) if priced_line else 0.0,
             quantity=quantity,
             line_count=len(ordered),
             financial_model=result['financial_model'],
@@ -277,6 +282,8 @@ class CartService:
             'cart_item_added',
             component_id=str(component.id),
             item_sku=component.vendor_component_sku,
+            item_name=component.label,
+            unit_price=float(line['unit_price']),
             quantity=quantity,
             standalone=parent_line_id is None,
             applies_to_line_id=str(parent_line_id) if parent_line_id else None,
@@ -326,11 +333,13 @@ class CartService:
 
         self.cart_repo.delete_line(line)
         self.db.commit()
+        # BUG-AUD-006: spec field names — quantity_removed + human-readable name.
         audit.log(
             'cart_item_removed',
             line_id=line_id,
             component_id=str(line.component_id) if line.component_id else None,
-            quantity=line.quantity,
+            item_name=(line.price_snapshot or {}).get('name'),
+            quantity_removed=line.quantity,
             detached_lines=len(attached),
         )
         return self.cart_repo.get_active_cart(current_user['user_id'], current_user['tenant_id'])

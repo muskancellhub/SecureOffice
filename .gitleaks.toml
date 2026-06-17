@@ -3,6 +3,14 @@
 [extend]
 useDefault = true
 
+[allowlist]
+description = "Known false positives"
+# `reason_detail='bad_password'|'not_verified'|...` is an audit-event field
+# name (BUG-AUD-004), not a credential — the generic-api-key rule mis-flags it.
+regexes = [
+    '''reason_detail=''',
+]
+
 [[rules]]
 id = "postgres-connection-string"
 description = "PostgreSQL connection URL with embedded credentials"

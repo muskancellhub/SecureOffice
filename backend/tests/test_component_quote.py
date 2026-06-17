@@ -224,6 +224,50 @@ def test_add_component_changes_quantity(setup):
         assert voice.qty == 3
 
 
+def test_convert_quote_audits_public_ids_and_totals(setup, monkeypatch):
+    # BUG-AUD-008/009: quote_created carries quote_public_id; quote_converted and
+    # order_placed carry order_public_id + total_amount for reconciliation.
+    import logging
+    from app.core.logging_config import SD_ID_AUDIT
+
+    monkeypatch.setattr('app.services.quote_service.LifecycleService.ensure_order_lifecycle',
+                        lambda self, order, user: None)
+    monkeypatch.setattr('app.services.quote_service.OrderNotificationService.send_order_captured_notification',
+                        lambda self, order_id: True)
+
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    audit_logger = logging.getLogger('secureoffice.audit')
+    audit_logger.addHandler(handler)
+    audit_logger.setLevel(logging.INFO)
+    try:
+        SessionLocal, cu, _ = setup
+        with SessionLocal() as db:
+            p, comps = _x1(db)
+            svc = QuoteService(db)
+            q = svc.create_component_quote(
+                cu, {'product_id': str(p.id), 'financial_model': 'CAPEX', 'interval': 'MONTH',
+                     'selections': {str(comps['SERV1970'].id): 1}})
+            svc.accept_quote(cu, str(q.id))
+            _, order = svc.convert_quote(cu, str(q.id))
+            expected = {'quote_public': q.public_id, 'order_public': order.public_id}
+    finally:
+        audit_logger.removeHandler(handler)
+
+    def fields(msgid):
+        rec = next(r for r in records if getattr(r, 'msgid', None) == msgid)
+        return rec.sd[SD_ID_AUDIT]
+
+    assert fields('quote_created')['quote_public_id'] == expected['quote_public']
+    conv = fields('quote_converted')
+    assert conv['order_public_id'] == expected['order_public']
+    assert 'total_amount' in conv
+    placed = fields('order_placed')
+    assert placed['order_public_id'] == expected['order_public']
+    assert 'total_amount' in placed
+
+
 def test_convert_carries_snapshots_to_order(setup, monkeypatch):
     SessionLocal, cu, _ = setup
     # Strip lifecycle + notification side-effects so cleanup stays trivial.

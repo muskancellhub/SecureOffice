@@ -73,7 +73,9 @@ class TestLoginEvents:
         assert [r.msgid for r in captured] == ['user_login_failed']
         record = captured[0]
         assert record.levelno == logging.WARNING
-        assert sd(record)['reason'] == 'unknown_user_or_wrong_provider'
+        # BUG-AUD-004: generic external reason, granular cause in reason_detail.
+        assert sd(record)['reason'] == 'invalid_credentials'
+        assert sd(record)['reason_detail'] == 'unknown_user_or_wrong_provider'
         assert sd(record)['email_attempted'] == 'ghost@example.com'
 
     def test_bad_password_emits_login_failed(self, captured):
@@ -81,7 +83,8 @@ class TestLoginEvents:
         service = make_service(user_repo=SimpleNamespace(get_by_email=lambda e: user))
         with pytest.raises(UnauthorizedError):
             service.login(email=user.email, password='wrong')
-        assert sd(captured[0])['reason'] == 'bad_password'
+        assert sd(captured[0])['reason'] == 'invalid_credentials'
+        assert sd(captured[0])['reason_detail'] == 'bad_password'
         assert sd(captured[0])['user_id'] == str(user.id)
 
     def test_success_emits_user_login_notice(self, captured, monkeypatch):
@@ -122,7 +125,7 @@ class TestOtpEvents:
 class TestSessionEvents:
     def test_logout_emits_user_logout(self, captured, monkeypatch):
         from app.services import auth_service as mod
-        session = SimpleNamespace(user_id=uuid.uuid4())
+        session = SimpleNamespace(id=5, user_id=uuid.uuid4())
         monkeypatch.setattr(mod.TokenService, 'decode_token', staticmethod(lambda t: {'sid': 5}))
         service = make_service(refresh_repo=SimpleNamespace(
             get_active_by_id=lambda sid: session, revoke=lambda s: None,
@@ -130,6 +133,27 @@ class TestSessionEvents:
         service.logout('some-refresh-token')
         assert [r.msgid for r in captured] == ['user_logout']
         assert sd(captured[0])['user_id'] == str(session.user_id)
+        # BUG-AUD-002: the revoked session is identified in the audit event.
+        assert sd(captured[0])['session_id'] == str(session.id)
+
+    def test_refresh_emits_token_refresh_with_old_session_id(self, captured, monkeypatch):
+        from app.services import auth_service as mod
+        uid = uuid.uuid4()
+        session = SimpleNamespace(id=7, user_id=uid, refresh_token_hash='x')
+        user = make_user(id=uid)
+        monkeypatch.setattr(mod.TokenService, 'decode_token',
+                            staticmethod(lambda t: {'type': 'refresh', 'user_id': str(uid), 'sid': 7}))
+        monkeypatch.setattr(mod, 'verify_value', lambda token, h: True)
+        service = make_service(
+            refresh_repo=SimpleNamespace(get_active_by_id=lambda sid: session, revoke=lambda s: None),
+            user_repo=SimpleNamespace(get_by_id=lambda uid_: user),
+        )
+        monkeypatch.setattr(service, '_issue_tokens_for_user', lambda u: {'access_token': 'a'})
+        service.refresh('some-refresh-token')
+        assert [r.msgid for r in captured] == ['token_refresh']
+        # BUG-AUD-003: the rotated-out session is recorded for forensics.
+        assert sd(captured[0])['old_session_id'] == str(session.id)
+        assert sd(captured[0])['user_id'] == str(uid)
 
     def test_oauth_existing_user_emits_oauth_login(self, captured, monkeypatch):
         user = make_user(provider=AuthProvider.GOOGLE)

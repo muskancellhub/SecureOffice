@@ -295,18 +295,23 @@ class AuthService:
     def login(self, *, email: str, password: str):
         user = self.user_repo.get_by_email(email)
         if not user or user.provider != AuthProvider.LOCAL or not user.password_hash:
+            # BUG-AUD-004: generic external `reason` per spec; granular cause
+            # kept in `reason_detail` for SOC (stuffing vs enumeration).
             audit.log('user_login_failed', status='failure', level=logging.WARNING,
-                      email_attempted=email, reason='unknown_user_or_wrong_provider')
+                      email_attempted=email, reason='invalid_credentials',
+                      reason_detail='unknown_user_or_wrong_provider')
             raise UnauthorizedError('Invalid credentials')
 
         if not verify_value(password, user.password_hash):
             audit.log('user_login_failed', status='failure', level=logging.WARNING,
-                      email_attempted=email, user_id=str(user.id), reason='bad_password')
+                      email_attempted=email, user_id=str(user.id),
+                      reason='invalid_credentials', reason_detail='bad_password')
             raise UnauthorizedError('Invalid credentials')
 
         if not user.is_verified:
             audit.log('user_login_failed', status='failure', level=logging.WARNING,
-                      email_attempted=email, user_id=str(user.id), reason='not_verified')
+                      email_attempted=email, user_id=str(user.id),
+                      reason='invalid_credentials', reason_detail='not_verified')
             raise UnauthorizedError('Please verify OTP first')
 
         self._ensure_bootstrap_super_admin(user)
@@ -383,11 +388,13 @@ class AuthService:
         user = self.user_repo.get_by_email(email)
         if not user:
             audit.log('user_login_failed', status='failure', level=logging.WARNING,
-                      email_attempted=email, reason='unknown_user', method='otp')
+                      email_attempted=email, reason='invalid_credentials',
+                      reason_detail='unknown_user', method='otp')
             raise UnauthorizedError('Invalid OTP or email')
         if not user.is_verified:
             audit.log('user_login_failed', status='failure', level=logging.WARNING,
-                      email_attempted=email, user_id=str(user.id), reason='not_verified', method='otp')
+                      email_attempted=email, user_id=str(user.id),
+                      reason='invalid_credentials', reason_detail='not_verified', method='otp')
             raise UnauthorizedError('Please verify OTP first')
 
         latest_otp = self.otp_repo.get_latest_active_for_user(user.id)
@@ -466,7 +473,14 @@ class AuthService:
             raise UnauthorizedError('User not found')
 
         tokens = self._issue_tokens_for_user(user)
-        audit.log('token_refresh', user_id=str(user.id), tenant_id=str(user.tenant_id))
+        # BUG-AUD-003: record the rotated-out session for revocation forensics
+        # (e.g. detecting repeated refreshes from the same stolen session).
+        audit.log(
+            'token_refresh',
+            user_id=str(user.id),
+            tenant_id=str(user.tenant_id),
+            old_session_id=str(session.id),
+        )
         return tokens
 
     # ── Super-admin password setup ──────────────────────────────────────────
@@ -575,7 +589,8 @@ class AuthService:
         if session:
             self.refresh_repo.revoke(session)
             self.db.commit()
-            audit.log('user_logout', user_id=str(session.user_id))
+            # BUG-AUD-002: record which session was revoked, not just the user.
+            audit.log('user_logout', user_id=str(session.user_id), session_id=str(session.id))
 
     def oauth_login_or_register(self, *, provider: AuthProvider, email: str, name: str, provider_id: str):
         user = self.user_repo.get_by_email(email)

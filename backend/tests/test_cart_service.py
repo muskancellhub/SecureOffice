@@ -145,6 +145,63 @@ def test_add_product_builds_parent_child_tree(fresh_cart):
         assert device.catalog_item_id is None  # legacy column stays NULL
 
 
+def test_add_product_audits_item_name_and_price(fresh_cart):
+    # BUG-AUD-005: cart_item_added must carry the human-readable name and the
+    # unit price, not just the SKU.
+    import logging
+    from app.core.logging_config import SD_ID_AUDIT
+
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    audit_logger = logging.getLogger('secureoffice.audit')
+    audit_logger.addHandler(handler)
+    audit_logger.setLevel(logging.INFO)
+    try:
+        SessionLocal, cu, _ = fresh_cart
+        with SessionLocal() as db:
+            p, comps = _x1(db)
+            _svc(db).add_line(cu, product_id=str(p.id), selections={str(comps['SERV1970'].id): 2})
+    finally:
+        audit_logger.removeHandler(handler)
+
+    added = [r for r in records if getattr(r, 'msgid', None) == 'cart_item_added']
+    assert added, 'expected a cart_item_added audit event'
+    fields = added[0].sd[SD_ID_AUDIT]
+    assert fields['item_name'] == p.name
+    assert float(fields['unit_price']) == 660.00
+
+
+def test_remove_line_audits_quantity_removed_and_name(fresh_cart):
+    # BUG-AUD-006: cart_item_removed uses quantity_removed + item_name.
+    import logging
+    from app.core.logging_config import SD_ID_AUDIT
+
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    audit_logger = logging.getLogger('secureoffice.audit')
+    audit_logger.addHandler(handler)
+    audit_logger.setLevel(logging.INFO)
+    try:
+        SessionLocal, cu, _ = fresh_cart
+        with SessionLocal() as db:
+            p, comps = _x1(db)
+            svc = _svc(db)
+            cart = svc.add_line(cu, product_id=str(p.id), selections={str(comps['SERV1970'].id): 1})
+            device = next(l for l in cart.lines if (l.price_snapshot or {}).get('is_parent'))
+            svc.remove_line(cu, str(device.id))
+    finally:
+        audit_logger.removeHandler(handler)
+
+    removed = [r for r in records if getattr(r, 'msgid', None) == 'cart_item_removed']
+    assert removed, 'expected a cart_item_removed audit event'
+    f = removed[0].sd[SD_ID_AUDIT]
+    assert 'quantity_removed' in f
+    assert 'quantity' not in f          # old field name is gone
+    assert 'item_name' in f
+
+
 def test_add_missing_product_not_found(fresh_cart):
     from app.core.exceptions import NotFoundError
     SessionLocal, cu, _ = fresh_cart

@@ -386,6 +386,7 @@ class QuoteService:
         audit.log(
             'quote_created',
             quote_id=str(quote.id),
+            quote_public_id=quote.public_id,
             source='draft_solution' if (payload and payload.get('draft_solution')) else 'cart',
             design_id=design_id,
             line_count=sum(
@@ -572,6 +573,7 @@ class QuoteService:
         audit.log(
             'quote_created',
             quote_id=str(quote.id),
+            quote_public_id=quote.public_id,
             source='component',
             product_id=str(product.id),
             financial_model=financial_model,
@@ -700,6 +702,7 @@ class QuoteService:
         audit.log(
             'quote_created',
             quote_id=str(quote.id),
+            quote_public_id=quote.public_id,
             source='bundle',
             bundle_id=str(bundle.id),
             financial_model=financial_model,
@@ -809,9 +812,18 @@ class QuoteService:
         order_id = str(order.id)
         quote_id_text = str(quote.id)
         line_count = len(list(order.lines or []))
-        audit.log('quote_converted', quote_id=quote_id_text, order_id=order_id, line_count=line_count)
-        audit.log('order_placed', order_id=order_id, quote_id=quote_id_text,
-                  line_count=line_count, financial_model=order.financial_model)
+        # BUG-AUD-009: financial reconciliation needs the public order id and the
+        # dollar amounts. The Order has no total column; the figures live on the
+        # source quote (one-time + monthly).
+        one_time_total = float(quote.one_time_total)
+        monthly_total = float(quote.monthly_total)
+        audit.log('quote_converted', quote_id=quote_id_text, quote_public_id=quote.public_id,
+                  order_id=order_id, order_public_id=order.public_id, line_count=line_count,
+                  total_amount=one_time_total, monthly_total=monthly_total)
+        audit.log('order_placed', order_id=order_id, order_public_id=order.public_id,
+                  quote_id=quote_id_text, line_count=line_count,
+                  financial_model=order.financial_model,
+                  total_amount=one_time_total, monthly_total=monthly_total)
         logger.warning(
             '[ORDER NOTIFICATION TRIGGER] quote_id=%s order_id=%s tenant_id=%s user_id=%s line_count=%d',
             quote_id_text,
