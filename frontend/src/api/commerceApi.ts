@@ -460,6 +460,19 @@ export const updateNetworkDesignInstallAssistance = async (
   return data as NetworkDesignDetail;
 };
 
+export const updateNetworkDesignDiagram = async (
+  accessToken: string,
+  designId: string,
+  drawioXml: string,
+) => {
+  const { data } = await api.patch(
+    `/designs/${designId}/diagram`,
+    { drawioXml },
+    { headers: authHeaders(accessToken) },
+  );
+  return data as NetworkDesignDetail;
+};
+
 export const addNetworkDesignUpdate = async (
   accessToken: string,
   designId: string,

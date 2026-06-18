@@ -4,6 +4,8 @@ type DrawioDiagramViewerProps = {
   xml: string;
   title?: string;
   initialHeight?: number;
+  // BUG-DES-006: when provided, a Save button persists the edited diagram XML.
+  onSave?: (xml: string) => Promise<void> | void;
 };
 
 type DrawioEmbedMessage = {
@@ -16,6 +18,7 @@ type DrawioEmbedFrameProps = {
   title: string;
   height: number | string;
   className?: string;
+  onSave?: (xml: string) => Promise<void> | void;
 };
 
 const DRAWIO_EMBED_URL =
@@ -34,10 +37,14 @@ const parseMessage = (raw: unknown): DrawioEmbedMessage | null => {
   return null;
 };
 
-const DrawioEmbedFrame = ({ xml, title, height, className }: DrawioEmbedFrameProps) => {
+const DrawioEmbedFrame = ({ xml, title, height, className, onSave }: DrawioEmbedFrameProps) => {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [ready, setReady] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  // Keep the latest onSave without re-subscribing the message listener.
+  const onSaveRef = useRef(onSave);
+  onSaveRef.current = onSave;
 
   const postLoad = useCallback(() => {
     const target = iframeRef.current?.contentWindow;
@@ -63,6 +70,15 @@ const DrawioEmbedFrame = ({ xml, title, height, className }: DrawioEmbedFramePro
         setReady(true);
       } else if (message.event === 'load') {
         setLoaded(true);
+      } else if (message.event === 'export') {
+        // Response to our export request — persist the current diagram XML.
+        const exported = (message.data as string) || (message.xml as string) || '';
+        const handler = onSaveRef.current;
+        if (handler && exported) {
+          Promise.resolve(handler(exported)).finally(() => setSaving(false));
+        } else {
+          setSaving(false);
+        }
       }
     };
     window.addEventListener('message', onMessage);
@@ -75,8 +91,27 @@ const DrawioEmbedFrame = ({ xml, title, height, className }: DrawioEmbedFramePro
     postLoad();
   }, [ready, xml, postLoad]);
 
+  const requestSave = () => {
+    const target = iframeRef.current?.contentWindow;
+    if (!target) return;
+    setSaving(true);
+    target.postMessage(JSON.stringify({ action: 'export', format: 'xml' }), '*');
+  };
+
   return (
     <div className="drawio-embed-shell">
+      {onSave && (
+        <div className="drawio-embed-toolbar">
+          <button
+            type="button"
+            className="primary-btn drawio-save-btn"
+            onClick={requestSave}
+            disabled={saving || !loaded}
+          >
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      )}
       {!loaded && <p className="mini-note drawio-loading-note">Rendering diagram...</p>}
       <iframe
         ref={iframeRef}
@@ -98,7 +133,7 @@ const effectiveInlineHeight = (initialHeight: number, expanded: boolean): number
   return desktopHeight;
 };
 
-export const DrawioDiagramViewer = ({ xml, title = 'SMB Network Diagram', initialHeight = 660 }: DrawioDiagramViewerProps) => {
+export const DrawioDiagramViewer = ({ xml, title = 'SMB Network Diagram', initialHeight = 660, onSave }: DrawioDiagramViewerProps) => {
   const [expanded, setExpanded] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
 
@@ -137,7 +172,7 @@ export const DrawioDiagramViewer = ({ xml, title = 'SMB Network Diagram', initia
           </div>
         </div>
 
-        <DrawioEmbedFrame xml={xml} title={title} height={inlineHeight} />
+        <DrawioEmbedFrame xml={xml} title={title} height={inlineHeight} onSave={onSave} />
       </div>
 
       {fullscreen && (
@@ -154,6 +189,7 @@ export const DrawioDiagramViewer = ({ xml, title = 'SMB Network Diagram', initia
               title={`${title} Fullscreen`}
               height="calc(100vh - 170px)"
               className="drawio-viewer-frame drawio-viewer-frame-modal"
+              onSave={onSave}
             />
           </div>
         </div>

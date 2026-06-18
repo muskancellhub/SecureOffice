@@ -378,6 +378,16 @@ export const DesignDetailPage = () => {
                 xml={design.drawioXml}
                 title={`${design.designName || 'Network Design'} Diagram`}
                 initialHeight={640}
+                onSave={designId ? async (xml: string) => {
+                  if (!accessToken || !designId) return;
+                  try {
+                    const updated = await commerceApi.updateNetworkDesignDiagram(accessToken, designId, xml);
+                    setDesign(updated);
+                    setNotice('Diagram saved ✓');
+                  } catch (err: any) {
+                    setError(extractApiError(err, 'Failed to save diagram'));
+                  }
+                } : undefined}
               />
             ) : (
               <div className="dnb-diagram-empty">

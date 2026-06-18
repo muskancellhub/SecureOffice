@@ -123,6 +123,8 @@ select {
 .drawio-embed-shell {
   position: relative;
 }
+.drawio-embed-toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.drawio-save-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .drawio-loading-note {
   margin: 0;

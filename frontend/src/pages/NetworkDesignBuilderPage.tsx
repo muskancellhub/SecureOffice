@@ -578,6 +578,16 @@ export const NetworkDesignBuilderPage = () => {
                 xml={topologyArtifact.drawioXml}
                 title={`${savedDesign?.designName || 'SMB Network Design'} Diagram Preview`}
                 initialHeight={640}
+                onSave={savedDesign?.id ? async (xml: string) => {
+                  const id = savedDesign?.id;
+                  if (!accessToken || !id) return;
+                  try {
+                    await commerceApi.updateNetworkDesignDiagram(accessToken, id, xml);
+                    setNotice('Diagram saved ✓');
+                  } catch (err: any) {
+                    setError(extractApiError(err, 'Failed to save diagram'));
+                  }
+                } : undefined}
               />
             ) : (
               <div className="dnb-diagram-empty">
