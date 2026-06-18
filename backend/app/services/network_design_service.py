@@ -1185,11 +1185,11 @@ class NetworkDesignService:
                 )
 
         design_name = design.design_name
-        design_status = design.status.value
+        status_at_deletion = design.status.value
         self.repo.delete_design(design)
         self.db.commit()
         audit.log('design_deleted', design_id=design_id,
-                  design_name=design_name, design_status=design_status)
+                  design_name=design_name, status_at_deletion=status_at_deletion)
 
     def _fetch_design_for_tenant_admin(self, current_user: dict, design_id: str) -> NetworkDesign:
         design = self.repo.get_design_by_id(design_id)

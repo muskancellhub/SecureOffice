@@ -96,6 +96,9 @@ class FakeRepo:
                 return design
         return None
 
+    def delete_design(self, design):
+        self.designs = [d for d in self.designs if d.id != design.id]
+
     def list_for_user(self, *, user_id: str, submitted_only: bool = False):
         user_uuid = uuid.UUID(user_id)
         rows = [row for row in self.designs if row.created_by_user_id == user_uuid]
@@ -342,6 +345,28 @@ class TestNetworkDesignService(unittest.TestCase):
         f = rec.sd[SD_ID_AUDIT]
         assert f['note_snippet'] == 'Stock check pending.'
         assert 'message_snippet' not in f
+
+    def test_design_deleted_audit_uses_status_at_deletion(self):
+        # BUG-AUD-017: the event field is status_at_deletion, not design_status.
+        import logging
+        from app.core.logging_config import SD_ID_AUDIT
+
+        design = self.service.save_design(self.actor, {'submit': False, 'status': 'draft'})
+        records = []
+        handler = logging.Handler()
+        handler.emit = records.append
+        audit_logger = logging.getLogger('secureoffice.audit')
+        audit_logger.addHandler(handler)
+        audit_logger.setLevel(logging.INFO)
+        try:
+            self.service.delete_design(self.actor, str(design.id))
+        finally:
+            audit_logger.removeHandler(handler)
+
+        rec = next(r for r in records if getattr(r, 'msgid', None) == 'design_deleted')
+        f = rec.sd[SD_ID_AUDIT]
+        assert f['status_at_deletion'] == 'draft'
+        assert 'design_status' not in f
 
     def test_internal_ops_view_listing_submitted_requests(self):
         self.service.save_design(self.actor, {'submit': False, 'status': 'draft'})
