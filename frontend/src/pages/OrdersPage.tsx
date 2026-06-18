@@ -2,6 +2,7 @@ import { ArrowUpRight, CalendarClock, CheckCircle2, Clock3, Package, Plus } from
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
+import { BusinessIntakeModal } from '../components/BusinessIntakeModal';
 import { useAuth } from '../context/AuthContext';
 import type { OrderSummary } from '../types/commerce';
 import { extractApiError } from '../utils/extractApiError';
@@ -23,6 +24,9 @@ export const OrdersPage = () => {
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  // BUG-ORD-002: open the requirements intake before the builder, so a new
+  // design starts from real business context instead of empty/stale data.
+  const [intakeOpen, setIntakeOpen] = useState(false);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -53,7 +57,7 @@ export const OrdersPage = () => {
           <h1>Orders</h1>
           <p className="apx-subtitle">Track every order from supplier and QC through shipping and delivery.</p>
         </div>
-        <button className="apx-add-btn" onClick={() => navigate('/shop/designs/new')}>
+        <button className="apx-add-btn" onClick={() => setIntakeOpen(true)}>
           <Plus size={18} /> New request
         </button>
       </header>
@@ -94,7 +98,7 @@ export const OrdersPage = () => {
             <div className="ord-empty">
               <span className="ord-empty-icon"><Package size={26} strokeWidth={1.3} /></span>
               <p>No orders yet. Convert an accepted quote or start a new design to create one.</p>
-              <button className="apx-add-btn" onClick={() => navigate('/shop/designs/new')}>
+              <button className="apx-add-btn" onClick={() => setIntakeOpen(true)}>
                 <Plus size={17} /> Start new request
               </button>
             </div>
@@ -127,6 +131,7 @@ export const OrdersPage = () => {
           ))}
         </div>
       </div>
+      <BusinessIntakeModal open={intakeOpen} onClose={() => setIntakeOpen(false)} />
     </section>
   );
 };
