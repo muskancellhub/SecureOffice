@@ -96,9 +96,14 @@ def invite_user(payload: InviteUserRequest, current_user: dict = Depends(get_cur
 def list_users(
     tenant_id: str | None = None,
     current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
     db: Session = Depends(get_db),
 ):
-    users = UserManagementService(db).list_users(current_user, tenant_id=tenant_id)
+    # BUG-TENANT-008: default to the effective tenant (X-Tenant-Id) so a
+    # SUPER_ADMIN without an explicit ?tenant_id doesn't list every tenant's
+    # users. An explicit tenant_id still wins.
+    users = UserManagementService(db).list_users(
+        current_user, tenant_id=tenant_id or ctx.effective_tenant_id)
     return [_to_user_response(user) for user in users]
 
 

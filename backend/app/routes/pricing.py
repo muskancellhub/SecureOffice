@@ -141,9 +141,14 @@ def standalone_component_preview(
 
 
 @router.get('/customer', response_model=CustomerPricingResponse)
-def get_customer_pricing(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_customer_pricing(
+    current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db),
+):
     AuthorizationService(db).require(current_user, PERM_MANAGE_PRICING)
-    pricing = PricingService(db).get_or_create_customer_pricing(current_user['tenant_id'])
+    # BUG-TENANT-009: read the effective tenant's pricing (SUPER_ADMIN switcher).
+    pricing = PricingService(db).get_or_create_customer_pricing(ctx.effective_tenant_id)
     db.commit()
     db.refresh(pricing)
     return CustomerPricingResponse(
@@ -157,10 +162,14 @@ def get_customer_pricing(current_user: dict = Depends(get_current_user), db: Ses
 def update_customer_pricing(
     payload: UpdateCustomerPricingRequest,
     current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
     db: Session = Depends(get_db),
 ):
     AuthorizationService(db).require(current_user, PERM_MANAGE_PRICING)
-    pricing = PricingService(db).update_customer_discount(current_user, payload.default_discount_pct)
+    # BUG-TENANT-009: update the effective tenant's discount, not the home one —
+    # otherwise a switched SUPER_ADMIN edits the master tenant's pricing.
+    pricing = PricingService(db).update_customer_discount(
+        {**current_user, 'tenant_id': ctx.effective_tenant_id}, payload.default_discount_pct)
     return CustomerPricingResponse(
         tenant_id=str(pricing.tenant_id),
         default_discount_pct=float(pricing.default_discount_pct),

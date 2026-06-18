@@ -76,6 +76,29 @@ def test_cart_effective_user_overrides_tenant():
     assert cu['tenant_id'] == 'home'    # original not mutated
 
 
+def test_users_list_scopes_to_tenant_id_not_all():
+    # BUG-TENANT-008: with a tenant_id (the route defaults it to the effective
+    # tenant), a SUPER_ADMIN list is scoped, not list_all() across tenants.
+    import uuid
+    from app.models.user import UserRole
+    from app.services.user_management_service import UserManagementService
+
+    company = str(uuid.uuid4())
+    cap = {}
+    svc = UserManagementService.__new__(UserManagementService)
+    svc.user_repo = SimpleNamespace(
+        list_by_tenant=lambda t: cap.__setitem__('by_tenant', t) or [],
+        list_all=lambda: cap.__setitem__('all', True) or [],
+    )
+    svc._actor_role = lambda a: UserRole.SUPER_ADMIN
+    svc._actor_effective_permissions = lambda a, r: set()
+    svc._assert_actor_can_manage = lambda r, p: None
+
+    svc.list_users({'tenant_id': str(uuid.uuid4()), 'role': 'SUPER_ADMIN'}, tenant_id=company)
+    assert cap.get('by_tenant') == company
+    assert 'all' not in cap
+
+
 def test_billing_tenant_id_honors_effective_switch():
     # BUG-TENANT-004: every billing read derives its tenant from _tenant_id().
     import uuid
