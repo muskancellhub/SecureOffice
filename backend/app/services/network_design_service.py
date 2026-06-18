@@ -342,15 +342,15 @@ class NetworkDesignService:
         return slug or 'company'
 
     def _generate_design_name(self, current_user: dict | None) -> str | None:
-        """Auto-generated design name in the format
-        ``design{N}-{INITIALS}-{company}-{YYYY-MM-DD}`` where N is the next
-        sequential index within the tenant. Used when a design is created
-        without an explicit name (auto-save flow)."""
+        """Auto-generated, client-facing design name like
+        ``Network Design #25 – TestCorp`` (BUG-DES-005). N is the next sequential
+        index within the tenant; the company is the tenant's display name. Used
+        when a design is created without an explicit name (auto-save flow)."""
         if not current_user:
             return None
         tenant_id = current_user.get('tenant_id')
         seq = 1
-        company = 'company'
+        company = None
         if tenant_id:
             try:
                 seq = self.repo.count_for_tenant(tenant_id=tenant_id) + 1
@@ -359,12 +359,12 @@ class NetworkDesignService:
             try:
                 tenant = self.db.get(Tenant, self._parse_uuid(tenant_id, field_name='tenant_id'))
                 if tenant and tenant.name:
-                    company = self._slugify_company(tenant.name)
+                    company = str(tenant.name).strip()
             except Exception:
-                company = 'company'
-        initials = self._user_initials(current_user)
-        date_str = self._now().strftime('%Y-%m-%d')
-        return f'design{seq}-{initials}-{company}-{date_str}'
+                company = None
+        if company:
+            return f'Network Design #{seq} – {company}'
+        return f'Network Design #{seq}'
 
     def _upsert_lead(
         self,
