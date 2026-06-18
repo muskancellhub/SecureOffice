@@ -176,6 +176,18 @@ def _fmt_currency(val: float | None) -> str:
     return f'${val:,.2f}'
 
 
+def _enum_value(val) -> str:
+    """Render an enum's .value, or a raw string/None safely.
+
+    Catalog entries can carry a plain-string billing_cycle/type from some
+    sources (e.g. SERVICE/managed-service items), so calling .value blindly
+    crashes with AttributeError (BUG-CART-001). Handle enum, str, and None.
+    """
+    if val is None:
+        return 'N/A'
+    return val.value if hasattr(val, 'value') else str(val)
+
+
 _TMOBILE_KEYWORDS = {'t-mobile', 'tmobile', 't mobile', 'papi'}
 _CATEGORY_KEYWORDS = {
     'phone': ['phone', 'phones', 'smartphone', 'iphone', 'samsung', 'galaxy', 'android'],
@@ -268,8 +280,8 @@ def _retrieve_catalog(db: Session, tenant_id: str, message: str) -> str:
         lines.append(
             f'• {neutralize_field_text(it.name)} | SKU: {neutralize_field_text(it.sku)} '
             f'| Vendor: {neutralize_field_text(it.vendor) or "N/A"} '
-            f'| Type: {it.type.value} | Price: {_fmt_currency(float(it.price))} '
-            f'| Billing: {it.billing_cycle.value} | Availability: {neutralize_field_text(it.availability) or "N/A"}'
+            f'| Type: {_enum_value(it.type)} | Price: {_fmt_currency(float(it.price))} '
+            f'| Billing: {_enum_value(it.billing_cycle)} | Availability: {neutralize_field_text(it.availability) or "N/A"}'
             f'{ms_price}'
             + (f' | {neutralize_field_text(detail_str)}' if detail_str else '')
         )
