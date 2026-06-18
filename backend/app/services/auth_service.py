@@ -264,7 +264,9 @@ class AuthService:
             locked=remaining <= 0,
         )
         if remaining <= 0:
-            raise AppError('Too many invalid attempts. Please request a new code.', 429)
+            # 400, not 429: OTP-attempt exhaustion must be distinguishable from
+            # the endpoint-level IP rate limit (which also returns 429). BUG-AUTH-002.
+            raise AppError('Too many invalid attempts. Please request a new code.', 400)
         raise AppError(f'Invalid OTP. {remaining} attempt(s) remaining.', 400)
 
     def verify_otp(self, *, email: str, otp: str):

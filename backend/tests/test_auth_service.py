@@ -164,7 +164,10 @@ def test_verify_otp_wrong_code_counts_down_then_locks(auth_db, monkeypatch):
         assert '1 attempt(s) remaining' in str(exc.value)
         with pytest.raises(AppError) as exc:
             svc.verify_otp(email=email, otp='000000')
-        assert exc.value.status_code == 429
+        # BUG-AUTH-002: lockout is 400 (not 429), so it's distinguishable from
+        # the endpoint-level IP rate limit which also returns 429.
+        assert exc.value.status_code == 400
+        assert 'Too many invalid attempts' in str(exc.value)
         # OTP is locked even with the right code now
         with pytest.raises(AppError) as exc:
             svc.verify_otp(email=email, otp='123456')
