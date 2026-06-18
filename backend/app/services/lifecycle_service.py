@@ -385,7 +385,11 @@ class LifecycleService:
         order.status = self._order_status_for_stage(workflow.current_stage, workflow.status)
         self.db.commit()
         self.db.refresh(workflow)
+        # BUG-AUD-013: capture the transition (what finished / what's next), not
+        # just the resulting state, while keeping the existing state fields.
         audit.log('workflow_advanced', order_id=str(order.id), workflow_id=str(workflow.id),
+                  step_completed=active.stage_key if active else None,
+                  new_current_step=next_pending.stage_key if next_pending else None,
                   current_stage=workflow.current_stage,
                   workflow_status=workflow.status.value,
                   order_status=order.status.value)
