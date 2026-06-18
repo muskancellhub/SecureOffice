@@ -914,9 +914,12 @@ class CatalogService:
 
         return items
 
-    def get_item_by_id(self, item_id: str, *, tenant_id=None, include_components: bool = False):
+    def get_item_by_id(self, item_id: str, *, tenant_id=None, include_components: bool = False,
+                       include_inactive: bool = False):
         product = find_product_by_id_or_legacy(self.db, item_id)
-        if not product or not product.is_active:
+        # include_inactive lets admin write paths build a response for an item they
+        # just deactivated (BUG-MS-001); public reads keep rejecting inactive items.
+        if not product or (not product.is_active and not include_inactive):
             raise NotFoundError('Catalog item not found')
         # Touch the relationship so entry type/billing derivation has components.
         _ = product.components
@@ -979,7 +982,9 @@ class CatalogService:
 
         self.db.commit()
         self.db.refresh(product)
-        return self.get_item_by_id(str(product.id))
+        # include_inactive: the admin must get a 200 with the updated object even
+        # when the update just set is_active=False (BUG-MS-001).
+        return self.get_item_by_id(str(product.id), include_inactive=True)
 
     def _set_device_ms_price(self, product: Product, managed_service_price: float | None) -> float | None:
         """Upsert / deactivate the optional MANAGED_SERVICE component (D4)."""
