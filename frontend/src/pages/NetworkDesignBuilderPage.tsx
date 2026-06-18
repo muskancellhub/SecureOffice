@@ -446,8 +446,9 @@ export const NetworkDesignBuilderPage = () => {
         quantity: Math.max(1, line.quantity),
       });
       await refreshCart();
-      setNotice(`Added ${line.name} to cart.`);
-      setTimeout(() => navigate('/shop/cart'), 600);
+      // BUG-DES-003: stay on the BOM page so the user can add multiple items.
+      // Only the "Order this design" (add-all) action navigates to the cart.
+      setNotice(`Added ${line.name} to cart ✓`);
     } catch (err: any) {
       setError(extractApiError(err, `Failed to add ${line.name} to cart`));
     } finally {
