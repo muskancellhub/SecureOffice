@@ -73,12 +73,14 @@ class BillingService:
         if not self._is_admin(current_user.get('role')):
             raise ForbiddenError('Only ADMIN or SUPER_ADMIN can perform billing admin actions')
 
-    def _tenant_id(self, current_user: dict) -> uuid.UUID:
-        return self._parse_uuid(current_user['tenant_id'], field_name='tenant_id')
+    def _tenant_id(self, current_user: dict, effective_tenant_id: str | None = None) -> uuid.UUID:
+        # BUG-TENANT-004: honor the SUPER_ADMIN tenant switcher for reads.
+        return self._parse_uuid(effective_tenant_id or current_user['tenant_id'], field_name='tenant_id')
 
-    def get_billing_overview(self, current_user: dict, months_back: int = 12, months_forward: int = 12) -> dict:
+    def get_billing_overview(self, current_user: dict, months_back: int = 12, months_forward: int = 12,
+                             *, effective_tenant_id: str | None = None) -> dict:
         self._assert_user_exists(current_user)
-        tenant_id = self._tenant_id(current_user)
+        tenant_id = self._tenant_id(current_user, effective_tenant_id)
         months_back = max(1, min(months_back, 24))
         months_forward = max(1, min(months_forward, 24))
 
@@ -173,9 +175,9 @@ class BillingService:
             },
         }
 
-    def list_invoices(self, current_user: dict) -> list[Invoice]:
+    def list_invoices(self, current_user: dict, *, effective_tenant_id: str | None = None) -> list[Invoice]:
         self._assert_user_exists(current_user)
-        tenant_id = self._tenant_id(current_user)
+        tenant_id = self._tenant_id(current_user, effective_tenant_id)
         stmt = (
             select(Invoice)
             .where(Invoice.tenant_id == tenant_id)

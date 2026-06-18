@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.permissions import PERM_MANAGE_BILLING, PERM_VIEW_BILLING
 from app.middleware.dependencies import get_current_user
+from app.middleware.tenant_context import TenantContext, get_tenant_context
 from app.schemas.billing import (
     BillingMonthPointResponse,
     BillingOverviewResponse,
@@ -58,10 +59,14 @@ def get_billing_overview(
     months_back: int = 12,
     months_forward: int = 12,
     current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
     db: Session = Depends(get_db),
 ):
     AuthorizationService(db).require(current_user, PERM_VIEW_BILLING)
-    data = BillingService(db).get_billing_overview(current_user, months_back=months_back, months_forward=months_forward)
+    data = BillingService(db).get_billing_overview(
+        current_user, months_back=months_back, months_forward=months_forward,
+        effective_tenant_id=ctx.effective_tenant_id,
+    )
     return BillingOverviewResponse(
         past_months=[
             BillingMonthPointResponse(
@@ -91,9 +96,13 @@ def get_billing_overview(
 
 
 @router.get('/invoices', response_model=list[InvoiceResponse])
-def list_invoices(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_invoices(
+    current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db),
+):
     AuthorizationService(db).require(current_user, PERM_VIEW_BILLING)
-    rows = BillingService(db).list_invoices(current_user)
+    rows = BillingService(db).list_invoices(current_user, effective_tenant_id=ctx.effective_tenant_id)
     return [_serialize_invoice(row) for row in rows]
 
 

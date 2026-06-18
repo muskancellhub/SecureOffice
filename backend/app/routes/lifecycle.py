@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.permissions import PERM_MANAGE_LIFECYCLE, PERM_VIEW_LIFECYCLE
 from app.middleware.dependencies import get_current_user
+from app.middleware.tenant_context import TenantContext, get_tenant_context
 from app.models.lifecycle import SubscriptionStatus
 from app.schemas.lifecycle import (
     AssetResponse,
@@ -109,9 +110,13 @@ def _serialize_workflow(workflow) -> WorkflowInstanceResponse:
 
 
 @router.get('/contracts', response_model=list[ContractResponse])
-def list_contracts(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_contracts(
+    current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db),
+):
     AuthorizationService(db).require(current_user, PERM_VIEW_LIFECYCLE)
-    rows = LifecycleService(db).list_contracts(current_user)
+    rows = LifecycleService(db).list_contracts(current_user, effective_tenant_id=ctx.effective_tenant_id)
     return [_serialize_contract(row) for row in rows]
 
 
@@ -119,10 +124,12 @@ def list_contracts(current_user: dict = Depends(get_current_user), db: Session =
 def list_subscriptions(
     status: SubscriptionStatus | None = None,
     current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
     db: Session = Depends(get_db),
 ):
     AuthorizationService(db).require(current_user, PERM_VIEW_LIFECYCLE)
-    rows = LifecycleService(db).list_subscriptions(current_user, status=status)
+    rows = LifecycleService(db).list_subscriptions(current_user, status=status,
+                                                   effective_tenant_id=ctx.effective_tenant_id)
     return [_serialize_subscription(row) for row in rows]
 
 
@@ -139,9 +146,13 @@ def update_subscription_status(
 
 
 @router.get('/assets', response_model=list[AssetResponse])
-def list_assets(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_assets(
+    current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db),
+):
     AuthorizationService(db).require(current_user, PERM_VIEW_LIFECYCLE)
-    rows = LifecycleService(db).list_assets(current_user)
+    rows = LifecycleService(db).list_assets(current_user, effective_tenant_id=ctx.effective_tenant_id)
     return [_serialize_asset(row) for row in rows]
 
 

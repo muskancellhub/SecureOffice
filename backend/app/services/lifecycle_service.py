@@ -265,9 +265,10 @@ class LifecycleService:
             workflow.current_stage = stages[-1][0]
         return workflow
 
-    def list_contracts(self, current_user: dict) -> list[Contract]:
+    def list_contracts(self, current_user: dict, *, effective_tenant_id: str | None = None) -> list[Contract]:
+        # BUG-TENANT-005: scope to the effective tenant (SUPER_ADMIN switcher).
         self._assert_user_exists(current_user)
-        tenant_id = self._parse_uuid(current_user['tenant_id'], field_name='tenant_id')
+        tenant_id = self._parse_uuid(effective_tenant_id or current_user['tenant_id'], field_name='tenant_id')
         user_id = self._parse_uuid(current_user['user_id'], field_name='user_id')
         stmt = (
             select(Contract)
@@ -278,9 +279,11 @@ class LifecycleService:
             stmt = stmt.where(Contract.created_by == user_id)
         return list(self.db.scalars(stmt).all())
 
-    def list_subscriptions(self, current_user: dict, status: SubscriptionStatus | None = None) -> list[Subscription]:
+    def list_subscriptions(self, current_user: dict, status: SubscriptionStatus | None = None,
+                           *, effective_tenant_id: str | None = None) -> list[Subscription]:
+        # BUG-TENANT-006: scope to the effective tenant (SUPER_ADMIN switcher).
         self._assert_user_exists(current_user)
-        tenant_id = self._parse_uuid(current_user['tenant_id'], field_name='tenant_id')
+        tenant_id = self._parse_uuid(effective_tenant_id or current_user['tenant_id'], field_name='tenant_id')
         user_id = self._parse_uuid(current_user['user_id'], field_name='user_id')
         stmt = select(Subscription).where(Subscription.tenant_id == tenant_id)
         if not self._is_admin(current_user.get('role')):
@@ -322,9 +325,10 @@ class LifecycleService:
                   old_status=old_status.value, new_status=status.value)
         return subscription
 
-    def list_assets(self, current_user: dict) -> list[Asset]:
+    def list_assets(self, current_user: dict, *, effective_tenant_id: str | None = None) -> list[Asset]:
+        # BUG-TENANT (assets): scope to the effective tenant (SUPER_ADMIN switcher).
         self._assert_user_exists(current_user)
-        tenant_id = self._parse_uuid(current_user['tenant_id'], field_name='tenant_id')
+        tenant_id = self._parse_uuid(effective_tenant_id or current_user['tenant_id'], field_name='tenant_id')
         user_id = self._parse_uuid(current_user['user_id'], field_name='user_id')
         stmt = (
             select(Asset)

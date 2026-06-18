@@ -62,3 +62,15 @@ def test_quotes_non_admin_scoped_to_user():
     cap = {}
     _quote_svc(cap).list_quotes(USER, effective_tenant_id='company2')
     assert cap == {'user': 'u'}
+
+
+def test_billing_tenant_id_honors_effective_switch():
+    # BUG-TENANT-004: every billing read derives its tenant from _tenant_id().
+    import uuid
+    from app.services.billing_service import BillingService
+
+    home, other = uuid.uuid4(), uuid.uuid4()
+    svc = BillingService.__new__(BillingService)
+    cu = {'tenant_id': str(home)}
+    assert str(svc._tenant_id(cu, str(other))) == str(other)   # switched
+    assert str(svc._tenant_id(cu)) == str(home)                # no switch
