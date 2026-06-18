@@ -464,6 +464,14 @@ class AuthService:
 
         session = self.refresh_repo.get_active_by_id(int(session_id))
         if not session or str(session.user_id) != str(user_id):
+            # BUG-AUTH-003: a replayed token references a now-revoked session
+            # whose hash still matches (rotation reuse) — report that as a token
+            # mismatch, not a generic "session invalid". A truly unknown session
+            # still gets "session is invalid".
+            prior = self.refresh_repo.get_by_id(int(session_id))
+            if (prior and str(prior.user_id) == str(user_id)
+                    and verify_value(refresh_token, prior.refresh_token_hash)):
+                raise UnauthorizedError('Refresh token mismatch')
             raise UnauthorizedError('Refresh session is invalid')
 
         if not verify_value(refresh_token, session.refresh_token_hash):

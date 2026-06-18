@@ -363,8 +363,11 @@ def test_refresh_rotates_and_blocks_reuse(auth_db, verified_user):
         # access tokens issued in the same second are byte-identical (same claims,
         # second-precision exp) — rotation is observable on the refresh token (new sid)
         assert new_tokens['refresh_token'] != tokens['refresh_token']
-        with pytest.raises(UnauthorizedError):
+        with pytest.raises(UnauthorizedError) as exc:
             svc.refresh(tokens['refresh_token'])  # old token revoked on rotation
+        # BUG-AUTH-003: replaying a rotated-out token reports a token mismatch,
+        # not a generic "session invalid".
+        assert 'Refresh token mismatch' in str(exc.value)
 
 
 def test_refresh_rejects_access_token_and_garbage(auth_db, verified_user):

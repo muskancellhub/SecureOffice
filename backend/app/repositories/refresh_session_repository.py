@@ -28,6 +28,13 @@ class RefreshSessionRepository:
             )
         )
 
+    def get_by_id(self, session_id: int) -> RefreshSession | None:
+        """Fetch a session regardless of revoked/expiry — used to tell a replayed
+        (rotated-out) token from a genuinely unknown session (BUG-AUTH-003)."""
+        return self.db.scalar(
+            select(RefreshSession).where(RefreshSession.id == session_id)
+        )
+
     def revoke(self, session: RefreshSession) -> None:
         session.revoked = True
         self.db.flush()
