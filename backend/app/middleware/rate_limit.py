@@ -82,6 +82,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 level=logging.WARNING,
                 limit=max_requests,
                 window_seconds=window,
+                # BUG-AUD-014: actual bucket size that tripped the limit.
+                request_count=len(q),
                 retry_after_seconds=retry_after,
             )
             return JSONResponse(
