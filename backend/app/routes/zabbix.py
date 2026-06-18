@@ -62,12 +62,14 @@ def zabbix_set_config(payload: ZabbixCredentialsIn, _admin: dict = Depends(_requ
         set_runtime_credentials('', '', '')
         # url/username only — the password must never reach a log line (plan §6).
         audit.log('zabbix_credentials_updated', status='failure', level=logging.WARNING,
-                  url=payload.url, zabbix_username=payload.username, reason='validation_failed')
+                  url_set=payload.url, zabbix_username=payload.username,
+                  validation_status='failed')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f'Zabbix sync failed: {exc}',
         )
-    audit.log('zabbix_credentials_updated', url=payload.url, zabbix_username=payload.username)
+    audit.log('zabbix_credentials_updated', url_set=payload.url,
+              zabbix_username=payload.username, validation_status='success')
     return {
         'status': 'ok',
         'config': get_runtime_credentials_status(),
