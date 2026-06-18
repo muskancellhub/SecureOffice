@@ -12793,6 +12793,8 @@ textarea {
 }
 .dnb-bom-summary { margin: 0 0 14px; font-size: 14px; color: #6b7585; line-height: 1.5; }
 .dnb-bom-warning { margin: 0 0 14px; padding: 10px 14px; border-radius: 8px; font-size: 13px; line-height: 1.5; color: #8a5a00; background: #fff7e6; border: 1px solid #ffd591; }
+.dnb-qty-input { width: 72px; padding: 4px 6px; text-align: right; font-size: 13px; border: 1px solid #d4d8e0; border-radius: 6px; }
+.dnb-qty-input:focus { outline: none; border-color: #4c6fff; box-shadow: 0 0 0 2px rgba(76,111,255,0.15); }
 
 .dnb-bom { width: 100%; border-collapse: collapse; }
 .dnb-bom thead th {

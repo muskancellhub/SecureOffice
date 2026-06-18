@@ -436,6 +436,12 @@ export const NetworkDesignBuilderPage = () => {
     return () => { if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current); };
   }, [accessToken, calculatorResult, bom, topologyArtifact, autoSave]);
 
+  // BUG-DES-004: let the user review/edit the (sometimes very large) BOM
+  // quantity before it goes to the cart, rather than adding it blindly.
+  const [bomQtyEdits, setBomQtyEdits] = useState<Record<string, number>>({});
+  const effectiveBomQty = (line: NetworkBomLine): number =>
+    bomQtyEdits[line.line_id] ?? Math.max(1, line.quantity);
+
   const onAddLineToCart = async (line: NetworkBomLine) => {
     if (!accessToken || !line.item_id) return;
     setAddingLineId(line.line_id);
@@ -443,7 +449,7 @@ export const NetworkDesignBuilderPage = () => {
     try {
       await commerceApi.addCartLine(accessToken, {
         product_id: line.item_id,
-        quantity: Math.max(1, line.quantity),
+        quantity: effectiveBomQty(line),
       });
       await refreshCart();
       // BUG-DES-003: stay on the BOM page so the user can add multiple items.
@@ -471,7 +477,7 @@ export const NetworkDesignBuilderPage = () => {
         try {
           await commerceApi.addCartLine(accessToken, {
             product_id: line.item_id as string,
-            quantity: Math.max(1, line.quantity),
+            quantity: effectiveBomQty(line),
           });
           successCount += 1;
         } catch {
@@ -615,6 +621,7 @@ export const NetworkDesignBuilderPage = () => {
                 <tbody>
                   {bom.line_items.map((line) => {
                     const canAdd = Boolean(line.item_id);
+                    const inCartLine = canAdd ? cartLineByItemId.get(line.item_id as string) : undefined;
                     const msDevice = line.item_id ? msDeviceMap.get(line.item_id) : undefined;
                     const hasMsPrice = msDevice && msDevice.managedServicePrice > 0;
                     const msIncluded = hasMsPrice && msDevice.groupEnabled && !msDevice.excluded;
@@ -632,7 +639,22 @@ export const NetworkDesignBuilderPage = () => {
                           )}
                         </td>
                         <td><span className="dnb-cat-tag">{humanizeCategory(line.category)}</span></td>
-                        <td className="dnb-num">{line.quantity}</td>
+                        <td className="dnb-num">
+                          {canAdd && !inCartLine ? (
+                            <input
+                              type="number"
+                              min={1}
+                              className="dnb-qty-input"
+                              value={effectiveBomQty(line)}
+                              onChange={(e) => {
+                                const n = Math.max(1, Math.floor(Number(e.target.value) || 1));
+                                setBomQtyEdits((prev) => ({ ...prev, [line.line_id]: n }));
+                              }}
+                            />
+                          ) : (
+                            inCartLine ? inCartLine.quantity : line.quantity
+                          )}
+                        </td>
                         <td className="dnb-num">{formatBomMoney(line, 'unit')}</td>
                         <td className="dnb-num dnb-total">{formatBomMoney(line, 'total')}</td>
                         <td className="dnb-num">
@@ -653,7 +675,7 @@ export const NetworkDesignBuilderPage = () => {
                         </td>
                         <td className="dnb-bom-action">
                           {canAdd ? (() => {
-                            const cl = cartLineByItemId.get(line.item_id as string);
+                            const cl = inCartLine;
                             if (cl) {
                               return (
                                 <div className="qty-stepper">
