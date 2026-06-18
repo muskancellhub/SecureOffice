@@ -705,19 +705,31 @@ def apply_runtime_migrations() -> None:
             text(
                 """
                 DO $$
+                DECLARE r record;
                 BEGIN
-                    IF EXISTS (
-                        SELECT 1
-                        FROM pg_constraint
-                        WHERE conname = 'orders_status_check'
+                    -- BUG-ORD-001: drop ANY check constraint gating orders.status
+                    -- that predates VENDOR_ORDERED — regardless of name. The old
+                    -- migration only managed 'orders_status_check', but SQLAlchemy's
+                    -- create_all emits its own constraint named after the Enum
+                    -- ('order_status_v1') with whatever enum values existed when the
+                    -- table was first created. That stale one rejects VENDOR_ORDERED
+                    -- (500 on commit) even after this block ran.
+                    FOR r IN
+                        SELECT conname FROM pg_constraint
+                        WHERE conrelid = 'orders'::regclass
+                          AND contype = 'c'
+                          AND pg_get_constraintdef(oid) LIKE '%status%'
+                          AND pg_get_constraintdef(oid) NOT LIKE '%VENDOR_ORDERED%'
+                    LOOP
+                        EXECUTE format('ALTER TABLE orders DROP CONSTRAINT %I', r.conname);
+                    END LOOP;
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint WHERE conname = 'orders_status_check'
                     ) THEN
-                        ALTER TABLE orders DROP CONSTRAINT orders_status_check;
+                        ALTER TABLE orders
+                        ADD CONSTRAINT orders_status_check
+                        CHECK (status IN ('SUBMITTED', 'PROCESSING', 'VENDOR_ORDERED', 'SHIPPED', 'DELIVERED', 'ACTIVE'));
                     END IF;
-                    ALTER TABLE orders
-                    ADD CONSTRAINT orders_status_check
-                    CHECK (status IN ('SUBMITTED', 'PROCESSING', 'VENDOR_ORDERED', 'SHIPPED', 'DELIVERED', 'ACTIVE'));
-                EXCEPTION WHEN duplicate_object THEN
-                    NULL;
                 END
                 $$;
                 """
