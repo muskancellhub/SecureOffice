@@ -64,6 +64,18 @@ def test_quotes_non_admin_scoped_to_user():
     assert cap == {'user': 'u'}
 
 
+def test_cart_effective_user_overrides_tenant():
+    # BUG-TENANT-003: the cart routes act as the effective tenant.
+    from app.routes.cart import _effective_user
+
+    cu = {'user_id': 'u', 'tenant_id': 'home', 'role': 'SUPER_ADMIN'}
+    ctx = SimpleNamespace(effective_tenant_id='company2')
+    eff = _effective_user(cu, ctx)
+    assert eff['tenant_id'] == 'company2'
+    assert eff['user_id'] == 'u'        # other fields preserved
+    assert cu['tenant_id'] == 'home'    # original not mutated
+
+
 def test_billing_tenant_id_honors_effective_switch():
     # BUG-TENANT-004: every billing read derives its tenant from _tenant_id().
     import uuid

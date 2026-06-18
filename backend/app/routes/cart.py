@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.middleware.dependencies import get_current_user
+from app.middleware.tenant_context import TenantContext, get_tenant_context
 from app.schemas.cart import AddCartLineRequest, CartLineResponse, CartResponse, UpdateCartLineRequest
 from app.services.cart_service import CartService
 
@@ -9,6 +10,13 @@ router = APIRouter(prefix='/cart', tags=['Cart'])
 
 # Per-line total above which the cart returns a (non-blocking) review advisory.
 _HIGH_VALUE_LINE_TOTAL = 50_000
+
+
+def _effective_user(current_user: dict, ctx: TenantContext) -> dict:
+    """BUG-TENANT-003: the cart (and its tenant pricing) follows the effective
+    tenant, so a SUPER_ADMIN sees a per-tenant cart when the switcher is active.
+    For non-admins the effective tenant is always their own, so this is a no-op."""
+    return {**current_user, 'tenant_id': ctx.effective_tenant_id}
 
 
 def _serialize_cart(cart) -> CartResponse:
@@ -82,15 +90,24 @@ def _serialize_cart(cart) -> CartResponse:
 
 
 @router.get('', response_model=CartResponse)
-def get_cart(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    cart = CartService(db).get_active_cart(current_user)
+def get_cart(
+    current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db),
+):
+    cart = CartService(db).get_active_cart(_effective_user(current_user, ctx))
     return _serialize_cart(cart)
 
 
 @router.post('/lines', response_model=CartResponse)
-def add_cart_line(payload: AddCartLineRequest, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def add_cart_line(
+    payload: AddCartLineRequest,
+    current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db),
+):
     cart = CartService(db).add_line(
-        current_user,
+        _effective_user(current_user, ctx),
         product_id=payload.product_id,
         component_id=payload.component_id,
         selections=payload.selections,
@@ -107,10 +124,11 @@ def update_cart_line(
     line_id: str,
     payload: UpdateCartLineRequest,
     current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
     db: Session = Depends(get_db),
 ):
     cart = CartService(db).update_line(
-        current_user,
+        _effective_user(current_user, ctx),
         line_id,
         quantity=payload.quantity,
     )
@@ -118,13 +136,22 @@ def update_cart_line(
 
 
 @router.delete('/lines/{line_id}', response_model=CartResponse)
-def remove_cart_line(line_id: str, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    cart = CartService(db).remove_line(current_user, line_id)
+def remove_cart_line(
+    line_id: str,
+    current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db),
+):
+    cart = CartService(db).remove_line(_effective_user(current_user, ctx), line_id)
     return _serialize_cart(cart)
 
 
 @router.delete('', response_model=CartResponse)
-def clear_cart(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def clear_cart(
+    current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db),
+):
     """BUG-CART-002: empty the active cart in a single call."""
-    cart = CartService(db).clear_cart(current_user)
+    cart = CartService(db).clear_cart(_effective_user(current_user, ctx))
     return _serialize_cart(cart)
