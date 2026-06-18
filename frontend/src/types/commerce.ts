@@ -417,6 +417,7 @@ export interface NetworkBomResult {
   grand_total: number;
   summary: string;
   assumptions: string[];
+  warnings?: string[];
 }
 
 export interface NetworkTopologyArtifact {

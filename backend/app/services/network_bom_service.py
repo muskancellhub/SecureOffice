@@ -5,6 +5,12 @@ from typing import Any
 
 from app.models.catalog import CatalogItemType
 
+# Thresholds for the large-deployment advisory (BUG-DES-002). Well above a normal
+# single-site office (typically a handful to low-tens of APs); only very large
+# sites trip these, and only to warn — the quantities themselves are unchanged.
+_LARGE_DEPLOYMENT_AP_COUNT = 200
+_LARGE_LINE_QUANTITY = 10_000
+
 
 class NetworkBomService:
     CABLE_PRICE_PER_METER = {
@@ -1018,6 +1024,19 @@ class NetworkBomService:
             f'Preferred vendor: {preferred_vendor or "not specified"}.'
         )
 
+        # BUG-DES-002: large sites produce mathematically-correct but very large
+        # quantities (cabling/licenses/labor scale with area and AP count). Keep
+        # the numbers, but flag the BOM so the UI can warn that these are physical
+        # estimates to verify before ordering.
+        warnings: list[str] = []
+        max_line_qty = max((self._as_int(line.get('quantity'), 0) for line in line_items), default=0)
+        if ap_count > _LARGE_DEPLOYMENT_AP_COUNT or max_line_qty > _LARGE_LINE_QUANTITY:
+            warnings.append(
+                'Large deployment — some quantities (cabling, licenses, installation) '
+                'are physical estimates derived from site size and may be unusually high. '
+                'Review and confirm before ordering.'
+            )
+
         return {
             'line_items': line_items,
             'subtotal': subtotal,
@@ -1025,4 +1044,5 @@ class NetworkBomService:
             'grand_total': grand_total,
             'summary': summary_text,
             'assumptions': assumptions,
+            'warnings': warnings,
         }

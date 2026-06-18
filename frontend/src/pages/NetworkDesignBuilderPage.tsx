@@ -591,6 +591,14 @@ export const NetworkDesignBuilderPage = () => {
             </div>
             {bom?.summary && <p className="dnb-bom-summary">{bom.summary}</p>}
 
+            {/* BUG-DES-002: advisory for large deployments — quantities are kept
+                exact but flagged as physical estimates to verify before ordering. */}
+            {bom?.warnings?.map((warning, idx) => (
+              <div key={idx} className="dnb-bom-warning" role="alert">
+                ⚠ {warning}
+              </div>
+            ))}
+
             {!!bom?.line_items?.length ? (
               <table className="dnb-bom">
                 <thead>

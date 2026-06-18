@@ -245,6 +245,33 @@ class TestUnifiedCatalogAndBom(unittest.TestCase):
         self.assertEqual(switch_line['vendor'], 'Meraki')
         self.assertNotEqual(ap_line['vendor'], 'PAPI')
 
+    def test_large_deployment_emits_warning(self):
+        # BUG-DES-002: numbers stay correct; a warning flags the large deployment.
+        bom = NetworkBomService(self.service)
+        small = bom.generate_bom_from_estimate(
+            calculator_result={
+                'summary': {'recommendedIndoorAPs': 3, 'recommendedSwitches': 2},
+                'counts': {'switchCount': 2, 'indoorAPsFinal': 3},
+                'inputsNormalized': {'switchPorts': 24, 'pricing': {'taxPct': 0}},
+            },
+            preferences={},
+        )
+        self.assertEqual(small['warnings'], [])
+
+        large = bom.generate_bom_from_estimate(
+            calculator_result={
+                'summary': {'recommendedIndoorAPs': 1374, 'recommendedSwitches': 50},
+                'counts': {'switchCount': 50, 'indoorAPsFinal': 1374},
+                'inputsNormalized': {'switchPorts': 24, 'pricing': {'taxPct': 0}},
+            },
+            preferences={},
+        )
+        self.assertTrue(large['warnings'])
+        self.assertIn('Large deployment', large['warnings'][0])
+        # The AP line quantity is unchanged (not capped).
+        ap_line = next(line for line in large['line_items'] if line['category'] == 'wifi_ap')
+        self.assertEqual(ap_line['quantity'], 1374)
+
     def test_bom_preferred_vendor_and_fallback(self):
         meraki_result = NetworkBomService(self.service).generate_bom_from_estimate(
             calculator_result={
