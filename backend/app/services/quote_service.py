@@ -710,10 +710,13 @@ class QuoteService:
         )
         return self.quote_repo.get_by_id(str(quote.id))
 
-    def list_quotes(self, current_user: dict):
+    def list_quotes(self, current_user: dict, *, effective_tenant_id: str | None = None):
+        # BUG-TENANT-002: an admin lists the effective tenant (SUPER_ADMIN
+        # switcher), not just their JWT home tenant.
         self._assert_user_exists(current_user)
         if self._is_admin(current_user.get('role')):
-            return self.quote_repo.list_for_tenant(current_user['tenant_id'])
+            tenant_id = effective_tenant_id or current_user['tenant_id']
+            return self.quote_repo.list_for_tenant(tenant_id)
         return self.quote_repo.list_for_user(current_user['user_id'])
 
     def get_quote(self, current_user: dict, quote_id: str):

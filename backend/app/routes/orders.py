@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.permissions import PERM_MANAGE_LIFECYCLE
 from app.middleware.dependencies import get_current_user
+from app.middleware.tenant_context import TenantContext, get_tenant_context
 from app.schemas.order_notifications import (
     OrderNotificationRecipientsResponse,
     UpdateOrderNotificationRecipientsRequest,
@@ -65,8 +66,12 @@ def _serialize_order_notification_settings(settings_row) -> OrderNotificationRec
 
 
 @router.get('', response_model=list[OrderSummaryResponse])
-def list_orders(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    orders = OrderService(db).list_orders(current_user)
+def list_orders(
+    current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db),
+):
+    orders = OrderService(db).list_orders(current_user, effective_tenant_id=ctx.effective_tenant_id)
     return [
         OrderSummaryResponse(
             id=str(order.id),

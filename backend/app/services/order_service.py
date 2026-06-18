@@ -20,10 +20,14 @@ class OrderService:
     def _is_admin(role: str | None) -> bool:
         return role in {UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value}
 
-    def list_orders(self, current_user: dict):
+    def list_orders(self, current_user: dict, *, effective_tenant_id: str | None = None):
+        # BUG-TENANT-001: an admin lists the effective tenant (SUPER_ADMIN
+        # switcher), not just their JWT home tenant. For non-admins this is
+        # always their own tenant, preserving isolation.
         self._assert_user_exists(current_user)
         if self._is_admin(current_user.get('role')):
-            return self.order_repo.list_for_tenant(current_user['tenant_id'])
+            tenant_id = effective_tenant_id or current_user['tenant_id']
+            return self.order_repo.list_for_tenant(tenant_id)
         return self.order_repo.list_for_user(current_user['user_id'])
 
     def get_order(self, current_user: dict, order_id: str):

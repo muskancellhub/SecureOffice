@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.middleware.dependencies import get_current_user
+from app.middleware.tenant_context import TenantContext, get_tenant_context
 from app.schemas.orders import OrderDetailResponse, OrderLineResponse
 from app.schemas.quotes import (
     AddComponentRequest,
@@ -172,8 +173,12 @@ def generate_quote_compat(
 
 
 @router.get('', response_model=list[QuoteSummaryResponse])
-def list_quotes(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    quotes = QuoteService(db).list_quotes(current_user)
+def list_quotes(
+    current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db),
+):
+    quotes = QuoteService(db).list_quotes(current_user, effective_tenant_id=ctx.effective_tenant_id)
     customer_pricing = PricingService(db).get_or_create_customer_pricing(current_user['tenant_id'])
     default_discount_pct = float(customer_pricing.default_discount_pct)
     db.commit()
