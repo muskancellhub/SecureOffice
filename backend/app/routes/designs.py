@@ -20,6 +20,7 @@ from app.schemas.designs import (
     NetworkDesignSummaryResponse,
     SaveNetworkDesignRequest,
     SubmitNetworkDesignRequest,
+    UpdateNetworkDesignDiagramRequest,
     UpdateNetworkDesignInstallationRequest,
     UpdateNetworkDesignMilestonesRequest,
     UpdateNetworkDesignStatusRequest,
@@ -298,6 +299,17 @@ def update_design_install_assistance(
         design_id,
         payload.install_assistance.model_dump(by_alias=False, exclude_none=True),
     )
+    return _serialize_detail(row, include_internal=_is_admin_actor(current_user), db=db)
+
+
+@router.patch('/{design_id}/diagram', response_model=NetworkDesignDetailResponse)
+def update_design_diagram(
+    design_id: str,
+    payload: UpdateNetworkDesignDiagramRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    row = NetworkDesignService(db).update_diagram(current_user, design_id, payload.drawio_xml)
     return _serialize_detail(row, include_internal=_is_admin_actor(current_user), db=db)
 
 

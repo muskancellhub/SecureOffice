@@ -180,6 +180,12 @@ class UpdateNetworkDesignInstallationRequest(BaseModel):
     install_assistance: DesignInstallAssistanceInput = Field(alias='installAssistance')
 
 
+class UpdateNetworkDesignDiagramRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    drawio_xml: str = Field(alias='drawioXml', min_length=1, max_length=2_000_000)
+
+
 class AddNetworkDesignUpdateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

@@ -1312,6 +1312,27 @@ class NetworkDesignService:
             raise NotFoundError('Design not found after install update')
         return refreshed
 
+    def update_diagram(self, current_user: dict, design_id: str, drawio_xml: str) -> NetworkDesign:
+        """Persist an edited topology diagram (BUG-DES-006). Only touches
+        drawio_xml so saving the diagram can't clobber the rest of the design."""
+        self._assert_user_exists(current_user)
+        design = self.repo.get_design_by_id(design_id)
+        if not design:
+            raise NotFoundError('Design not found')
+        self._assert_design_access(current_user, design)
+
+        cleaned = (drawio_xml or '').strip()
+        if not cleaned:
+            raise AppError('Diagram content is required', 422)
+
+        design.drawio_xml = cleaned
+        self.db.commit()
+        audit.log('design_diagram_updated', design_id=str(design.id), xml_length=len(cleaned))
+        refreshed = self.repo.get_design_by_id(str(design.id))
+        if not refreshed:
+            raise NotFoundError('Design not found after diagram update')
+        return refreshed
+
     def add_update_note(self, current_user: dict, design_id: str, payload: dict[str, Any]) -> NetworkDesign:
         self._assert_user_exists(current_user)
         if not self._is_admin(current_user.get('role')):
