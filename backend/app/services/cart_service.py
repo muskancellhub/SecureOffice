@@ -36,6 +36,18 @@ REQUIRES_DEVICE_TYPES = {
 }
 
 
+def _enum_str(val) -> str:
+    """Render an enum's .value, tolerating a plain string/None.
+
+    Some sources (and SERVICE rows loaded on SQLite) yield a raw string for an
+    enum column, so calling .value blindly raises AttributeError
+    (BUG-CART-001 / TC0320). Handle enum, str, and None.
+    """
+    if val is None:
+        return ''
+    return val.value if hasattr(val, 'value') else str(val)
+
+
 class CartService:
     def __init__(self, db):
         self.db = db
@@ -178,7 +190,7 @@ class CartService:
         """Validate the requires-a-device rule + capacity; returns the cart
         parent line id (or None when attaching to an already-ordered device)."""
         requires = (component.attributes or {}).get('requires_component_type')
-        needs_device = requires == 'DEVICE' or component.component_type.value in REQUIRES_DEVICE_TYPES
+        needs_device = requires == 'DEVICE' or _enum_str(component.component_type) in REQUIRES_DEVICE_TYPES
 
         if applies_to_line_id:
             target = self._ensure_line_in_cart(cart, applies_to_line_id)
@@ -218,7 +230,7 @@ class CartService:
         )
         if device_order_line is None:
             raise AppError(
-                f'{component.component_type.value} requires a device — add the device first '
+                f'{_enum_str(component.component_type)} requires a device — add the device first '
                 'or order it before buying this add-on', 400
             )
         siblings = self.db.scalars(
