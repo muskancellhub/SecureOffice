@@ -47,6 +47,11 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             request=request,
         )
         token = set_request_context(ctx)
+        # BUG-AUD-015: stash the context on request.state so the 500 exception
+        # handler (which runs in the outer ServerErrorMiddleware, after the
+        # finally below has reset the context var) can still emit a correlated
+        # server_error with request_id / endpoint / ip / ua.
+        request.state.log_context = ctx
         start = time.perf_counter()
         try:
             response = await call_next(request)

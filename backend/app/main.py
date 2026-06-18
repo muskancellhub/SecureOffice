@@ -13,6 +13,7 @@ from app.core.database import Base, SessionLocal, engine
 from app.core.exceptions import AppError, ForbiddenError
 from app.core.logging_config import configure_logging
 from app.core.permissions import default_permissions_for_role
+from app.core.request_context import reset_request_context, set_request_context
 from app.core.runtime_migrations import apply_runtime_migrations
 from app.middleware.auth_middleware import AuthContextMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
@@ -300,12 +301,23 @@ async def unhandled_error_handler(request: Request, exc: Exception):
         'Unhandled exception on %s %s', request.method, request.url.path,
         exc_info=(type(exc), exc, exc.__traceback__),
     )
-    audit.log(
-        'server_error',
-        status='failure',
-        level=logging.ERROR,
-        error_type=type(exc).__name__,
-    )
+    # BUG-AUD-015: this handler runs in the outer ServerErrorMiddleware, after
+    # RequestContextMiddleware has already reset the context var — so re-attach
+    # the stashed context for the audit emit (otherwise request_id/endpoint/ip/ua
+    # log as nil). Also include error_code=500 to match the spec.
+    ctx = getattr(request.state, 'log_context', None)
+    token = set_request_context(ctx) if ctx is not None else None
+    try:
+        audit.log(
+            'server_error',
+            status='failure',
+            level=logging.ERROR,
+            error_code=500,
+            error_type=type(exc).__name__,
+        )
+    finally:
+        if token is not None:
+            reset_request_context(token)
     if settings.app_debug:
         return JSONResponse(status_code=500, content={'detail': str(exc)})
     return JSONResponse(status_code=500, content={'detail': 'Internal server error'})
