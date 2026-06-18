@@ -318,6 +318,31 @@ class TestNetworkDesignService(unittest.TestCase):
         self.assertEqual(len(customer_visible), 1)
         self.assertEqual(customer_visible[0]['message'], 'Proposal draft prepared for review.')
 
+    def test_design_note_added_audit_uses_note_snippet(self):
+        # BUG-AUD-016: the event field is note_snippet, not message_snippet.
+        import logging
+        from app.core.logging_config import SD_ID_AUDIT
+
+        design = self._submit_design()
+        records = []
+        handler = logging.Handler()
+        handler.emit = records.append
+        audit_logger = logging.getLogger('secureoffice.audit')
+        audit_logger.addHandler(handler)
+        audit_logger.setLevel(logging.INFO)
+        try:
+            self.service.add_update_note(
+                self.admin, str(design.id),
+                {'visibility': 'internal', 'message': 'Stock check pending.'},
+            )
+        finally:
+            audit_logger.removeHandler(handler)
+
+        rec = next(r for r in records if getattr(r, 'msgid', None) == 'design_note_added')
+        f = rec.sd[SD_ID_AUDIT]
+        assert f['note_snippet'] == 'Stock check pending.'
+        assert 'message_snippet' not in f
+
     def test_internal_ops_view_listing_submitted_requests(self):
         self.service.save_design(self.actor, {'submit': False, 'status': 'draft'})
         submitted = self._submit_design()

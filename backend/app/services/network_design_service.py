@@ -1327,7 +1327,7 @@ class NetworkDesignService:
         self._sync_existing_tables_for_design(design=design, current_user=current_user)
         self.db.commit()
         audit.log('design_note_added', design_id=str(design.id),
-                  visibility=visibility, message_snippet=message[:80])
+                  visibility=visibility, note_snippet=message[:80])
         refreshed = self.repo.get_design_by_id(str(design.id))
         if not refreshed:
             raise NotFoundError('Design not found after note update')
