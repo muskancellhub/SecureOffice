@@ -60,3 +60,5 @@ class CartResponse(BaseModel):
     monthly_subtotal: float
     estimated_12_month_total: float
     currency: str
+    # BUG-CART-003: non-blocking advisories (e.g. unusually high-value lines).
+    warnings: list[str] = Field(default_factory=list)

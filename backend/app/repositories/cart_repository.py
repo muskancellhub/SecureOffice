@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 from app.models.cart import Cart, CartLine, CartStatus
 
@@ -87,6 +87,13 @@ class CartRepository:
     def delete_line(self, line: CartLine) -> None:
         self.db.delete(line)
         self.db.flush()
+
+    def delete_all_lines(self, cart_id) -> int:
+        """Remove every line in a cart in one statement (BUG-CART-002). Returns
+        the number of rows deleted."""
+        result = self.db.execute(delete(CartLine).where(CartLine.cart_id == cart_id))
+        self.db.flush()
+        return int(result.rowcount or 0)
 
     def list_attached_service_lines(self, cart_id, applies_to_line_id) -> list[CartLine]:
         stmt = select(CartLine).where(CartLine.cart_id == cart_id, CartLine.applies_to_line_id == applies_to_line_id)

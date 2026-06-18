@@ -356,6 +356,15 @@ class CartService:
         )
         return self.cart_repo.get_active_cart(current_user['user_id'], current_user['tenant_id'])
 
+    def clear_cart(self, current_user: dict):
+        """Empty the active cart in one atomic operation (BUG-CART-002)."""
+        self._assert_user_exists(current_user)
+        cart = self.cart_repo.get_or_create_active_cart(current_user['user_id'], current_user['tenant_id'])
+        removed = self.cart_repo.delete_all_lines(cart.id)
+        self.db.commit()
+        audit.log('cart_cleared', cart_id=str(cart.id), lines_removed=removed)
+        return self.cart_repo.get_active_cart(current_user['user_id'], current_user['tenant_id'])
+
     def update_line(self, current_user: dict, line_id: str, *, quantity: int | None):
         """Change a line's quantity. A device parent scales the assembly's
         capacity; children are re-checked against it."""

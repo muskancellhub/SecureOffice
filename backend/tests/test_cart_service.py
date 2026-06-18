@@ -121,6 +121,18 @@ def test_unknown_user_unauthorized(cart_db):
             _svc(db).get_active_cart({'user_id': str(uuid.uuid4()), 'tenant_id': cu['tenant_id']})
 
 
+def test_clear_cart_removes_all_lines(fresh_cart):
+    # BUG-CART-002: one call empties the cart (incl. attached children).
+    SessionLocal, cu, _ = fresh_cart
+    with SessionLocal() as db:
+        p, comps = _x1(db)
+        sel = {str(comps['SERV1970'].id): 2, str(comps['PAPI-SIM'].id): 1}
+        cart = _svc(db).add_line(cu, product_id=str(p.id), selections=sel)
+        assert len(cart.lines) >= 2
+        cleared = _svc(db).clear_cart(cu)
+        assert cleared.lines == []
+
+
 def test_add_product_builds_parent_child_tree(fresh_cart):
     SessionLocal, cu, _ = fresh_cart
     with SessionLocal() as db:

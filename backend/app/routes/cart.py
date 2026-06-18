@@ -7,6 +7,9 @@ from app.services.cart_service import CartService
 
 router = APIRouter(prefix='/cart', tags=['Cart'])
 
+# Per-line total above which the cart returns a (non-blocking) review advisory.
+_HIGH_VALUE_LINE_TOTAL = 50_000
+
 
 def _serialize_cart(cart) -> CartResponse:
     lines_by_id = {str(line.id): line for line in cart.lines}
@@ -55,6 +58,17 @@ def _serialize_cart(cart) -> CartResponse:
 
     currency = lines[0].currency if lines else 'USD'
     estimated_12_month_total = one_time_subtotal + (monthly_subtotal * 12)
+
+    # BUG-CART-003: flag unusually large lines so the UI can prompt a review,
+    # without hard-capping (legitimate bulk orders must still go through).
+    warnings: list[str] = []
+    high_value = [ln for ln in lines if ln.line_total > _HIGH_VALUE_LINE_TOTAL]
+    if high_value:
+        warnings.append(
+            f'{len(high_value)} line(s) exceed ${_HIGH_VALUE_LINE_TOTAL:,.0f}. '
+            'Please review the quantities before checkout.'
+        )
+
     return CartResponse(
         id=str(cart.id),
         status=cart.status.value,
@@ -63,6 +77,7 @@ def _serialize_cart(cart) -> CartResponse:
         monthly_subtotal=round(monthly_subtotal, 2),
         estimated_12_month_total=round(estimated_12_month_total, 2),
         currency=currency,
+        warnings=warnings,
     )
 
 
@@ -105,4 +120,11 @@ def update_cart_line(
 @router.delete('/lines/{line_id}', response_model=CartResponse)
 def remove_cart_line(line_id: str, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     cart = CartService(db).remove_line(current_user, line_id)
+    return _serialize_cart(cart)
+
+
+@router.delete('', response_model=CartResponse)
+def clear_cart(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """BUG-CART-002: empty the active cart in a single call."""
+    cart = CartService(db).clear_cart(current_user)
     return _serialize_cart(cart)
