@@ -109,9 +109,9 @@ export const CartPage = () => {
     }
   };
 
-  const onAttach = async (routerLineId: string, serviceId: string) => {
+  const onAttach = async (routerLineId: string, serviceId: string, quantity: number) => {
     try {
-      await attachManagedService(serviceId, routerLineId);
+      await attachManagedService(serviceId, routerLineId, quantity);
       setExpandedServicePicker(null);
     } catch (err: any) {
       setActionError(extractApiError(err, 'Failed to attach service'));
@@ -202,6 +202,7 @@ export const CartPage = () => {
                               <span className="cpx-svc-badge"><ShieldCheck size={14} /></span>
                               <div className="cpx-svc-info">
                                 <span className="cpx-svc-name">{service.item_name}</span>
+                                <span className="cpx-svc-for">for {router.item_name}</span>
                                 <span className="cpx-svc-price">
                                   {formatCurrency(service.unit_price)}{recurring ? '/mo' : ''} × {service.quantity}
                                 </span>
@@ -235,7 +236,7 @@ export const CartPage = () => {
                               const selected = attachedServiceIds.has(service.id);
                               const features = Array.isArray(service.attributes?.features) ? (service.attributes.features as string[]).slice(0, 2) : [];
                               return (
-                                <button key={service.id} className={`cpx-svc-opt ${selected ? 'selected' : ''}`} onClick={() => onAttach(router.id, service.id)}>
+                                <button key={service.id} className={`cpx-svc-opt ${selected ? 'selected' : ''}`} onClick={() => onAttach(router.id, service.id, router.quantity)}>
                                   <div className="cpx-svc-opt-head"><strong>{service.name}</strong><span>${service.price.toFixed(2)}<small>/mo</small></span></div>
                                   {features.length > 0 && (
                                     <ul className="cpx-svc-opt-feat">{features.map((f) => <li key={f}><Check size={11} /> {f}</li>)}</ul>

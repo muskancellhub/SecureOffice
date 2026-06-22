@@ -25,7 +25,7 @@ interface ShopContextValue {
   addRouterToCart: (productId: string, quantity?: number) => Promise<void>;
   /** Add one standalone component à-la-carte (extra line / SIM / managed service). */
   addComponentToCart: (componentId: string, quantity?: number, appliesToLineId?: string) => Promise<void>;
-  attachManagedService: (serviceProductId: string, routerLineId: string) => Promise<void>;
+  attachManagedService: (serviceProductId: string, routerLineId: string, quantity?: number) => Promise<void>;
   changeServiceTier: (serviceLineId: string, newServiceProductId: string) => Promise<void>;
   updateLineQuantity: (lineId: string, quantity: number) => Promise<void>;
   removeLine: (lineId: string) => Promise<void>;
@@ -111,7 +111,7 @@ export const ShopProvider = ({ children }: { children: React.ReactNode }) => {
     return primary?.id ?? null;
   }, [accessToken]);
 
-  const attachManagedService = useCallback(async (serviceProductId: string, routerLineId: string) => {
+  const attachManagedService = useCallback(async (serviceProductId: string, routerLineId: string, quantity = 1) => {
     if (!accessToken) return;
     const componentId = await primaryComponentId(serviceProductId);
     if (!componentId) {
@@ -120,7 +120,8 @@ export const ShopProvider = ({ children }: { children: React.ReactNode }) => {
     }
     const data = await commerceApi.addCartLine(accessToken, {
       component_id: componentId,
-      quantity: 1,
+      // One managed service per device — match the device line's quantity.
+      quantity: Math.max(1, quantity),
       applies_to_line_id: routerLineId,
     });
     setCart(data);
@@ -138,7 +139,8 @@ export const ShopProvider = ({ children }: { children: React.ReactNode }) => {
     await commerceApi.removeCartLine(accessToken, serviceLineId);
     const data = await commerceApi.addCartLine(accessToken, {
       component_id: componentId,
-      quantity: 1,
+      // Preserve the quantity of the tier being replaced (one per device).
+      quantity: Math.max(1, line?.quantity ?? 1),
       applies_to_line_id: line?.applies_to_line_id ?? undefined,
     });
     setCart(data);
