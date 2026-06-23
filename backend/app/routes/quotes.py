@@ -122,9 +122,14 @@ def preview_quote(
 def create_quote(
     payload: CreateQuoteRequest | None = None,
     current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
     db: Session = Depends(get_db),
 ):
-    quote = QuoteService(db).create_quote(current_user, payload.model_dump() if payload else None)
+    quote = QuoteService(db).create_quote(
+        current_user,
+        payload.model_dump() if payload else None,
+        effective_tenant_id=ctx.effective_tenant_id,
+    )
     return QuoteIdResponse(quote_id=str(quote.id), quote_public_id=quote.public_id)
 
 

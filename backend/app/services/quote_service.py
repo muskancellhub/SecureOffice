@@ -114,9 +114,11 @@ class QuoteService:
         return comps[0]
 
     # ── draft-solution (design flow) assembly, on the component engine ───────
-    def _draft_groups(self, current_user: dict, draft_solution: dict) -> tuple[list[dict], str]:
+    def _draft_groups(self, current_user: dict, draft_solution: dict,
+                      tenant_id: str | None = None) -> tuple[list[dict], str]:
         """Each draft router → a priced engine result (+ priced attached
         services). Returns (groups, currency)."""
+        tenant_id = tenant_id or current_user['tenant_id']
         requirements = draft_solution.get('requirements') or {}
         routers = draft_solution.get('routers') or []
         if not routers:
@@ -135,7 +137,7 @@ class QuoteService:
             router_qty = max(1, int(router_input.get('qty') or 1))
             result = cps.price_product(
                 product.id, financial_model='CAPEX', interval='MONTH',
-                selections={}, tenant_id=current_user['tenant_id'],
+                selections={}, tenant_id=tenant_id,
             )
             self._scale_engine_result(result, router_qty)
 
@@ -161,7 +163,7 @@ class QuoteService:
                 component = self._primary_component(service_product)
                 service_result = cps.price_standalone_component(
                     component.id, qty=service_qty, financial_model='CAPEX',
-                    interval='MONTH', tenant_id=current_user['tenant_id'],
+                    interval='MONTH', tenant_id=tenant_id,
                 )
                 services.append({
                     'product': service_product,
@@ -190,11 +192,15 @@ class QuoteService:
         return groups, currency
 
     # ── cart assembly (component lines only — Phase 7 WS4) ──────────────────
-    def _cart_groups(self, current_user: dict) -> tuple[list[dict], str]:
+    def _cart_groups(self, current_user: dict,
+                     tenant_id: str | None = None) -> tuple[list[dict], str]:
         """Re-price the cart's component lines per tenant. Product lines are
         grouped back into {component_id: qty} selections; standalone lines are
         priced alone."""
-        cart = self.cart_repo.get_or_create_active_cart(current_user['user_id'], current_user['tenant_id'])
+        # BUG-QUOTE-002: read the same cart the user is viewing (effective tenant
+        # from the X-Tenant-Id switcher), not the actor's JWT home tenant.
+        tenant_id = tenant_id or current_user['tenant_id']
+        cart = self.cart_repo.get_or_create_active_cart(current_user['user_id'], tenant_id)
         if not cart.lines:
             raise AppError('Cart is empty', 400)
 
@@ -228,7 +234,7 @@ class QuoteService:
             )
             result = cps.price_product(
                 product.id, financial_model=financial_model, interval='MONTH',
-                selections=group['selections'], tenant_id=current_user['tenant_id'],
+                selections=group['selections'], tenant_id=tenant_id,
             )
             self._validate_requires_device(result)
             self._check_capacity(product, result)
@@ -247,7 +253,7 @@ class QuoteService:
             result = cps.price_standalone_component(
                 component.id, qty=line.quantity,
                 financial_model=(line.price_snapshot or {}).get('financial_model') or 'CAPEX',
-                interval='MONTH', tenant_id=current_user['tenant_id'],
+                interval='MONTH', tenant_id=tenant_id,
             )
             groups.append({
                 'product': product,
@@ -299,15 +305,21 @@ class QuoteService:
             'incremental_discount_pct': 0.0,
         }
 
-    def create_quote(self, current_user: dict, payload: dict | None = None):
+    def create_quote(self, current_user: dict, payload: dict | None = None,
+                     effective_tenant_id: str | None = None):
+        # BUG-QUOTE-001/002: a SUPER_ADMIN using the tenant switcher generates a
+        # quote for the *switched* tenant (X-Tenant-Id), not their JWT home
+        # tenant. Use the effective tenant for the onboarding gate, the cart
+        # lookup, and the quote's owning tenant — matching list_quotes/convert.
+        tenant_id = effective_tenant_id or current_user['tenant_id']
         self._assert_user_exists(current_user)
-        if not self.onboarding_service.is_onboarding_complete(current_user['tenant_id']):
+        if not self.onboarding_service.is_onboarding_complete(tenant_id):
             raise AppError('Complete onboarding before creating a procurement request', 400)
 
         if payload and payload.get('draft_solution'):
-            groups, currency = self._draft_groups(current_user, payload['draft_solution'])
+            groups, currency = self._draft_groups(current_user, payload['draft_solution'], tenant_id=tenant_id)
         else:
-            groups, currency = self._cart_groups(current_user)
+            groups, currency = self._cart_groups(current_user, tenant_id=tenant_id)
 
         one_time_total, monthly_total = self._sum_group_totals(groups)
         one_time_total = self.pricing_service._quantize_money(one_time_total)
@@ -317,7 +329,7 @@ class QuoteService:
         )
 
         quote = self.quote_repo.create(
-            tenant_id=self._parse_uuid(current_user['tenant_id'], field_name='tenant_id'),
+            tenant_id=self._parse_uuid(tenant_id, field_name='tenant_id'),
             created_by_user_id=self._parse_uuid(current_user['user_id'], field_name='user_id'),
             status=QuoteStatus.DRAFT,
             one_time_total=one_time_total,

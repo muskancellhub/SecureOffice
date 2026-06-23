@@ -65,7 +65,7 @@ def sync_cdw_routers(payload: SyncRoutersRequest, current_user: dict = Depends(g
             error_excerpt='; '.join(result['errors'][:3]) if result['errors'] else None,
         )
         db.commit()
-        audit.log('cdw_sync_triggered', sync_status=status.value,
+        audit.log('cdw_sync_triggered', sync_status=status.value, query=payload.query,
                   synced_count=result['synced_count'], created_count=result['created_count'],
                   updated_count=result['updated_count'], error_count=len(result['errors']))
 
@@ -87,7 +87,7 @@ def sync_cdw_routers(payload: SyncRoutersRequest, current_user: dict = Depends(g
         )
         db.commit()
         audit.log('cdw_sync_triggered', status='failure', level=logging.ERROR,
-                  error_type=type(exc).__name__)
+                  query=payload.query, error_type=type(exc).__name__)
         raise
 
 

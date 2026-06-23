@@ -602,6 +602,11 @@ def apply_runtime_migrations() -> None:
         conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS quote_id UUID"))
         conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS estimated_delivery_date DATE"))
         conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS confirmed_delivery_date DATE"))
+        # BUG-ORD-001: databases created before VENDOR_ORDERED was added have a
+        # status column sized for the old longest value ('PROCESSING' = 10), so
+        # the 14-char 'VENDOR_ORDERED' overflows with StringDataRightTruncation.
+        # Widen to match the model's Enum length; the CHECK already allows the value.
+        conn.execute(text("ALTER TABLE orders ALTER COLUMN status TYPE VARCHAR(32)"))
 
         # Human-readable sequential IDs for quotes/orders (keep UUIDs as internal PKs).
         conn.execute(text("CREATE SEQUENCE IF NOT EXISTS quote_public_id_seq START WITH 1 INCREMENT BY 1"))
