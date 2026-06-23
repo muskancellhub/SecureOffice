@@ -187,11 +187,27 @@ export const VendorRegisterPage = () => {
 
         {step === 3 && (
           <>
+            {/* BUG-VENDOR-005: persistent labels (placeholders disappear on
+                focus), and autocomplete=new-password to stop browser autofill. */}
             <h3 className="vendor-step-title">Your Login Credentials</h3>
-            <input type="text" placeholder="Full Name *" value={form.contact_name} onChange={(e) => set('contact_name', e.target.value)} required />
-            <input type="email" placeholder="Login Email *" value={form.contact_email} onChange={(e) => set('contact_email', e.target.value)} required />
-            <PhoneInput value={form.contact_phone || ''} onChange={(v) => set('contact_phone', v)} />
-            <input type="password" placeholder="Password (min 6 chars) *" value={form.password} onChange={(e) => set('password', e.target.value)} required minLength={6} />
+            <label className="vendor-field">
+              <span>Contact Name</span>
+              <input type="text" placeholder="Full name" value={form.contact_name} onChange={(e) => set('contact_name', e.target.value)} required autoComplete="name" />
+            </label>
+            <label className="vendor-field">
+              <span>Login Email</span>
+              <input type="email" placeholder="you@company.com" value={form.contact_email} onChange={(e) => set('contact_email', e.target.value)} required autoComplete="email" />
+            </label>
+            <label className="vendor-field">
+              <span>Phone Number</span>
+              <PhoneInput value={form.contact_phone || ''} onChange={(v) => set('contact_phone', v)} />
+              <span className="vendor-field-hint">U.S. format — (___) ___-____</span>
+            </label>
+            <label className="vendor-field">
+              <span>Create Password</span>
+              <input type="password" placeholder="Password" value={form.password} onChange={(e) => set('password', e.target.value)} required minLength={6} autoComplete="new-password" />
+              <span className="vendor-field-hint">Minimum 6 characters.</span>
+            </label>
           </>
         )}
 
