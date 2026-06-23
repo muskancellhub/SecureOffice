@@ -527,6 +527,12 @@ def test_vendor_signup_provisions_tenant_profile_and_otp(auth_db, patched_io):
         user = svc.vendor_signup(**_vendor_kwargs(email))
         assert user.role == UserRole.ADMIN
         assert user.is_verified is False
+        # BUG-VENDOR-001: vendor admin gets the vendor scope, not the generic
+        # ADMIN scope — no CellHub-internal permissions.
+        from app.core.permissions import VENDOR_ADMIN_PERMISSION_SCOPE
+        assert set(user.permissions) == VENDOR_ADMIN_PERMISSION_SCOPE
+        assert 'manage_billing' not in user.permissions
+        assert 'manage_cart' not in user.permissions
         tenant = svc.tenant_repo.get_by_id(str(user.tenant_id))
         assert tenant.tenant_type == TenantType.VENDOR
         from sqlalchemy import text

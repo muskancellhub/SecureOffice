@@ -214,7 +214,7 @@ class AuthService:
 
         # Vendor admin must prove control of the email before login works —
         # same rule as regular signup. Prevents spammy/abusive vendor tenants.
-        from app.core.permissions import default_permissions_for_role as _default_perms
+        from app.core.permissions import VENDOR_ADMIN_PERMISSION_SCOPE
         user = self.user_repo.create(
             email=contact_email.lower().strip(),
             mobile=contact_phone,
@@ -225,7 +225,9 @@ class AuthService:
             is_verified=False,
             role=UserRole.ADMIN,
             user_type=UserType.VENDOR,
-            permissions=_default_perms(UserRole.ADMIN),
+            # BUG-VENDOR-001: a vendor admin gets the vendor-specific scope, not
+            # the generic ADMIN scope (which exposes cart/billing/lifecycle/etc.).
+            permissions=sorted(VENDOR_ADMIN_PERMISSION_SCOPE),
             tenant_id=vendor_tenant.id,
         )
 
