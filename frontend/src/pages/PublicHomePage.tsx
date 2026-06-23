@@ -1,8 +1,10 @@
 import { ArrowRight, Boxes, Building2, Check, ClipboardList, LogIn, ShieldCheck, Truck } from 'lucide-react';
-import { Suspense, useState, useEffect, useRef } from 'react';
+import { Suspense, lazy, useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import NetworkScene3D from '../components/NetworkScene3D';
+// BUG-008: lazy + post-load mount so the continuously-animating WebGL canvas
+// can't keep Firefox's load event pending on this marketing page.
+const NetworkScene3D = lazy(() => import('../components/NetworkScene3D'));
 import { SceneErrorBoundary } from '../components/SceneErrorBoundary';
 import { BusinessIntakeModal } from '../components/BusinessIntakeModal';
 
@@ -78,6 +80,23 @@ export const PublicHomePage = () => {
   const getRef = useScrollReveal();
   const vendorRef = useScrollReveal();
   const [intakeModalOpen, setIntakeModalOpen] = useState(false);
+  // BUG-008: defer the 3D canvas until the page has fired `load`, so the
+  // marketing content loads first and the animation loop can't block it.
+  const [show3D, setShow3D] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (document.readyState === 'complete') {
+      setShow3D(true);
+      return;
+    }
+    const onLoad = () => setShow3D(true);
+    window.addEventListener('load', onLoad, { once: true });
+    const fallback = window.setTimeout(() => setShow3D(true), 3000);
+    return () => {
+      window.removeEventListener('load', onLoad);
+      window.clearTimeout(fallback);
+    };
+  }, []);
 
   const openWorkspace = () => navigate(user ? '/shop/dashboard' : '/login');
 
@@ -136,7 +155,11 @@ export const PublicHomePage = () => {
                 Loading 3D scene...
               </div>
             }>
-              <NetworkScene3D />
+              {show3D ? <NetworkScene3D /> : (
+                <div className="marketing-image-placeholder" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 340 }}>
+                  Loading 3D scene...
+                </div>
+              )}
             </Suspense>
           </SceneErrorBoundary>
         </div>
