@@ -1331,6 +1331,36 @@ def apply_runtime_migrations() -> None:
             """
         ))
 
+        # BUG-VENDOR-006: after a SQL dump is imported with explicit ids, the
+        # serial-PK sequences (otps.id, refresh_sessions.id, …) are left behind
+        # max(id), so the next INSERT reuses an existing id and raises
+        # IntegrityError — breaking signup AND login. Bump every owned serial
+        # sequence up to max(id) when it's behind. Only ever moves a sequence
+        # FORWARD, so it's a safe no-op on a healthy DB.
+        conn.execute(text(
+            """
+            DO $$
+            DECLARE r record; mx bigint; cur bigint;
+            BEGIN
+                FOR r IN
+                    SELECT s.relname AS seq, t.relname AS tbl, a.attname AS col
+                    FROM pg_class s
+                    JOIN pg_depend d ON d.objid = s.oid AND d.deptype = 'a'
+                    JOIN pg_class t ON t.oid = d.refobjid
+                    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
+                    WHERE s.relkind = 'S'
+                LOOP
+                    EXECUTE format('SELECT COALESCE(MAX(%I), 0) FROM %I', r.col, r.tbl) INTO mx;
+                    EXECUTE format('SELECT last_value FROM %I', r.seq) INTO cur;
+                    IF mx > cur THEN
+                        EXECUTE format('SELECT setval(%L, %s)', r.seq, mx);
+                    END IF;
+                END LOOP;
+            END
+            $$;
+            """
+        ))
+
         _apply_rls_policies(conn)
 
 
