@@ -385,6 +385,35 @@ select {
   font-size: 13px;
 }
 
+/* BUG-UA-001: prominent full-width error banner with a retry action. */
+.admin-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: #fdecef;
+  border: 1px solid #f5b5c5;
+  color: #a3164a;
+  font-size: 14px;
+}
+.admin-error-banner-msg { flex: 1; font-weight: 500; }
+.admin-error-banner-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid #e08aa3;
+  background: #fff;
+  color: #a3164a;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.admin-error-banner-retry:hover { background: #fff5f8; }
+
 .business-intake-page {
   min-height: 100vh;
   padding: 24px 16px;

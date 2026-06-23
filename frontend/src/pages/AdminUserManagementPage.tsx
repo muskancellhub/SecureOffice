@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Building2, KeyRound, MoreVertical, Save, ShieldCheck, UserPlus, X } from 'lucide-react';
+import { AlertTriangle, Building2, KeyRound, MoreVertical, RotateCw, Save, ShieldCheck, UserPlus, X } from 'lucide-react';
 import * as usersApi from '../api/usersApi';
 import * as commerceApi from '../api/commerceApi';
 import * as authApi from '../api/authApi';
@@ -263,7 +263,17 @@ export const AdminUserManagementPage = () => {
         )}
       </header>
 
-      {error && <div className="error-text">{error}</div>}
+      {/* BUG-UA-001: prominent, full-width alert with retry — the old small red
+          text between the header and the password form was easy to miss. */}
+      {error && (
+        <div className="admin-error-banner" role="alert">
+          <AlertTriangle size={16} />
+          <span className="admin-error-banner-msg">{error}</span>
+          <button type="button" className="admin-error-banner-retry" onClick={load}>
+            <RotateCw size={13} /> Retry
+          </button>
+        </div>
+      )}
       {notice && <div className="toast-notice">{notice}</div>}
 
       {isSuperAdmin && (
