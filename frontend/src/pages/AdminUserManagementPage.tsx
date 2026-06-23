@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Building2, KeyRound, MoreVertical, RotateCw, Save, ShieldCheck, UserPlus, X } from 'lucide-react';
+import { AlertTriangle, Building2, Eye, EyeOff, KeyRound, MoreVertical, RotateCw, Save, ShieldCheck, UserPlus, X } from 'lucide-react';
 import * as usersApi from '../api/usersApi';
 import * as commerceApi from '../api/commerceApi';
 import * as authApi from '../api/authApi';
@@ -87,6 +87,7 @@ export const AdminUserManagementPage = () => {
   // super-admin password setup (admin-set: you choose the password)
   const [saSetupEmail, setSaSetupEmail] = useState('');
   const [saSetupPassword, setSaSetupPassword] = useState('');
+  const [showSaPassword, setShowSaPassword] = useState(false);
   const [saSetupSending, setSaSetupSending] = useState(false);
 
   // row menu + edit-access modal
@@ -293,14 +294,26 @@ export const AdminUserManagementPage = () => {
               onChange={(e) => setSaSetupEmail(e.target.value)}
               style={{ flex: '1 1 240px', minWidth: 220 }}
             />
-            <input
-              type="text"
-              placeholder="Password to set"
-              value={saSetupPassword}
-              onChange={(e) => setSaSetupPassword(e.target.value)}
-              autoComplete="off"
-              style={{ flex: '1 1 200px', minWidth: 200 }}
-            />
+            {/* BUG-UA-002: mask the privileged credential by default (was
+                type="text"); offer a show/hide toggle and block autofill. */}
+            <div className="sa-pw-field" style={{ flex: '1 1 200px', minWidth: 200, position: 'relative' }}>
+              <input
+                type={showSaPassword ? 'text' : 'password'}
+                placeholder="Password to set"
+                value={saSetupPassword}
+                onChange={(e) => setSaSetupPassword(e.target.value)}
+                autoComplete="new-password"
+                style={{ width: '100%', paddingRight: 36 }}
+              />
+              <button
+                type="button"
+                className="sa-pw-toggle"
+                onClick={() => setShowSaPassword((v) => !v)}
+                aria-label={showSaPassword ? 'Hide password' : 'Show password'}
+              >
+                {showSaPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
             <button
               className="apx-add-btn"
               onClick={onSetSuperAdminCredentials}

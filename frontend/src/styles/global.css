@@ -414,6 +414,22 @@ select {
 }
 .admin-error-banner-retry:hover { background: #fff5f8; }
 
+/* BUG-UA-002: show/hide toggle inside the super-admin password field. */
+.sa-pw-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  background: none;
+  border: none;
+  color: #8a93a3;
+  cursor: pointer;
+}
+.sa-pw-toggle:hover { color: #4c6fff; }
+
 .business-intake-page {
   min-height: 100vh;
   padding: 24px 16px;
@@ -12281,6 +12297,10 @@ textarea {
   font-size: 16px;
   color: #131722;
   font-variant-numeric: tabular-nums;
+  /* BUG-FIN-001: include padding/border in the width so inputs don't overflow
+     their grid cell / modal (e.g. the "Annual rate (decimal)" field). */
+  box-sizing: border-box;
+  width: 100%;
 }
 .apx-field input:focus { outline: 2px solid #e1067d; outline-offset: 1px; border-color: transparent; }
 .apx-modal-foot { display: flex; justify-content: flex-end; gap: 12px; margin-top: 22px; }
