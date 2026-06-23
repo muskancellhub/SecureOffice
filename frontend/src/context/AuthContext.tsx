@@ -107,7 +107,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   useEffect(() => {
-    ensureSession().finally(() => setLoading(false));
+    // BUG-001: never let a hung /auth/refresh leave the app stuck on the
+    // "Loading..." guard forever. Resolve `loading` either when the session
+    // bootstrap finishes, or after a hard timeout (then the guards fall through
+    // to the /login redirect instead of an infinite spinner).
+    let settled = false;
+    const finish = () => {
+      if (!settled) {
+        settled = true;
+        setLoading(false);
+      }
+    };
+    const timer = setTimeout(finish, 8000);
+    ensureSession().finally(() => {
+      clearTimeout(timer);
+      finish();
+    });
+    return () => clearTimeout(timer);
   }, [ensureSession]);
 
   const signup = async (payload: SignupPayload) => {
