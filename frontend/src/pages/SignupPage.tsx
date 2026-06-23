@@ -67,7 +67,8 @@ export const SignupPage = () => {
         <button className="primary-btn" type="submit" disabled={loading}>{loading ? 'Creating...' : 'Continue'}</button>
       </form>
 
-      <div className="alt-link">Already have an account? <Link to={nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : '/login'}>Sign in</Link></div>
+      {/* BUG-007: unique link text vs. the header "Sign In" (WCAG 2.4.4). */}
+      <div className="alt-link">Already have an account? <Link to={nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : '/login'}>Log in here</Link></div>
     </AuthShell>
   );
 };
