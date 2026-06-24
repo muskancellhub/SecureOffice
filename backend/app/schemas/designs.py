@@ -151,6 +151,7 @@ class SaveNetworkDesignRequest(BaseModel):
     session_key: str | None = Field(default=None, alias='sessionKey')
     milestones: DesignMilestonesInput | None = None
     install_assistance: DesignInstallAssistanceInput | None = Field(default=None, alias='installAssistance')
+    ai_rationale: dict[str, Any] | None = Field(default=None, alias='aiRationale')
     metadata: dict[str, Any] | None = None
 
 
@@ -309,4 +310,5 @@ class NetworkDesignDetailResponse(NetworkDesignSummaryResponse):
     )
     decomposition: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     managed_services: dict[str, Any] = Field(default_factory=dict, alias='managedServices')
+    ai_rationale: dict[str, Any] = Field(default_factory=dict, alias='aiRationale')
     metadata: dict[str, Any] = Field(default_factory=dict)

@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 from app.core.database import get_db
 from app.core.permissions import PERM_MANAGE_LIFECYCLE
 from app.middleware.dependencies import get_current_user
+from app.schemas.ai_design import AiDesignRequest, GeneratedDesignResponse
 from app.schemas.designs import (
     AddNetworkDesignUpdateRequest,
     DesignLeadResponse,
@@ -30,6 +31,7 @@ from app.middleware.tenant_context import (
     get_tenant_context,
     resolve_tenant_context,
 )
+from app.services.ai_design_service import AiDesignService
 from app.services.authorization_service import AuthorizationService
 from app.services.managed_service_pricing_service import ManagedServicePricingService
 from app.services.network_design_service import NetworkDesignService
@@ -159,6 +161,7 @@ def _serialize_detail(row, *, include_internal: bool, db=None) -> NetworkDesignD
         installAssistance=DesignInstallAssistanceResponse(**(row.install_assistance_json or {})),
         decomposition=row.decomposition_json or {},
         managedServices=managed_services,
+        aiRationale=row.ai_rationale_json or {},
         metadata=row.metadata_json or {},
     )
 
@@ -187,6 +190,28 @@ def save_design(
         effective_tenant_id=effective_tenant_id,
     )
     return _serialize_detail(design, include_internal=include_internal, db=db)
+
+
+@router.post('/ai-generate', response_model=GeneratedDesignResponse)
+def ai_generate_design(
+    payload: AiDesignRequest,
+    current_user: dict = Depends(get_current_user),
+    ctx: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db),
+):
+    """Generate a business-context-aware network design (AI on top of the
+    deterministic floor). Returns artifacts in the existing JSONB shape; the
+    frontend persists them via the unchanged POST /designs path.
+
+    The service degrades to the pure deterministic design on any AI failure, so
+    this never 5xxs because of the LLM — it returns 200 with warnings.
+    """
+    result = AiDesignService(db).generate(
+        payload,
+        current_user=current_user,
+        tenant_id=ctx.effective_tenant_id,
+    )
+    return result
 
 
 @router.get('', response_model=list[NetworkDesignSummaryResponse])

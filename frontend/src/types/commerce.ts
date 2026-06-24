@@ -573,5 +573,44 @@ export interface NetworkDesignDetail extends NetworkDesignSummary {
   installAssistance: DesignInstallAssistance;
   decomposition: DesignDecomposition;
   managedServices?: ManagedServicesDesignSummary;
+  aiRationale?: AiDesignRationale;
   metadata: Record<string, any>;
+}
+
+export interface AiDesignRationaleDecision {
+  lever?: string;
+  change?: string;
+  why?: string;
+}
+
+export interface AiDesignRationale {
+  summary?: string;
+  decisions?: AiDesignRationaleDecision[];
+}
+
+export interface TopologyVlanSegment {
+  id: string;
+  key: string;
+  name: string;
+  purpose?: string;
+  vlanId: number;
+  deviceKinds: string[];
+  nodeIds: string[];
+  aiNamed?: boolean;
+}
+
+export interface GeneratedDesign {
+  calculatorInput: Record<string, any>;
+  calculatorResult: Record<string, any>;
+  bom: Record<string, any>;
+  topology: Record<string, any>;
+  drawioXml?: string | null;
+  assumptions: string[];
+  aiRationale: AiDesignRationale;
+  floorSnapshot: Record<string, any>;
+  clampApplied: boolean;
+  warnings: string[];
+  aiGenerated: boolean;
+  aiModel?: string | null;
+  aiPromptVersion?: string | null;
 }

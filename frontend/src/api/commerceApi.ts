@@ -14,6 +14,7 @@ import type {
   DesignStatus,
   DesignUpdateVisibility,
   DesignXSuggestBomResponse,
+  GeneratedDesign,
   NetworkBomResult,
   NetworkDesignDetail,
   NetworkDesignSummary,
@@ -359,6 +360,7 @@ export const saveNetworkDesign = async (
     topology?: Record<string, any>;
     drawioXml?: string;
     assumptions?: string[];
+    aiRationale?: Record<string, any>;
     submit?: boolean;
     status?: DesignStatus;
     milestones?: DesignMilestones;
@@ -374,6 +376,21 @@ export const saveNetworkDesign = async (
 ) => {
   const { data } = await api.post('/designs', payload, { headers: authHeaders(accessToken) });
   return data as NetworkDesignDetail;
+};
+
+/**
+ * AI-augmented design generation (Phase 1/2). Posts the enriched business
+ * profile (the intake form keys) and returns a business-context-aware design —
+ * sized to the deterministic floor, with VLAN segmentation + rationale. Degrades
+ * to the deterministic design server-side on any AI failure (never throws on the
+ * LLM path), so callers always get a usable design back.
+ */
+export const aiGenerateDesign = async (
+  accessToken: string,
+  profile: Record<string, any>,
+) => {
+  const { data } = await api.post('/designs/ai-generate', profile, { headers: authHeaders(accessToken) });
+  return data as GeneratedDesign;
 };
 
 export const submitNetworkDesign = async (

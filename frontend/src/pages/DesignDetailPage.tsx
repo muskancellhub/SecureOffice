@@ -8,7 +8,9 @@ import {
   MapPin,
   Network,
   Server,
+  ShieldCheck,
   ShoppingCart,
+  Sparkles,
   Trash2,
   Wifi,
 } from 'lucide-react';
@@ -23,6 +25,7 @@ import type {
   ManagedServiceDeviceEntry,
   NetworkBomLine,
   NetworkDesignDetail,
+  TopologyVlanSegment,
 } from '../types/commerce';
 
 const formatCurrency = (value: number): string =>
@@ -469,6 +472,52 @@ export const DesignDetailPage = () => {
               <p className="mini-note">No BOM lines yet.</p>
             )}
           </div>
+
+          {/* ── AI design rationale + VLAN segmentation ─────────────── */}
+          {(() => {
+            const rationale = design.aiRationale;
+            const segments = ((design.topology?.segments || []) as TopologyVlanSegment[]);
+            const decisions = rationale?.decisions || [];
+            const hasAi = Boolean(rationale?.summary || decisions.length || segments.length);
+            if (!hasAi) return null;
+            return (
+              <section className="dd-section" id="dd-ai-rationale">
+                <div className="dd-section-head">
+                  <h2><Sparkles size={16} /> AI Design Rationale</h2>
+                  <span className="dd-section-sub">Why this design was sized and segmented for your business</span>
+                </div>
+                <div className="dd-section-card">
+                  {rationale?.summary && <p className="dd-card-help">{rationale.summary}</p>}
+                  {decisions.length > 0 && (
+                    <ul className="dd-rationale-list">
+                      {decisions.map((d, i) => (
+                        <li key={i}>
+                          {d.lever && <span className="dd-cat-tag">{d.lever}</span>}
+                          {d.change && <strong> {d.change}</strong>}
+                          {d.why && <span> — {d.why}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {segments.length > 0 && (
+                    <div className="dd-vlan-grid">
+                      <h3 className="dd-vlan-title"><ShieldCheck size={14} /> Network segmentation (VLANs)</h3>
+                      {segments.map((seg) => (
+                        <div key={seg.id} className="dd-vlan-card">
+                          <div className="dd-vlan-head">
+                            <span className="dd-cat-tag">VLAN {seg.vlanId}</span>
+                            <strong>{seg.name}</strong>
+                            {seg.aiNamed && <span className="dd-vlan-ai" title="Named by AI"><Sparkles size={11} /></span>}
+                          </div>
+                          {seg.purpose && <p className="dd-vlan-purpose">{seg.purpose}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </section>
+            );
+          })()}
 
           {/* ── Installation ────────────────────────────────────────── */}
           <section className="dd-section" id="dd-installation">

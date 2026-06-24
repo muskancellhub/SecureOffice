@@ -114,4 +114,7 @@ LLM_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "/anam/session": (5, 60),
     "/anam/parse-intent": (10, 60),
     "/chatbot/ask": (30, 60),
+    # Authenticated + tenant-scoped, so it can be looser than the public intake
+    # surface. AI design generation is an explicit user action, not per-keystroke.
+    "/designs/ai-generate": (10, 60),
 }

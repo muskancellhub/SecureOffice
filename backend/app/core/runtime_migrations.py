@@ -468,6 +468,7 @@ def apply_runtime_migrations() -> None:
                     updates JSONB NOT NULL DEFAULT '[]'::jsonb,
                     install_assistance JSONB NOT NULL DEFAULT '{}'::jsonb,
                     decomposition JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    ai_rationale JSONB NOT NULL DEFAULT '{}'::jsonb,
                     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -497,6 +498,7 @@ def apply_runtime_migrations() -> None:
         conn.execute(text("ALTER TABLE network_designs ADD COLUMN IF NOT EXISTS updates JSONB"))
         conn.execute(text("ALTER TABLE network_designs ADD COLUMN IF NOT EXISTS install_assistance JSONB"))
         conn.execute(text("ALTER TABLE network_designs ADD COLUMN IF NOT EXISTS decomposition JSONB"))
+        conn.execute(text("ALTER TABLE network_designs ADD COLUMN IF NOT EXISTS ai_rationale JSONB"))
         conn.execute(text("ALTER TABLE network_designs ADD COLUMN IF NOT EXISTS metadata JSONB"))
         conn.execute(text("ALTER TABLE network_designs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ"))
         conn.execute(text("ALTER TABLE network_designs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ"))
@@ -516,6 +518,7 @@ def apply_runtime_migrations() -> None:
         conn.execute(text("UPDATE network_designs SET updates = '[]'::jsonb WHERE updates IS NULL"))
         conn.execute(text("UPDATE network_designs SET install_assistance = '{}'::jsonb WHERE install_assistance IS NULL"))
         conn.execute(text("UPDATE network_designs SET decomposition = '{}'::jsonb WHERE decomposition IS NULL"))
+        conn.execute(text("UPDATE network_designs SET ai_rationale = '{}'::jsonb WHERE ai_rationale IS NULL"))
         conn.execute(text("UPDATE network_designs SET metadata = '{}'::jsonb WHERE metadata IS NULL"))
         conn.execute(text("UPDATE network_designs SET created_at = NOW() WHERE created_at IS NULL"))
         conn.execute(text("UPDATE network_designs SET updated_at = NOW() WHERE updated_at IS NULL"))
@@ -533,6 +536,7 @@ def apply_runtime_migrations() -> None:
         conn.execute(text("ALTER TABLE network_designs ALTER COLUMN updates SET DEFAULT '[]'::jsonb"))
         conn.execute(text("ALTER TABLE network_designs ALTER COLUMN install_assistance SET DEFAULT '{}'::jsonb"))
         conn.execute(text("ALTER TABLE network_designs ALTER COLUMN decomposition SET DEFAULT '{}'::jsonb"))
+        conn.execute(text("ALTER TABLE network_designs ALTER COLUMN ai_rationale SET DEFAULT '{}'::jsonb"))
         conn.execute(text("ALTER TABLE network_designs ALTER COLUMN metadata SET DEFAULT '{}'::jsonb"))
         conn.execute(text("ALTER TABLE network_designs ALTER COLUMN created_at SET DEFAULT NOW()"))
         conn.execute(text("ALTER TABLE network_designs ALTER COLUMN updated_at SET DEFAULT NOW()"))

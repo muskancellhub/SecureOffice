@@ -1049,6 +1049,7 @@ class NetworkDesignService:
         design.switch_count = switch_count
         design.session_key = self._clean_text(payload.get('session_key') or payload.get('sessionKey')) or design.session_key
         design.metadata_json = payload.get('metadata') or payload.get('rawSource') or design.metadata_json or {}
+        design.ai_rationale_json = payload.get('ai_rationale') or payload.get('aiRationale') or design.ai_rationale_json or {}
 
         if milestones_patch:
             design.milestones_json = self._merge_non_empty(design.milestones_json, milestones_patch)

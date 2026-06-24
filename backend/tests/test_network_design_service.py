@@ -50,6 +50,7 @@ class FakeDesign:
     updates_json: list = field(default_factory=list)
     install_assistance_json: dict = field(default_factory=dict)
     decomposition_json: dict = field(default_factory=dict)
+    ai_rationale_json: dict = field(default_factory=dict)
     metadata_json: dict = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
