@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationInfo, field_validator
 from app.schemas.auth import validate_email, validate_phone
@@ -27,6 +27,12 @@ InstallMode = Literal['self_install', 'remote_assistance', 'onsite_visit']
 
 class DesignMilestonesInput(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
+
+    # When True (input), `estimated_*` dates must be today-or-later. The response
+    # subclass disables this: reading back a *stored* design whose estimated dates
+    # have naturally passed must always succeed — otherwise listing aged designs
+    # 500s. (BUG: surfaced via the super-admin tenant filter showing older designs.)
+    reject_past_estimates: ClassVar[bool] = True
 
     estimated_review_date: str | None = Field(default=None, alias='estimatedReviewDate')
     estimated_proposal_date: str | None = Field(default=None, alias='estimatedProposalDate')
@@ -59,7 +65,11 @@ class DesignMilestonesInput(BaseModel):
         # `estimated_*` dates are forward-looking projections, so a past value is a
         # mistake. `confirmed_*` dates record what actually happened and may be
         # backdated, so they accept any valid date.
-        if (info.field_name or '').startswith('estimated_') and parsed < date.today():
+        if (
+            cls.reject_past_estimates
+            and (info.field_name or '').startswith('estimated_')
+            and parsed < date.today()
+        ):
             raise ValueError('estimated milestone dates cannot be in the past')
         return parsed.isoformat()
 
@@ -227,7 +237,9 @@ class DesignUpdateResponse(BaseModel):
 
 
 class DesignMilestonesResponse(DesignMilestonesInput):
-    pass
+    # Serializing a persisted design must never reject historical/aged dates; only
+    # the date-format check is kept (inherited). See reject_past_estimates above.
+    reject_past_estimates: ClassVar[bool] = False
 
 
 class DesignInstallAssistanceResponse(DesignInstallAssistanceInput):
