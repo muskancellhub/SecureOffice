@@ -60,8 +60,12 @@ class NetworkBomService:
     WIRED_DEFAULT_CATEGORIES = {'camera', 'pos_systems', 'digital_signage', 'kiosks', 'kitchen_systems', 'antenna', 'cabling'}
     NON_DROP_CATEGORIES = {'managed_service', 'managed_service_candidate', 'service', 'license', 'installation', 'labor', 'cabling', 'accessory'}
 
-    def __init__(self, catalog_service):
+    def __init__(self, catalog_service, tenant_id=None):
         self.catalog_service = catalog_service
+        # When set, catalog lookups resolve per-tenant pricing (overrides +
+        # tenant-default margin) instead of the global/default margin. Empty
+        # string normalizes to None so the pricing engine falls back cleanly.
+        self.tenant_id = tenant_id or None
 
     @staticmethod
     def _as_int(value: Any, default: int = 0) -> int:
@@ -332,6 +336,7 @@ class NetworkBomService:
             sort='price_low',
             page=1,
             page_size=25,
+            tenant_id=self.tenant_id,
         )
 
     def _list_paapi_devices_by_category(self, category: str) -> list:
@@ -343,6 +348,7 @@ class NetworkBomService:
             sort='price_low',
             page=1,
             page_size=25,
+            tenant_id=self.tenant_id,
         )
 
     def _list_devices(self, *, category: str | None, source_type: str, max_pages: int = 4) -> list:
@@ -357,6 +363,7 @@ class NetworkBomService:
                 sort='recommended',
                 page=page,
                 page_size=25,
+                tenant_id=self.tenant_id,
             )
             if not rows:
                 break
@@ -982,6 +989,7 @@ class NetworkBomService:
                 category='managed_service',
                 service_kind='managed_router',
                 sort='price_low',
+                tenant_id=self.tenant_id,
             )
             if managed_services:
                 service_item = managed_services[0]

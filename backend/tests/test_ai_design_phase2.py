@@ -166,3 +166,39 @@ def test_design_model_has_ai_rationale_column():
     from app.models.network_design import NetworkDesign
     assert hasattr(NetworkDesign, "ai_rationale_json")
     assert NetworkDesign.ai_rationale_json.property.columns[0].name == "ai_rationale"
+
+
+# ---------------------------------------------------------------------------
+# Per-tenant pricing: the BOM service must be constructed with the caller's
+# tenant so line prices resolve per-tenant (overrides + tenant-default margin).
+# ---------------------------------------------------------------------------
+
+class _TenantCapturingBom:
+    last_tenant_id = "__unset__"
+
+    def __init__(self, _catalog, tenant_id=None):
+        _TenantCapturingBom.last_tenant_id = tenant_id
+
+    def generate_bom_from_estimate(self, *, calculator_result, business_context, preferences):
+        c = calculator_result["counts"]
+        return {"line_items": [
+            {"line_id": "l1", "category": "wifi_ap", "name": "AP", "quantity": c["indoorAPsFinal"], "unit_price": 1.0},
+        ], "subtotal": 0, "tax": 0, "grand_total": 0, "summary": "", "assumptions": [], "warnings": []}
+
+
+def test_generate_passes_tenant_into_bom_pricing(monkeypatch):
+    monkeypatch.setattr(ads, "NetworkBomService", _TenantCapturingBom)
+    monkeypatch.setattr(ads, "CatalogService", lambda db: None)
+    monkeypatch.setattr(AiDesignService, "_run_ai_crew", lambda self, **k: None)
+
+    AiDesignService(None).generate(
+        AiDesignRequest(businessType="Office"), tenant_id="tenant-abc-123"
+    )
+    assert _TenantCapturingBom.last_tenant_id == "tenant-abc-123"
+
+
+def test_bom_service_normalizes_empty_tenant_to_none():
+    from app.services.network_bom_service import NetworkBomService
+    assert NetworkBomService(object(), tenant_id="").tenant_id is None
+    assert NetworkBomService(object()).tenant_id is None
+    assert NetworkBomService(object(), tenant_id="t-1").tenant_id == "t-1"

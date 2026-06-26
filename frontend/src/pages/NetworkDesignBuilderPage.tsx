@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, DollarSign, Layers, Minus, Network, Pencil, Plus, RefreshCw, ShoppingCart, Sparkles, Trash2, Wifi } from 'lucide-react';
+import { ArrowLeft, DollarSign, Layers, Minus, Network, Pencil, Plus, RefreshCw, ShoppingCart, Trash2, Wifi } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
 import { DrawioDiagramViewer } from '../components/DrawioDiagramViewer';
@@ -108,7 +108,6 @@ export const NetworkDesignBuilderPage = () => {
   const [bom, setBom] = useState<NetworkBomResult | null>(null);
   const [topologyArtifact, setTopologyArtifact] = useState<NetworkTopologyArtifact | null>(null);
   const [aiRationale, setAiRationale] = useState<AiDesignRationale | null>(null);
-  const [aiGenerating, setAiGenerating] = useState(false);
   const [savedDesign, setSavedDesign] = useState<NetworkDesignDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -325,11 +324,41 @@ export const NetworkDesignBuilderPage = () => {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  // The design is ALWAYS produced by the AI-augmented generator
+  // (/designs/ai-generate): deterministic RF/capacity floor + AI sizing,
+  // VLAN segmentation, and rationale. The backend itself degrades to the pure
+  // deterministic design on any AI failure, so this single call always returns a
+  // usable design. We only fall back to the raw BOM/topology endpoints when there
+  // is no business profile to send (e.g. a direct calculator estimate with no
+  // intake), since the AI endpoint requires a businessType.
   const ensureGeneratedArtifacts = async (): Promise<{ bomResult: NetworkBomResult; topologyResult: NetworkTopologyArtifact } | null> => {
-    if (!accessToken || !calculatorResult) return null;
+    if (!accessToken) return null;
     setLoading(true);
     setError('');
     try {
+      const profile = businessIntake && businessIntake.businessType ? businessIntake : null;
+      if (profile) {
+        const gen = await commerceApi.aiGenerateDesign(accessToken, profile);
+        const bomResult = (gen.bom as NetworkBomResult);
+        const topologyResult: NetworkTopologyArtifact = {
+          topology: gen.topology || {},
+          drawioXml: gen.drawioXml || '',
+          summary: {
+            nodeCount: (gen.topology?.nodes || []).length,
+            edgeCount: (gen.topology?.edges || []).length,
+            assumptions: gen.assumptions || [],
+          },
+        };
+        setCalculatorInput(gen.calculatorInput || {});
+        setCalculatorResult(gen.calculatorResult || null);
+        setBom(bomResult);
+        setTopologyArtifact(topologyResult);
+        setAiRationale(gen.aiRationale || null);
+        return { bomResult, topologyResult };
+      }
+
+      // Fallback: no business profile to send — deterministic from the estimate.
+      if (!calculatorResult) return null;
       const bomResult = await commerceApi.generateNetworkBom(accessToken, {
         calculatorResult,
         businessContext: businessIntake || undefined,
@@ -342,7 +371,7 @@ export const NetworkDesignBuilderPage = () => {
       setTopologyArtifact(topologyResult);
       return { bomResult, topologyResult };
     } catch (err: any) {
-      setError(extractApiError(err, 'Failed to generate BOM/topology'));
+      setError(extractApiError(err, 'Failed to generate design'));
       return null;
     } finally {
       setLoading(false);
@@ -392,45 +421,6 @@ export const NetworkDesignBuilderPage = () => {
   const onRegenerate = async () => {
     const artifacts = await ensureGeneratedArtifacts();
     if (artifacts) setNotice('Design regenerated.');
-  };
-
-  // AI-augmented generation: posts the business profile to /designs/ai-generate
-  // and replaces the builder state with the returned design (sized to the
-  // deterministic floor, VLAN-segmented, with rationale). The backend degrades
-  // to the deterministic design on any AI failure, so this always returns a
-  // usable design; surfaced warnings are shown as a notice.
-  const onGenerateWithAi = async () => {
-    if (!accessToken) return;
-    setAiGenerating(true);
-    setError('');
-    try {
-      const profile = businessIntake || calculatorInput || {};
-      const gen = await commerceApi.aiGenerateDesign(accessToken, profile);
-      setCalculatorInput(gen.calculatorInput || {});
-      setCalculatorResult(gen.calculatorResult || null);
-      setBom((gen.bom as NetworkBomResult) || null);
-      setTopologyArtifact({
-        topology: gen.topology || {},
-        drawioXml: gen.drawioXml || '',
-        summary: {
-          nodeCount: (gen.topology?.nodes || []).length,
-          edgeCount: (gen.topology?.edges || []).length,
-          assumptions: gen.assumptions || [],
-        },
-      });
-      setAiRationale(gen.aiRationale || null);
-      autoGeneratedRef.current = true;
-      const warnCount = (gen.warnings || []).length;
-      setNotice(
-        gen.aiGenerated
-          ? `AI design generated${warnCount ? ` (${warnCount} note${warnCount > 1 ? 's' : ''})` : ''}.`
-          : 'Generated the deterministic design (AI was unavailable).',
-      );
-    } catch (err: any) {
-      setError(extractApiError(err, 'Failed to generate the AI design'));
-    } finally {
-      setAiGenerating(false);
-    }
   };
 
   // Auto-save the current design. The backend assigns the name on first create
@@ -542,6 +532,19 @@ export const NetworkDesignBuilderPage = () => {
 
   return (
     <section className="content-wrap fade-in dnb-page">
+      {loading && (
+        <div className="apx-modal-overlay dnb-generating-overlay" role="alert" aria-busy="true">
+          <div className="apx-modal apx-modal-sm dnb-generating-modal">
+            <div className="dnb-generating-spinner"><RefreshCw size={34} className="spin-icon" /></div>
+            <h2 className="apx-modal-title">Generating your network design…</h2>
+            <p className="apx-modal-sub">
+              Sizing access points, selecting products, and segmenting the network.
+              This can take a few seconds.
+            </p>
+          </div>
+        </div>
+      )}
+
       <header className="apx-header">
         <div className="apx-header-text">
           <Link to="/shop/designs" className="dnb-back"><ArrowLeft size={15} /> Back to designs</Link>
@@ -579,10 +582,7 @@ export const NetworkDesignBuilderPage = () => {
         <>
           {/* Action toolbar */}
           <div className="dnb-toolbar">
-            <button className="dnb-tool-btn dnb-tool-ai" onClick={onGenerateWithAi} disabled={aiGenerating || loading}>
-              <Sparkles size={15} className={aiGenerating ? 'spin-icon' : ''} /> {aiGenerating ? 'Generating…' : 'Generate with AI'}
-            </button>
-            <button className="dnb-tool-btn" onClick={onRegenerate} disabled={loading || aiGenerating}>
+            <button className="dnb-tool-btn" onClick={onRegenerate} disabled={loading}>
               <RefreshCw size={15} className={loading ? 'spin-icon' : ''} /> {loading ? 'Generating…' : 'Regenerate'}
             </button>
             <button className="dnb-tool-btn" onClick={() => navigate('/business-intake')}>

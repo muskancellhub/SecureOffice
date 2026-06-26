@@ -10827,9 +10827,15 @@ textarea {
 .dd-vlan-ai { display: inline-flex; color: #7c3aed; }
 .dd-vlan-purpose { margin: 0; font-size: 11.5px; color: #6b7a99; line-height: 1.45; }
 
-/* "Generate with AI" toolbar button accent */
-.dnb-tool-btn.dnb-tool-ai { border-color: #c4b5fd; color: #6d28d9; }
-.dnb-tool-btn.dnb-tool-ai:hover:not(:disabled) { background: #f5f3ff; border-color: #a78bfa; }
+/* "Generating design" modal (builder) */
+.dnb-generating-modal { max-width: 420px; text-align: center; padding: 32px 30px; }
+.dnb-generating-spinner {
+  display: grid; place-items: center;
+  width: 64px; height: 64px; margin: 0 auto 18px;
+  border-radius: 50%; background: #f5f3ff; color: #6d28d9;
+}
+.dnb-generating-modal .apx-modal-title { font-size: 19px; }
+.dnb-generating-modal .apx-modal-sub { margin: 0; }
 
 .dd-twin-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 12px;

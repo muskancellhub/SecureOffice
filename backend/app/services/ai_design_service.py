@@ -159,7 +159,7 @@ class AiDesignService:
         business_context = self._build_business_context(profile, seed, proposal)
         preferences = self._build_preferences(profile, seed, proposal)
 
-        bom = self._build_bom(final_result, business_context, preferences, warnings)
+        bom = self._build_bom(final_result, business_context, preferences, tenant_id, warnings)
         topology, drawio_xml = self._build_topology(bom, business_context, proposal, warnings)
 
         assumptions = self._collect_assumptions(bom, topology, proposal, clamp_applied, floor_counts, final_result["counts"])
@@ -535,10 +535,15 @@ class AiDesignService:
         final_result: dict[str, Any],
         business_context: dict[str, Any],
         preferences: dict[str, Any],
+        tenant_id: str,
         warnings: list[str],
     ) -> dict[str, Any]:
         try:
-            result = NetworkBomService(CatalogService(self.db)).generate_bom_from_estimate(
+            # tenant_id makes BOM line prices resolve per-tenant (overrides +
+            # tenant-default margin) so the AI design's CapEx matches the quote.
+            result = NetworkBomService(
+                CatalogService(self.db), tenant_id=tenant_id
+            ).generate_bom_from_estimate(
                 calculator_result=final_result,
                 business_context=business_context,
                 preferences=preferences,

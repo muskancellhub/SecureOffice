@@ -286,10 +286,12 @@ def suggest_designx_bom(
 @router.post('/network/generate-bom', response_model=GenerateNetworkBomResponse)
 def generate_network_bom(
     payload: GenerateNetworkBomRequest,
-    _: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    result = NetworkBomService(CatalogService(db)).generate_bom_from_estimate(
+    result = NetworkBomService(
+        CatalogService(db), tenant_id=current_user.get('tenant_id'),
+    ).generate_bom_from_estimate(
         calculator_result=payload.calculator_result,
         business_context=payload.business_context,
         preferences=payload.preferences.model_dump(exclude_none=True),
