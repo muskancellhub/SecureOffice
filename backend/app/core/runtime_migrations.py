@@ -8,6 +8,36 @@ def apply_runtime_migrations() -> None:
         # RBAC permissions column for existing databases.
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSONB NOT NULL DEFAULT '[]'::jsonb"))
 
+        # ── Per-tenant PII encryption (docs/PII_ENCRYPTION.md §6) ──────────────
+        # Wrapped per-tenant DEKs. A DB dump alone yields only wrapped keys;
+        # without the master KEK (held outside the DB) the PII is unreadable.
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS tenant_keys (
+                tenant_id   UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+                wrapped_dek TEXT NOT NULL,
+                key_version INT  NOT NULL DEFAULT 1,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        ))
+        # Encrypted columns store v1:iv:tag:ciphertext, which is larger than the
+        # plaintext, so widen the original VARCHAR(n) columns to TEXT. Idempotent:
+        # re-running ALTER ... TYPE TEXT on an already-TEXT column is a no-op.
+        for _enc_table, _enc_column in (
+            ('users', 'mobile'),
+            ('users', 'name'),
+            ('tenant_onboarding', 'admin_name'),
+            ('tenant_onboarding', 'admin_email'),
+            ('tenant_onboarding', 'admin_phone'),
+            ('tenant_onboarding', 'tax_id'),
+            ('tenant_onboarding', 'duns_number'),
+            ('vendors', 'federal_tax_id'),
+            ('assets', 'serial_number'),
+            ('assets', 'location'),
+        ):
+            conn.execute(text(f'ALTER TABLE {_enc_table} ALTER COLUMN {_enc_column} TYPE TEXT'))
+
         # Company-first signup (PLAN.md §1): membership status + billing-owner flag
         # on users, and the canonical email-domain key on tenants.
         conn.execute(text(

@@ -19,7 +19,8 @@ class Vendor(Base):
     address_zip: Mapped[str] = mapped_column(String(20), nullable=False)
     company_website: Mapped[str] = mapped_column(String(500), nullable=False)
     company_email: Mapped[str] = mapped_column(String(320), nullable=False)
-    federal_tax_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Encrypted at rest (docs/PII_ENCRYPTION.md §4) — TEXT to fit the ciphertext blob.
+    federal_tax_id: Mapped[str] = mapped_column(Text, nullable=False)
     bbb_good_standing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     sos_good_standing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     corporate_liable_sales: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

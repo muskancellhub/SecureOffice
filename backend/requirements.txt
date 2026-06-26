@@ -6,6 +6,10 @@ psycopg2-binary==2.9.10
 pydantic==2.11.9
 pydantic-settings==2.10.1
 python-jose[cryptography]==3.5.0
+# Direct dependency: AES-256-GCM for per-tenant PII encryption (docs/PII_ENCRYPTION.md).
+# Previously present only transitively via python-jose; pin it explicitly so the
+# encryption layer doesn't depend on jose's extras to pull it in.
+cryptography>=44,<49
 passlib[bcrypt]==1.7.4
 bcrypt==4.3.0
 authlib==1.6.12

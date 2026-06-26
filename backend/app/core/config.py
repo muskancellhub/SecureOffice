@@ -139,6 +139,42 @@ class Settings(BaseSettings):
     stripe_success_url: str = Field(default='', alias='STRIPE_SUCCESS_URL')
     stripe_cancel_url: str = Field(default='', alias='STRIPE_CANCEL_URL')
 
+    # Per-tenant PII encryption master key (KEK) — base64 of exactly 32 random
+    # bytes (docs/PII_ENCRYPTION.md §5). Wraps every per-tenant DEK; never stored
+    # in the DB. Generate with:
+    #   python -c "import secrets,base64;print(base64.b64encode(secrets.token_bytes(32)).decode())"
+    # In v1 this is the only encryption secret; Phase 2 moves it into KMS/Key Vault
+    # behind the same KeyProvider interface. The app fails fast at startup if it is
+    # missing or not 32 bytes after decoding (see master_encryption_key_bytes).
+    master_encryption_key: str = Field(default='', alias='MASTER_ENCRYPTION_KEY')
+
+    def master_encryption_key_bytes(self) -> bytes:
+        """Decode and validate the master KEK, returning the raw 32 bytes.
+
+        Raises ``RuntimeError`` (fail fast) if the key is absent, not valid
+        base64, or not exactly 32 bytes — an undersized/typo'd key must never
+        silently downgrade encryption strength.
+        """
+        import base64
+        import binascii
+
+        raw = (self.master_encryption_key or '').strip()
+        if not raw:
+            raise RuntimeError(
+                'MASTER_ENCRYPTION_KEY is not set. PII encryption requires a '
+                'base64-encoded 32-byte master key. Generate one with: '
+                'python -c "import secrets,base64;print(base64.b64encode(secrets.token_bytes(32)).decode())"'
+            )
+        try:
+            key = base64.b64decode(raw, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise RuntimeError(f'MASTER_ENCRYPTION_KEY is not valid base64: {exc}') from exc
+        if len(key) != 32:
+            raise RuntimeError(
+                f'MASTER_ENCRYPTION_KEY must decode to exactly 32 bytes, got {len(key)}.'
+            )
+        return key
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -2,6 +2,7 @@ import uuid
 from datetime import date, datetime, timezone
 from sqlalchemy import desc, select
 from sqlalchemy.orm import selectinload
+from app.core.encryption import EncryptionService
 from app.core.exceptions import ForbiddenError, NotFoundError, UnauthorizedError
 from app.models.lifecycle import (
     Asset,
@@ -337,7 +338,10 @@ class LifecycleService:
         )
         if not self._is_admin(current_user.get('role')):
             stmt = stmt.join(Contract, Asset.contract_id == Contract.id).where(Contract.created_by == user_id)
-        return list(self.db.scalars(stmt).all())
+        assets = list(self.db.scalars(stmt).all())
+        # Decrypt serial_number / location for display (docs/PII_ENCRYPTION.md §7).
+        EncryptionService(self.db).decrypt_all(assets)
+        return assets
 
     def get_order_workflow(self, current_user: dict, order_id: str) -> WorkflowInstance:
         self._assert_user_exists(current_user)

@@ -1,4 +1,5 @@
 import uuid
+from app.core.encryption import EncryptionService
 from app.core.exceptions import AppError, UnauthorizedError
 from app.repositories.onboarding_repository import OnboardingRepository
 from app.repositories.tenant_repository import TenantRepository
@@ -14,6 +15,10 @@ class OnboardingService:
         self.user_repo = UserRepository(db)
         self.tenant_repo = TenantRepository(db)
         self.onboarding_repo = OnboardingRepository(db)
+        # ``db.refresh`` reloads the encrypted PII columns as ciphertext, so each
+        # method that refreshes-then-returns the profile re-decrypts it here
+        # (docs/PII_ENCRYPTION.md §7).
+        self._enc = EncryptionService(db)
 
     @staticmethod
     def _parse_uuid(value: str, *, field_name: str) -> uuid.UUID:
@@ -112,6 +117,7 @@ class OnboardingService:
         profile.onboarding_completed = self._compute_onboarding_completed(profile)
         self.db.commit()
         self.db.refresh(profile)
+        self._enc.decrypt_instance(profile)
         return profile
 
     def update_profile(self, current_user: dict, payload: dict, *, effective_tenant_id: str | None = None):
@@ -169,6 +175,7 @@ class OnboardingService:
         profile.onboarding_completed = self._compute_onboarding_completed(profile)
         self.db.commit()
         self.db.refresh(profile)
+        self._enc.decrypt_instance(profile)
         audit.log('onboarding_updated', fields_changed=sorted(payload.keys()),
                   onboarding_completed=profile.onboarding_completed,
                   target_tenant_id=tenant_id)
@@ -211,6 +218,7 @@ class OnboardingService:
         profile.onboarding_completed = self._compute_onboarding_completed(profile)
         self.db.commit()
         self.db.refresh(profile)
+        self._enc.decrypt_instance(profile)
         # last4 only — full card data never reaches this service (plan §6).
         audit.log('payment_method_validated', payment_method_type=method, last4=masked_last4,
                   target_tenant_id=tenant_id)

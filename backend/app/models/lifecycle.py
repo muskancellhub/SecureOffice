@@ -1,7 +1,7 @@
 import enum
 import uuid
 from datetime import date
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, UniqueConstraint, func
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -213,8 +213,9 @@ class Asset(Base):
         ForeignKey('users.id', ondelete='SET NULL'),
         nullable=True,
     )
-    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    serial_number: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Encrypted at rest (docs/PII_ENCRYPTION.md §4) — TEXT to fit the ciphertext blob.
+    location: Mapped[str | None] = mapped_column(Text, nullable=True)
+    serial_number: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_json: Mapped[dict] = mapped_column('metadata', JSONB, nullable=False, default=dict)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[DateTime] = mapped_column(

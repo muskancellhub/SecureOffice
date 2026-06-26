@@ -89,7 +89,17 @@ def _assert_production_hardening(settings) -> None:
         raise RuntimeError('Refusing to start — production security preconditions failed:\n  - ' + '\n  - '.join(errors))
 
 
+def _assert_encryption_ready(settings) -> None:
+    """Fail fast (all environments) if the PII-encryption master key is missing
+    or malformed (docs/PII_ENCRYPTION.md §5). Booting without a valid KEK would
+    let the first PII write fail mid-request, or — worse — invite a fallback to
+    plaintext; refusing to start makes the misconfiguration loud and immediate.
+    """
+    settings.master_encryption_key_bytes()  # raises RuntimeError if absent/not 32 bytes
+
+
 _assert_production_hardening(settings)
+_assert_encryption_ready(settings)
 
 
 @app.on_event('startup')

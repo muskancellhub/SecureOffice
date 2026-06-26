@@ -1,6 +1,6 @@
 import enum
 import uuid
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -39,8 +39,10 @@ class User(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False)
-    mobile: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Encrypted at rest (per-tenant AES-256-GCM, docs/PII_ENCRYPTION.md §4) — TEXT
+    # because the v1:iv:tag:ciphertext blob is larger than the plaintext.
+    mobile: Mapped[str | None] = mapped_column(Text, nullable=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     provider: Mapped[AuthProvider] = mapped_column(Enum(AuthProvider, name='auth_provider'), nullable=False, default=AuthProvider.LOCAL)
     provider_id: Mapped[str | None] = mapped_column(String(255), nullable=True)

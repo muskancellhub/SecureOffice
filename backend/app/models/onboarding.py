@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
@@ -14,13 +14,14 @@ class TenantOnboarding(Base):
         primary_key=True,
     )
     organization_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    admin_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    admin_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
-    admin_phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Encrypted at rest (docs/PII_ENCRYPTION.md §4) — TEXT to fit the ciphertext blob.
+    admin_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    admin_email: Mapped[str | None] = mapped_column(Text, nullable=True)
+    admin_phone: Mapped[str | None] = mapped_column(Text, nullable=True)
     credit_validation_status: Mapped[str] = mapped_column(String(16), nullable=False, default='PENDING', server_default='PENDING')
     tax_validation_status: Mapped[str] = mapped_column(String(16), nullable=False, default='PENDING', server_default='PENDING')
-    duns_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    tax_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    duns_number: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tax_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     company_setup_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text('FALSE'))
     payment_method_setup: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text('FALSE'))
     payment_validation_status: Mapped[str] = mapped_column(String(16), nullable=False, default='PENDING', server_default='PENDING')

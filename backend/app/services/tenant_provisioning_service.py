@@ -33,6 +33,12 @@ class TenantProvisioningService:
         if tid == master:
             return
 
+        # Provision the tenant's PII-encryption DEK up front (docs/PII_ENCRYPTION.md
+        # §7). Idempotent; encryption also provisions lazily on first PII write, so
+        # this is the explicit onboarding hook rather than a correctness gate.
+        from app.core.encryption import EncryptionService
+        EncryptionService(self.db).provision_tenant(tid)
+
         self._clone_financing_terms(tid, master)
         # Default customer_pricing tier (also creates it lazily on first edit, but
         # seeding now means a new tenant has a complete config set immediately).

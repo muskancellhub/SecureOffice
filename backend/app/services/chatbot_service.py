@@ -364,6 +364,9 @@ def _retrieve_assets(db: Session, tenant_id: str, _message: str) -> str:
     )
     if not assets:
         return '[ASSETS] No assets found.'
+    # Decrypt serial_number / location before rendering (docs/PII_ENCRYPTION.md §7).
+    from app.core.encryption import EncryptionService
+    EncryptionService(db).decrypt_all(assets)
     lines = [f'[ASSETS — {len(assets)} items]']
     for a in assets:
         lines.append(

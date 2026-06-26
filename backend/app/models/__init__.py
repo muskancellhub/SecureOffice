@@ -43,10 +43,17 @@ from app.models.lifecycle import (
     PaymentMethod,
 )
 from app.models.network_design import DesignLead, NetworkDesign, NetworkDesignStatus
+from app.models.tenant_key import TenantKey
+
+# Importing this registers the global ``before_flush`` PII-encryption listener
+# (docs/PII_ENCRYPTION.md). Placed here so encryption is active in every context
+# that touches the DB — app, tests, scripts — since they all import app.models.
+import app.core.encryption  # noqa: E402,F401
 
 __all__ = [
     'Tenant',
     'TenantType',
+    'TenantKey',
     'User',
     'AuthProvider',
     'UserRole',
