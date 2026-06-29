@@ -36,8 +36,6 @@ import { PublicHomePage } from '../pages/PublicHomePage';
 import { VendorRegisterPage } from '../pages/VendorRegisterPage';
 import { VendorLoginPage } from '../pages/VendorLoginPage';
 import { ZabbixPage } from '../pages/ZabbixPage';
-import { BillingSuccessPage } from '../pages/BillingSuccessPage';
-import { BillingCancelledPage } from '../pages/BillingCancelledPage';
 
 const LegacyQuoteRedirect = () => {
   const { quoteId } = useParams();
@@ -57,8 +55,6 @@ export const AppRouter = () => (
     <Route path="/oauth/success" element={<OAuthSuccessPage />} />
     <Route path="/vendor/register" element={<VendorRegisterPage />} />
     <Route path="/vendor/login" element={<VendorLoginPage />} />
-    <Route path="/billing/success" element={<BillingSuccessPage />} />
-    <Route path="/billing/cancelled" element={<BillingCancelledPage />} />
     {/* BUG-006: legacy quote URL is a pure rewrite — keep it public so the
         ProtectedRoute guard can't intercept it to /login before it redirects.
         Auth is enforced at the target /shop/quotes/:id. */}

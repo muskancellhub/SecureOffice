@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ArrowUpRight, CalendarClock, Check, CreditCard, Layers, Package, RefreshCw } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, CalendarClock, Check, CheckCircle2, CreditCard, Layers, Package, RefreshCw } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
-import { startOrderCheckout } from '../api/billingApi';
+import { SquarePaymentForm } from '../components/SquarePaymentForm';
+import type { SquarePaymentResult } from '../api/billingApi';
 import { useAuth } from '../context/AuthContext';
 import type { OrderDetail, OrderLine, WorkflowInstance } from '../types/commerce';
 import { extractApiError } from '../utils/extractApiError';
@@ -30,7 +31,8 @@ export const OrderDetailsPage = () => {
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [workflow, setWorkflow] = useState<WorkflowInstance | null>(null);
   const [error, setError] = useState('');
-  const [payingWithCard, setPayingWithCard] = useState(false);
+  const [showSquareForm, setShowSquareForm] = useState(false);
+  const [paymentResult, setPaymentResult] = useState<SquarePaymentResult | null>(null);
 
   const load = async () => {
     if (!accessToken || !orderId) return;
@@ -49,20 +51,29 @@ export const OrderDetailsPage = () => {
 
   useEffect(() => { load(); }, [accessToken, orderId]);
 
-  const onPayWithCard = async () => {
+  const onPayWithCard = () => {
     if (!orderId) return;
-    setPayingWithCard(true);
     setError('');
-    try {
-      const { data } = await startOrderCheckout(orderId);
-      window.location.assign(data.url);
-    } catch (err: any) {
-      setError(extractApiError(err, 'Failed to start checkout'));
-      setPayingWithCard(false);
-    }
+    // Keep the buyer on-page with the embedded Square widget.
+    setShowSquareForm(true);
   };
 
-  const isPayable = order?.status === 'SUBMITTED';
+  const onSquareSuccess = async (result: SquarePaymentResult) => {
+    setShowSquareForm(false);
+    setPaymentResult(result);
+    await load();
+  };
+
+  const isPaid = !!order?.is_paid;
+  const isPayable = order?.status === 'SUBMITTED' && !isPaid;
+
+  // Card charge covers ONE-TIME lines only; recurring services are invoiced
+  // monthly by the billing engine (matches the backend SquareService).
+  const payTotal = useMemo(() => {
+    return (order?.lines || [])
+      .filter((line) => line.billing !== 'RECURRING')
+      .reduce((sum, line) => sum + (line.unit_price || 0) * (line.qty || 1), 0);
+  }, [order?.lines]);
 
   const parentNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -114,6 +125,48 @@ export const OrderDetailsPage = () => {
     <section className="content-wrap fade-in odx-page">
       {error && <div className="error-text">{error}</div>}
 
+      {showSquareForm && orderId && (
+        <SquarePaymentForm
+          orderId={orderId}
+          amountLabel={money(payTotal)}
+          onSuccess={onSquareSuccess}
+          onCancel={() => setShowSquareForm(false)}
+        />
+      )}
+
+      {paymentResult && (
+        <div className="sqpay-backdrop" onClick={() => setPaymentResult(null)}>
+          <div className="sqpay-shell sqpay-success" onClick={(e) => e.stopPropagation()}>
+            <div className="sqpay-success-icon"><CheckCircle2 size={48} strokeWidth={2} /></div>
+            <h3 className="sqpay-title">Payment successful</h3>
+            <p className="sqpay-success-sub">
+              {order ? <>Order <strong>{order.public_id}</strong> is confirmed and now being processed.</>
+                     : 'Your payment has been received.'}
+            </p>
+            <div className="sqpay-receipt">
+              <div className="sqpay-receipt-row">
+                <span>Amount paid</span>
+                <span>{money(paymentResult.amount ?? payTotal)}</span>
+              </div>
+              {paymentResult.payment_id && (
+                <div className="sqpay-receipt-row">
+                  <span>Reference</span>
+                  <span className="sqpay-receipt-ref">{paymentResult.payment_id.slice(0, 16)}</span>
+                </div>
+              )}
+            </div>
+            <div className="sqpay-actions">
+              <button className="sqpay-cancel-btn" onClick={() => navigate('/shop/orders')}>
+                View all orders
+              </button>
+              <button className="sqpay-pay-btn" onClick={() => setPaymentResult(null)}>
+                Track this order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {order && (
         <>
           <header className="apx-header">
@@ -132,9 +185,14 @@ export const OrderDetailsPage = () => {
               </div>
             </div>
             {isPayable && (
-              <button className="apx-add-btn" onClick={onPayWithCard} disabled={payingWithCard}>
-                <CreditCard size={18} /> {payingWithCard ? 'Redirecting…' : 'Pay with card'}
+              <button className="apx-add-btn" onClick={onPayWithCard} disabled={showSquareForm}>
+                <CreditCard size={18} /> Pay with card
               </button>
+            )}
+            {isPaid && (
+              <span className="odx-paid-badge" title={order?.paid_at ? `Paid ${fmtIso(order.paid_at)}` : 'Paid'}>
+                <CheckCircle2 size={16} /> Paid
+              </span>
             )}
           </header>
 

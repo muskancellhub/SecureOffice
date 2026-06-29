@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CreditCard, Download, Pencil, TrendingUp } from 'lucide-react';
+import { CreditCard, Download, TrendingUp } from 'lucide-react';
 import * as commerceApi from '../api/commerceApi';
-import { startSubscriptionCheckout } from '../api/billingApi';
 import { useAuth } from '../context/AuthContext';
 import type { BillingOverview, InvoiceRecord, OnboardingProfile, SubscriptionSummary } from '../types/commerce';
 import { extractApiError } from '../utils/extractApiError';
@@ -62,7 +61,6 @@ export const BillingPage = () => {
   const [loading, setLoading] = useState(false);
   const [runningInvoicing, setRunningInvoicing] = useState(false);
   const [payingInvoiceId, setPayingInvoiceId] = useState<string | null>(null);
-  const [subscribing, setSubscribing] = useState(false);
   const [error, setError] = useState('');
 
   const load = async () => {
@@ -129,23 +127,6 @@ export const BillingPage = () => {
       setError(extractApiError(err, 'Failed to run invoicing'));
     } finally {
       setRunningInvoicing(false);
-    }
-  };
-
-  const onSubscribe = async () => {
-    const priceId = import.meta.env.VITE_STRIPE_DEFAULT_PRICE_ID;
-    if (!priceId) {
-      setError('Stripe Price ID not configured');
-      return;
-    }
-    setSubscribing(true);
-    setError('');
-    try {
-      const { data } = await startSubscriptionCheckout(priceId);
-      window.location.assign(data.url);
-    } catch (err: any) {
-      setError(extractApiError(err, 'Failed to start checkout'));
-      setSubscribing(false);
     }
   };
 
@@ -227,9 +208,9 @@ export const BillingPage = () => {
               <span>{cardLast4 ? 'On file' : 'No card'}</span>
             </div>
           </div>
-          <button className="bil-update-btn" onClick={onSubscribe} disabled={subscribing}>
-            <Pencil size={15} /> {subscribing ? 'Redirecting…' : cardLast4 ? 'Update card' : 'Add a card'}
-          </button>
+          <p className="mini-note bil-pay-note">
+            Card payments are collected per order at checkout (Pay with card on the order page).
+          </p>
         </article>
 
         {/* Active subscriptions */}

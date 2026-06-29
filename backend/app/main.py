@@ -356,8 +356,8 @@ app.include_router(bundles_router)
 app.include_router(lifecycle_router)
 app.include_router(billing_router)
 
-from app.routes.stripe import router as stripe_router
-app.include_router(stripe_router)
+from app.routes.square import router as square_router
+app.include_router(square_router)
 
 app.include_router(chatbot_router)
 

@@ -35,6 +35,9 @@ class OrderSummaryResponse(BaseModel):
     confirmed_delivery_date: date | None = None
     created_at: datetime
     updated_at: datetime
+    # True once a successful card payment has settled this order's one-time total.
+    is_paid: bool = False
+    paid_at: datetime | None = None
 
 
 class OrderDetailResponse(OrderSummaryResponse):

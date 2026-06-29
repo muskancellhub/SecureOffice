@@ -55,7 +55,7 @@ class PaymentMethod(str, enum.Enum):
     MANUAL = 'MANUAL'
     CARD = 'CARD'
     BANK_TRANSFER = 'BANK_TRANSFER'
-    STRIPE = 'STRIPE'
+    SQUARE = 'SQUARE'
 
 
 class Contract(Base):
@@ -92,8 +92,8 @@ class Subscription(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('tenants.id', ondelete='RESTRICT'), nullable=False)
-    # Nullable: subscriptions from tenant-level Stripe checkout (no order/contract)
-    # have no contract; order-flow subscriptions always set one (lifecycle_service).
+    # Nullable: order-flow subscriptions always set a contract (lifecycle_service);
+    # the column stays nullable for any subscription created without one.
     contract_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey('contracts.id', ondelete='CASCADE'), nullable=True)
     order_line_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -119,8 +119,6 @@ class Subscription(Base):
     start_date: Mapped[date] = mapped_column(Date, nullable=False, server_default=func.current_date())
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     next_billing_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    stripe_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    stripe_price_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     metadata_json: Mapped[dict] = mapped_column('metadata', JSONB, nullable=False, default=dict)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[DateTime] = mapped_column(
@@ -250,7 +248,6 @@ class Invoice(Base):
         default=InvoiceStatus.DUE,
     )
     due_date: Mapped[date] = mapped_column(Date, nullable=False)
-    stripe_invoice_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     issued_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     paid_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     metadata_json: Mapped[dict] = mapped_column('metadata', JSONB, nullable=False, default=dict)

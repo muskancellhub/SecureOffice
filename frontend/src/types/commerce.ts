@@ -177,6 +177,8 @@ export interface OrderSummary {
 
 export interface OrderDetail extends OrderSummary {
   lines: OrderLine[];
+  is_paid?: boolean;
+  paid_at?: string | null;
 }
 
 export interface OrderNotificationRecipients {

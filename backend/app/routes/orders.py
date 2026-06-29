@@ -38,7 +38,24 @@ def _serialize_order_line(line) -> OrderLineResponse:
     )
 
 
-def _serialize_order(order) -> OrderDetailResponse:
+def _order_paid_at(db: Session, order) -> 'datetime | None':
+    """When this order's one-time total was settled by a successful card payment,
+    else None. Payments link to the order via metadata_json.order_id (no direct
+    order FK on payments), so we match on that."""
+    from app.models.lifecycle import Payment, PaymentStatus
+    payment = (
+        db.query(Payment)
+        .filter(
+            Payment.status == PaymentStatus.SUCCEEDED,
+            Payment.metadata_json['order_id'].astext == str(order.id),
+        )
+        .order_by(Payment.paid_at.desc())
+        .first()
+    )
+    return payment.paid_at if payment else None
+
+
+def _serialize_order(order, *, paid_at=None) -> OrderDetailResponse:
     return OrderDetailResponse(
         id=str(order.id),
         public_id=order.public_id,
@@ -52,6 +69,8 @@ def _serialize_order(order) -> OrderDetailResponse:
         confirmed_delivery_date=order.confirmed_delivery_date,
         created_at=order.created_at,
         updated_at=order.updated_at,
+        is_paid=paid_at is not None,
+        paid_at=paid_at,
         lines=[_serialize_order_line(line) for line in order.lines],
     )
 
@@ -112,7 +131,7 @@ def update_order_notification_recipients(
 @router.get('/{order_id}', response_model=OrderDetailResponse)
 def get_order(order_id: str, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     order = OrderService(db).get_order(current_user, order_id)
-    return _serialize_order(order)
+    return _serialize_order(order, paid_at=_order_paid_at(db, order))
 
 
 @router.patch('/{order_id}', response_model=OrderDetailResponse)
@@ -125,4 +144,4 @@ def update_order(
     AuthorizationService(db).require(current_user, PERM_MANAGE_LIFECYCLE)
     updates = payload.model_dump(exclude_unset=True)
     order = OrderService(db).update_order(current_user, order_id, updates)
-    return _serialize_order(order)
+    return _serialize_order(order, paid_at=_order_paid_at(db, order))
