@@ -47,8 +47,8 @@ from app.core.key_provider import get_key_provider
 #
 # Deliberately EXCLUDED from v1 (need a blind index for equality lookups — §4):
 #   users.email, users.provider_id            (login / SSO keys, queried by ==)
-#   payments.external_reference               (Stripe idempotency check filters
-#                                              on it in stripe_webhook_handler)
+#   payments.external_reference               (Square idempotency check filters
+#                                              on it in square_webhook_handler)
 ENCRYPTED_FIELDS: dict[str, tuple[str, ...]] = {
     'users': ('mobile', 'name'),
     'tenant_onboarding': ('admin_name', 'admin_email', 'admin_phone', 'tax_id', 'duns_number'),

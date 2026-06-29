@@ -996,46 +996,59 @@ def apply_runtime_migrations() -> None:
             "CREATE INDEX IF NOT EXISTS idx_otps_user_created_at ON otps (user_id, created_at)"
         ))
 
-        # ── Stripe integration columns ──
-        conn.execute(text(
-            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(64)"
-        ))
-        conn.execute(text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS ix_tenants_stripe_customer_id "
-            "ON tenants (stripe_customer_id) WHERE stripe_customer_id IS NOT NULL"
-        ))
-
-        conn.execute(text(
-            "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(64)"
-        ))
-        conn.execute(text(
-            "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_price_id VARCHAR(64)"
-        ))
-        conn.execute(text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS ix_subscriptions_stripe_subscription_id "
-            "ON subscriptions (stripe_subscription_id) WHERE stripe_subscription_id IS NOT NULL"
-        ))
-        # Tenant-level Stripe checkout subscriptions have no order/contract.
+        # Subscriptions may exist without a contract (column is nullable in the
+        # model); ensure existing DBs that created it NOT NULL are relaxed.
         conn.execute(text(
             "ALTER TABLE subscriptions ALTER COLUMN contract_id DROP NOT NULL"
         ))
 
-        conn.execute(text(
-            "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS stripe_invoice_id VARCHAR(64)"
-        ))
-        conn.execute(text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS ix_invoices_stripe_invoice_id "
-            "ON invoices (stripe_invoice_id) WHERE stripe_invoice_id IS NOT NULL"
-        ))
-
+        # Square webhook idempotency log (docs/SQUARE_MIGRATION_PLAN.md §6.4).
+        # Keyed on Square's event_id.
         conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS stripe_events (
+            CREATE TABLE IF NOT EXISTS square_events (
                 id           VARCHAR(64) PRIMARY KEY,
                 type         VARCHAR(128) NOT NULL,
                 received_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 payload      JSONB NOT NULL
             )
         """))
+
+        # payments.method is a VARCHAR + value-list CHECK (native_enum=False).
+        # Square is the only live method now (Stripe removed). Drop ANY stale
+        # check that doesn't allow 'SQUARE', then (re)create the current one.
+        # Same approach as the orders status fix (BUG-ORD-001).
+        conn.execute(
+            text(
+                """
+                DO $$
+                DECLARE r record;
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.tables
+                        WHERE table_schema = 'public' AND table_name = 'payments'
+                    ) THEN
+                        FOR r IN
+                            SELECT conname FROM pg_constraint
+                            WHERE conrelid = 'payments'::regclass
+                              AND contype = 'c'
+                              AND pg_get_constraintdef(oid) LIKE '%method%'
+                              AND pg_get_constraintdef(oid) NOT LIKE '%SQUARE%'
+                        LOOP
+                            EXECUTE format('ALTER TABLE payments DROP CONSTRAINT %I', r.conname);
+                        END LOOP;
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_constraint WHERE conname = 'payment_method_v1'
+                        ) THEN
+                            ALTER TABLE payments
+                            ADD CONSTRAINT payment_method_v1
+                            CHECK (method IN ('MANUAL', 'CARD', 'BANK_TRANSFER', 'SQUARE'));
+                        END IF;
+                    END IF;
+                END
+                $$;
+                """
+            )
+        )
 
         # ── Component pricing engine (Secure Office, Phase 1) ──
         # New tables are also declared as ORM models (app/models/product.py,

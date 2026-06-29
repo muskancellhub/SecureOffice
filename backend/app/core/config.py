@@ -133,11 +133,23 @@ class Settings(BaseSettings):
     zabbix_username: str = Field(default='', alias='ZABBIX_USERNAME')
     zabbix_password: str = Field(default='', alias='ZABBIX_PASSWORD')
 
-    stripe_secret_key: str = Field(default='', alias='STRIPE_SECRET_KEY')
-    stripe_publishable_key: str = Field(default='', alias='STRIPE_PUBLISHABLE_KEY')
-    stripe_webhook_secret: str = Field(default='', alias='STRIPE_WEBHOOK_SECRET')
-    stripe_success_url: str = Field(default='', alias='STRIPE_SUCCESS_URL')
-    stripe_cancel_url: str = Field(default='', alias='STRIPE_CANCEL_URL')
+    # Square is the sole payment provider (Stripe fully removed). Sandbox first —
+    # docs/SQUARE_MIGRATION_PLAN.md §5. Host defaults to
+    # the sandbox; production cutover is config-only (connect.squareup.com). The
+    # access token is a backend-only secret; app id + location id are publishable.
+    square_env: str = Field(default='sandbox', alias='SQUARE_ENV')
+    square_api_base: str = Field(default='https://connect.squareupsandbox.com', alias='SQUARE_API_BASE')
+    square_version: str = Field(default='2025-01-23', alias='SQUARE_VERSION')
+    square_access_token: str = Field(default='', alias='SQUARE_ACCESS_TOKEN')
+    square_location_id: str = Field(default='', alias='SQUARE_LOCATION_ID')
+    square_webhook_signature_key: str = Field(default='', alias='SQUARE_WEBHOOK_SIGNATURE_KEY')
+    # Square signs each webhook over (notification_url + raw body). Behind a tunnel
+    # the inbound request.url often differs from the URL registered in the Console
+    # (scheme/host rewrites), which breaks verification — pin the exact registered
+    # URL here so the HMAC matches. Empty → fall back to the request URL.
+    square_webhook_notification_url: str = Field(default='', alias='SQUARE_WEBHOOK_NOTIFICATION_URL')
+    square_success_url: str = Field(default='', alias='SQUARE_SUCCESS_URL')
+    square_cancel_url: str = Field(default='', alias='SQUARE_CANCEL_URL')
 
     # Per-tenant PII encryption master key (KEK) — base64 of exactly 32 random
     # bytes (docs/PII_ENCRYPTION.md §5). Wraps every per-tenant DEK; never stored

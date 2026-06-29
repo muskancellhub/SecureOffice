@@ -238,7 +238,7 @@ def test_vendor_federal_tax_id_encrypted(db_factory):
 
 def test_payment_external_reference_NOT_encrypted(db_factory):
     """external_reference is deliberately excluded from v1 — it's queried by exact
-    match in the Stripe idempotency check, so it must stay plaintext (§4)."""
+    match in the Square idempotency check, so it must stay plaintext (§4)."""
     from app.models.lifecycle import Invoice, InvoiceStatus, Payment, PaymentStatus, PaymentMethod
     from datetime import date
     with db_factory() as db:
@@ -248,12 +248,12 @@ def test_payment_external_reference_NOT_encrypted(db_factory):
         db.add(inv)
         db.flush()
         p = Payment(id=uuid.uuid4(), tenant_id=tid, invoice_id=inv.id, amount=10,
-                    status=PaymentStatus.SUCCEEDED, method=PaymentMethod.STRIPE,
-                    external_reference='pi_test_12345')
+                    status=PaymentStatus.SUCCEEDED, method=PaymentMethod.SQUARE,
+                    external_reference='sqpay_test_12345')
         db.add(p)
         db.commit()
         row = _raw(db, "SELECT external_reference FROM payments WHERE id = :i", i=str(p.id))
-        assert row.external_reference == 'pi_test_12345'  # plaintext, queryable
+        assert row.external_reference == 'sqpay_test_12345'  # plaintext, queryable
 
 
 def test_cross_tenant_decrypt_fails(db_factory):
