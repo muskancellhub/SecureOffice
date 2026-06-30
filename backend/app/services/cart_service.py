@@ -145,6 +145,33 @@ class CartService:
         ordered = sorted(result['lines'], key=lambda l: 0 if l is device_line else 1)
         quantity = max(1, int(quantity or 1))
 
+        # Single non-device product (e.g. the standalone Multiline line item):
+        # merge a repeat add into the existing matching cart line instead of
+        # creating a duplicate. Configured bundles (a device + selections) keep
+        # their own distinct lines.
+        if device_line is None and len(ordered) == 1 and not selections:
+            only = ordered[0]
+            existing = self.cart_repo.get_matching_line(
+                cart_id=cart.id,
+                component_id=self._parse_uuid(only['component_id'], 'component_id'),
+                applies_to_line_id=None,
+            )
+            if existing is not None:
+                existing.quantity = int(existing.quantity) + int(only['qty']) * quantity
+                existing.unit_price = float(only['unit_price'])
+                existing.price_snapshot = {
+                    **self._snapshot_from_engine_line(product, result, only),
+                    'is_parent': True,
+                    'selections': None,
+                }
+                self.db.flush()
+                audit.log(
+                    'cart_item_added', product_id=str(product.id), item_sku=product.sku,
+                    item_name=product.name, unit_price=float(only['unit_price']),
+                    quantity=quantity, line_count=1, financial_model=result['financial_model'],
+                )
+                return
+
         parent_db_line = None
         for line in ordered:
             is_parent = device_line is not None and line is device_line

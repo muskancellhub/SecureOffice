@@ -131,6 +131,7 @@ def startup() -> None:
         CatalogService(db).seed_managed_services()
         CatalogService(db).seed_partner_devices()
         CatalogService(db).seed_mix_products()
+        CatalogService(db).seed_discounted_items()
         try:
             result = CatalogService(db).upsert_network_vendor_catalog()
             logger.info(

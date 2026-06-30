@@ -1,4 +1,5 @@
-import { ArrowRight, Boxes, Building2, Check, ClipboardList, LogIn, ShieldCheck, Truck } from 'lucide-react';
+import { ArrowRight, Boxes, Building2, Check, ClipboardList, LogIn, ShieldCheck, Smartphone, Star, Truck } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { Suspense, lazy, useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -52,6 +53,59 @@ const stats = [
 
 const proofPoints = ['SMB-focused', 'Deterministic sizing', 'Visual BOM + diagram'];
 
+/** Featured "discounted" plans shown on the public landing page. Mirrors the
+ * seeded bundle products (app/services/discounted_seed.py); prices are static
+ * here since this page is pre-auth (no catalog token). */
+const planCards: {
+  sku: string; name: string; icon: LucideIcon; subtitle: string; price: string; unit: string;
+  features: string[]; bestValue?: boolean;
+}[] = [
+  {
+    sku: 'DISC-POTS-IN-A-BOX',
+    name: 'POTS in a Box',
+    icon: ShieldCheck,
+    subtitle: 'Managed life-safety & emergency comms over T-Mobile 5G + T-Priority.',
+    price: '$95',
+    unit: 'one-time',
+    features: [
+      'High-performance POTS gateway',
+      'T-Mobile 5G + T-Priority',
+      'Integrated battery backup',
+      '24×7 managed monitoring',
+      'Add Multiline, SIM & managed services',
+    ],
+    bestValue: true,
+  },
+  {
+    sku: 'DISC-SMB',
+    name: 'SMB Office Bundle',
+    icon: Boxes,
+    subtitle: 'A complete small-office stack — network, Wi-Fi, AI & security in one.',
+    price: '$249',
+    unit: 'one-time',
+    features: [
+      'SMB network device',
+      'Wi-Fi Access Point (AP) device',
+      'AI edge device',
+      'Security AI — small office offer',
+    ],
+  },
+  {
+    sku: 'DISC-MOBILITY',
+    name: 'Mobility',
+    icon: Smartphone,
+    subtitle: 'Business mobile identity — a dedicated Multiline number with your phone.',
+    price: '$20',
+    unit: '/mo',
+    features: [
+      'Multiline business number',
+      'BYOD — keep your personal phone private',
+      'Voice, SMS/MMS, Teams & WhatsApp',
+      'Optional Movius managed service',
+    ],
+  },
+];
+
 function useScrollReveal() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -78,6 +132,7 @@ export const PublicHomePage = () => {
   const offersRef = useScrollReveal();
   const stepsRef = useScrollReveal();
   const getRef = useScrollReveal();
+  const plansRef = useScrollReveal();
   const vendorRef = useScrollReveal();
   const [intakeModalOpen, setIntakeModalOpen] = useState(false);
   // BUG-008: defer the 3D canvas until the page has fired `load`, so the
@@ -99,6 +154,19 @@ export const PublicHomePage = () => {
   }, []);
 
   const openWorkspace = () => navigate(user ? '/shop/dashboard' : '/login');
+
+  // Stash the chosen plan, then send the user into auth. We drive the post-auth
+  // landing through the app's existing redirect plumbing (`?next=` +
+  // `secureOfficePostAuthRedirect`) so the signup/OTP flow lands on the CART
+  // instead of its default onboarding/design page. ShopProvider then adds the
+  // stashed plan to the cart on mount.
+  const handleGetPlan = (sku: string) => {
+    try {
+      window.localStorage.setItem('pendingPlanSku', sku);
+      window.localStorage.setItem('secureOfficePostAuthRedirect', '/shop/cart');
+    } catch { /* ignore */ }
+    navigate(user ? '/shop/cart' : '/signup?next=/shop/cart');
+  };
 
   return (
     <section className="content-wrap fade-in intro-home-page marketing-home public-home-page mh-page">
@@ -178,6 +246,41 @@ export const PublicHomePage = () => {
           );
         })}
       </div>
+
+      {/* Featured discounted plans */}
+      <section ref={plansRef} className="ih-plans scroll-reveal">
+        <div className="ih-plans-head">
+          <h2>Featured plans</h2>
+          <p>Our most popular bundles — discounted, ready to deploy.</p>
+        </div>
+        <div className="ih-plans-grid">
+          {planCards.map((card) => {
+            const Icon = card.icon;
+            return (
+              <article key={card.name} className={`ih-plan-card${card.bestValue ? ' best' : ''}`}>
+                {card.bestValue && <span className="ih-plan-badge"><Star size={12} /> Best Value</span>}
+                <div className="ih-plan-top">
+                  <span className="ih-plan-icon"><Icon size={20} /></span>
+                  <h3>{card.name}</h3>
+                </div>
+                <p className="ih-plan-sub">{card.subtitle}</p>
+                <div className="ih-plan-price">
+                  <strong>{card.price}</strong><span>{card.unit}</span>
+                  <span className="ih-plan-tag">Discounted</span>
+                </div>
+                <ul className="ih-plan-features">
+                  {card.features.map((f) => (
+                    <li key={f}><Check size={15} /> {f}</li>
+                  ))}
+                </ul>
+                <button className="ih-plan-cta" onClick={() => handleGetPlan(card.sku)}>
+                  Get started <ArrowRight size={16} />
+                </button>
+              </article>
+            );
+          })}
+        </div>
+      </section>
 
       {/* How it works — four steps */}
       <section ref={stepsRef} className="mh-steps-section scroll-reveal">

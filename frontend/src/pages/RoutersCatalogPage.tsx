@@ -71,6 +71,8 @@ export const RoutersCatalogPage = () => {
   const [page, setPage] = useState(1);
   // Bundling configurator popup (Phase 7 D9).
   const [configuring, setConfiguring] = useState<CatalogItem | null>(null);
+  // Per-card line count for "multiline" items (dropdown → $/line × N).
+  const [lineSel, setLineSel] = useState<Record<string, number>>({});
   const PAGE_SIZE = 16;
 
   const cartLineMap = useMemo(() => {
@@ -84,6 +86,17 @@ export const RoutersCatalogPage = () => {
     }
     return map;
   }, [cart]);
+
+  const addMultiline = async (item: CatalogItem, lines: number) => {
+    setBusyItemId(item.id);
+    try {
+      await addProductToCart(item.product_id ?? item.id, { quantity: lines });
+    } catch (err: any) {
+      setError(extractApiError(err, 'Failed to add to cart'));
+    } finally {
+      setBusyItemId(null);
+    }
+  };
 
   const openConfigurator = async (item: CatalogItem) => {
     if (!accessToken) return;
@@ -173,6 +186,9 @@ export const RoutersCatalogPage = () => {
     if (sort === 'price_low') rows = [...rows].sort((a, b) => a.price - b.price);
     else if (sort === 'price_high') rows = [...rows].sort((a, b) => b.price - a.price);
     else if (sort === 'availability') rows = [...rows].sort((a, b) => availabilityInfo(a).tone.localeCompare(availabilityInfo(b).tone));
+    // Featured / discounted items are pinned to the top regardless of sort
+    // (Array.prototype.sort is stable, so the in-group order is preserved).
+    rows = [...rows].sort((a, b) => (b.attributes?.featured ? 1 : 0) - (a.attributes?.featured ? 1 : 0));
     return rows;
   }, [allItems, tab, search, brand, priceRange, availability, sort]);
 
@@ -276,6 +292,11 @@ export const RoutersCatalogPage = () => {
             : '';
           const cartLine = cartLineMap.get(item.id);
           const isBusy = busyItemId === item.id;
+          const isMultiline = !!item.attributes?.is_multiline;
+          const perLine = Number(item.attributes?.per_line_price ?? item.price) || 0;
+          const minLines = Number(item.attributes?.min_lines ?? 1) || 1;
+          const maxLines = Number(item.attributes?.max_lines ?? 10) || 10;
+          const lines = lineSel[item.id] ?? minLines;
           return (
             <article key={item.id} className="cat2-card">
               <Link to={`/shop/routers/${item.id}`} className={`cat2-viz tone-${viz.tone}`}>
@@ -300,8 +321,24 @@ export const RoutersCatalogPage = () => {
                 {item.managed_service_price != null && (
                   <span className="cat2-managed"><ShieldCheck size={13} /> Managed from $ {item.managed_service_price.toFixed(0)} <small>/mo</small></span>
                 )}
+                {isMultiline && !cartLine && (
+                  <label className="cat2-lines">
+                    Lines
+                    <select
+                      value={lines}
+                      onChange={(e) => setLineSel((s) => ({ ...s, [item.id]: Number(e.target.value) }))}
+                    >
+                      {Array.from({ length: maxLines - minLines + 1 }, (_, i) => minLines + i).map((n) => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <div className="cat2-card-foot">
-                  <strong className="cat2-price">${item.price.toFixed(2)}</strong>
+                  <strong className="cat2-price">
+                    ${(isMultiline ? perLine * lines : item.price).toFixed(2)}
+                    {isMultiline && <small> /mo</small>}
+                  </strong>
                   {cartLine ? (
                     <div className="qty-stepper">
                       <button className="qty-stepper-btn" disabled={isBusy}
@@ -315,7 +352,7 @@ export const RoutersCatalogPage = () => {
                       </button>
                     </div>
                   ) : (
-                    <button className="cat2-add" disabled={isBusy} onClick={() => openConfigurator(item)}>
+                    <button className="cat2-add" disabled={isBusy} onClick={() => isMultiline ? addMultiline(item, lines) : openConfigurator(item)}>
                       <ShoppingCart size={15} /> Add
                     </button>
                   )}

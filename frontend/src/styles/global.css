@@ -8867,6 +8867,44 @@ textarea {
   color: #5d6f89;
 }
 
+/* Featured plans (home-page pricing cards) */
+.ih-plans { margin: 8px 0 4px; }
+.ih-plans-head { text-align: center; margin-bottom: 22px; }
+.ih-plans-head h2 { margin: 0 0 6px; font-size: 24px; font-weight: 800; letter-spacing: -0.01em; color: #131722; }
+.ih-plans-head p { margin: 0; font-size: 14px; color: #5d6f89; }
+.ih-plans-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; align-items: stretch; }
+.ih-plan-card {
+  position: relative; display: flex; flex-direction: column; background: #fff; border: 1px solid #e6eaf0;
+  border-radius: 18px; padding: 26px 24px 24px; transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+.ih-plan-card:hover { transform: translateY(-3px); box-shadow: 0 16px 34px rgba(20, 26, 38, 0.1); border-color: #dfe4ec; }
+.ih-plan-card.best { border-color: #e1067d; box-shadow: 0 14px 36px rgba(225, 6, 125, 0.16); }
+.ih-plan-badge {
+  position: absolute; top: -13px; left: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 14px; border-radius: 999px; background: linear-gradient(135deg, #e1067d, #a6034f); color: #fff;
+  font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+.ih-plan-top { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.ih-plan-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: #fde4f1; color: #c9056d; }
+.ih-plan-top h3 { margin: 0; font-size: 19px; font-weight: 800; color: #131722; }
+.ih-plan-sub { margin: 0 0 18px; font-size: 13.5px; line-height: 1.5; color: #5d6f89; }
+.ih-plan-price { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+.ih-plan-price strong { font-size: 38px; font-weight: 800; letter-spacing: -0.02em; color: #131722; font-variant-numeric: tabular-nums; }
+.ih-plan-price span { font-size: 15px; color: #8a93a3; font-weight: 600; }
+.ih-plan-price-loading { font-size: 32px; color: #c3c9d4; }
+.ih-plan-tag { margin-left: auto; align-self: center; padding: 4px 11px; border-radius: 999px; background: #fde4f1; color: #c9056d; font-size: 12px; font-weight: 700; }
+.ih-plan-features { list-style: none; margin: 0 0 22px; padding: 0; display: grid; gap: 11px; flex: 1; }
+.ih-plan-features li { display: flex; align-items: flex-start; gap: 9px; font-size: 14px; line-height: 1.45; color: #2c3444; }
+.ih-plan-features li svg { color: #18925a; flex-shrink: 0; margin-top: 2px; }
+.ih-plan-cta {
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px; height: 50px; border: 0; border-radius: 13px;
+  background: #16181f; color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; transition: background 140ms ease, transform 140ms ease;
+}
+.ih-plan-cta:hover:not(:disabled) { background: #2a2d36; transform: translateY(-1px); }
+.ih-plan-card.best .ih-plan-cta { background: linear-gradient(135deg, #e1067d, #c9056d); box-shadow: 0 12px 28px rgba(225, 6, 125, 0.3); }
+.ih-plan-cta:disabled { opacity: 0.55; cursor: default; }
+@media (max-width: 880px) { .ih-plans-grid { grid-template-columns: 1fr; } }
+
 /* Capabilities */
 
 .ih-capabilities {
@@ -12529,6 +12567,19 @@ textarea {
 .cdx-spec-v { font-size: 15.5px; font-weight: 600; color: #1c2433; }
 .cdx-desc { margin: 0 0 22px; font-size: 15px; line-height: 1.6; color: #5b6677; }
 
+/* Rich product detail — bullet sections + services table (POTS / Multiline). */
+.cdx-details { margin: 0 0 22px; display: grid; gap: 18px; }
+.cdx-detail-sec h3 { margin: 0 0 8px; font-size: 16px; font-weight: 700; color: #161b26; }
+.cdx-detail-list { margin: 0; padding-left: 18px; color: #5b6677; font-size: 14.5px; line-height: 1.7; }
+.cdx-detail-list li { margin-bottom: 3px; }
+.cdx-svc { padding: 22px; border: 1px solid #e6eaf0; border-radius: 16px; background: #fbfcfe; margin-bottom: 22px; overflow-x: auto; }
+.cdx-svc h3 { margin: 0 0 14px; font-size: 17px; font-weight: 700; color: #161b26; }
+.cdx-svc-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.cdx-svc-table th { text-align: left; padding: 8px 12px; border-bottom: 1px solid #e6eaf0; color: #8a93a3; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.02em; }
+.cdx-svc-table td { padding: 9px 12px; border-bottom: 1px solid #edf0f4; color: #2c3444; }
+.cdx-svc-table td:first-child { font-weight: 600; color: #161b26; }
+.cdx-svc-table tr:last-child td { border-bottom: 0; }
+
 .cdx-buy-row { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
 .cdx-qty { display: inline-flex; align-items: center; gap: 4px; height: 56px; padding: 0 6px; border: 1px solid #e4e8ef; border-radius: 14px; background: #fff; }
 .cdx-qty-btn { display: grid; place-items: center; width: 38px; height: 44px; border: 0; border-radius: 9px; background: transparent; color: #3a4252; cursor: pointer; transition: background 130ms ease; }
@@ -12630,7 +12681,12 @@ textarea {
 }
 .cat2-managed small { color: #c9056d; }
 .cat2-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; }
+/* Line-count picker for featured "multiline" items on the catalog card. */
+.cat2-lines { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 13px; color: #8a93a3; font-weight: 600; }
+.cat2-lines select { padding: 6px 10px; border: 1px solid #e4e8ef; border-radius: 9px; background: #fff; font-size: 14px; font-weight: 600; color: #131722; cursor: pointer; }
+.cat2-lines select:focus { outline: none; border-color: #e1067d; }
 .cat2-price { font-size: 20px; font-weight: 800; color: #131722; font-variant-numeric: tabular-nums; }
+.cat2-price small { font-size: 13px; font-weight: 600; color: #8a93a3; }
 .cat2-add {
   display: inline-flex; align-items: center; gap: 7px; height: 40px; padding: 0 16px; border: 0; border-radius: 11px;
   background: #16181f; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 140ms ease;

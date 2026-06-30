@@ -156,6 +156,41 @@ export const RouterDetailsPage = () => {
 
             {item.description && <p className="cdx-desc">{item.description}</p>}
 
+            {Array.isArray(item.attributes?.services_table?.rows) && (
+              <div className="cdx-svc">
+                <h3>Core services</h3>
+                <table className="cdx-svc-table">
+                  <thead>
+                    <tr>
+                      {(item.attributes.services_table.columns as string[]).map((c) => (
+                        <th key={c}>{c}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(item.attributes.services_table.rows as string[][]).map((row, ri) => (
+                      <tr key={ri}>
+                        {row.map((cell, ci) => <td key={ci}>{cell}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {Array.isArray(item.attributes?.detail_sections) && (
+              <div className="cdx-details">
+                {(item.attributes.detail_sections as { heading: string; items: string[] }[]).map((sec) => (
+                  <div key={sec.heading} className="cdx-detail-sec">
+                    <h3>{sec.heading}</h3>
+                    <ul className="cdx-detail-list">
+                      {sec.items.map((li, i) => <li key={i}>{li}</li>)}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="cdx-buy-row">
               <div className="cdx-qty">
                 <button className="cdx-qty-btn" aria-label="Decrease" onClick={() => setQty((q) => Math.max(1, q - 1))}><Minus size={15} /></button>

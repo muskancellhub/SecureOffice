@@ -495,6 +495,13 @@ class CatalogService:
         from app.services.mix_seed import seed_mix_products as _seed
         return _seed(self.db)
 
+    def seed_discounted_items(self) -> dict:
+        """Idempotently seed the featured/discounted catalog family (POTS-in-a-Box,
+        Multiline, managed services, phone, SIM). Delegates to
+        app.services.discounted_seed."""
+        from app.services.discounted_seed import seed_discounted_items as _seed
+        return _seed(self.db)
+
     PAPI_PRODUCT_TYPE_CATEGORY = {
         'phones': 'phone',
         'phone': 'phone',
@@ -896,6 +903,11 @@ class CatalogService:
                 return (0 if in_stock else 1, float(item.price))
 
             items.sort(key=recommended_rank)
+
+        # Featured ("discounted") items are pinned to the top regardless of the
+        # chosen sort. Python's sort is stable, so the in-group order picked
+        # above is preserved within the featured and non-featured partitions.
+        items.sort(key=lambda x: 0 if (x.attributes or {}).get('featured') else 1)
 
         if item_type == CatalogItemType.DEVICE:
             effective_page = max(1, int(page or 1))

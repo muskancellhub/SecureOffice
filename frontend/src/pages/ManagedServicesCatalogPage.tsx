@@ -59,6 +59,9 @@ export const ManagedServicesCatalogPage = () => {
   const { accessToken } = useAuth();
   const { cart, addComponentToCart, addRouterToCart, updateLineQuantity, removeLine } = useShop();
   const [devices, setDevices] = useState<CatalogItem[]>([]);
+  // Standalone managed-service products (SERVICE type) flagged featured — shown
+  // first, ahead of the per-device managed-service cards.
+  const [standalone, setStandalone] = useState<CatalogItem[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
@@ -68,9 +71,16 @@ export const ManagedServicesCatalogPage = () => {
   useEffect(() => {
     if (!accessToken) return;
     setLoading(true);
-    commerceApi
-      .getCatalog(accessToken, { type: 'DEVICE', sort: 'price_low', page_size: 250 })
-      .then(setDevices)
+    Promise.all([
+      commerceApi.getCatalog(accessToken, { type: 'DEVICE', sort: 'price_low', page_size: 250 }),
+      commerceApi.getCatalog(accessToken, { category: 'managed_service', sort: 'price_low', page_size: 250 }),
+    ])
+      .then(([deviceList, msList]) => {
+        setDevices(deviceList);
+        // Only the featured ("discounted") standalone managed services are pinned
+        // here; legacy tier products stay out of the customer services grid.
+        setStandalone(msList.filter((m) => m.attributes?.featured && m.managed_service_price != null));
+      })
       .catch((err: any) => setError(extractApiError(err, 'Failed to load catalog')))
       .finally(() => setLoading(false));
   }, [accessToken]);
@@ -95,10 +105,13 @@ export const ManagedServicesCatalogPage = () => {
   }, [cart]);
 
   const services = useMemo(
-    () => devices.filter(
-      (d) => SERVICE_CATEGORIES.includes(d.attributes?.category || '') && d.managed_service_price != null,
-    ),
-    [devices],
+    () => [
+      ...standalone,
+      ...devices.filter(
+        (d) => SERVICE_CATEGORIES.includes(d.attributes?.category || '') && d.managed_service_price != null,
+      ),
+    ],
+    [devices, standalone],
   );
 
   const handleAdd = async (device: CatalogItem) => {

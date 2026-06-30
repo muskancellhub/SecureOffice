@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
 import type { Cart, CatalogItem } from '../types/commerce';
 import { useAuth } from './AuthContext';
@@ -35,10 +36,14 @@ const ShopContext = createContext<ShopContextValue | undefined>(undefined);
 
 export const ShopProvider = ({ children }: { children: React.ReactNode }) => {
   const { accessToken } = useAuth();
+  const navigate = useNavigate();
   const [cart, setCart] = useState<Cart | null>(null);
   const [managedServices, setManagedServices] = useState<CatalogItem[]>([]);
   const [loadingCart, setLoadingCart] = useState(true);
   const [cartError, setCartError] = useState('');
+  // A plan chosen on the public home page (pre-auth) is stashed in localStorage;
+  // once the user is authenticated and the shop mounts, add it and jump to cart.
+  const pendingPlanHandled = useRef(false);
 
   const refreshCart = useCallback(async () => {
     if (!accessToken) return;
@@ -72,6 +77,37 @@ export const ShopProvider = ({ children }: { children: React.ReactNode }) => {
     refreshCart();
     refreshManagedServices();
   }, [refreshCart, refreshManagedServices]);
+
+  // Consume a plan selected on the public landing page: resolve the SKU, add the
+  // bundle to the cart, then route to the cart. Runs once per shop mount.
+  useEffect(() => {
+    if (!accessToken || pendingPlanHandled.current) return;
+    const sku = typeof window !== 'undefined' ? window.localStorage.getItem('pendingPlanSku') : null;
+    if (!sku) return;
+    pendingPlanHandled.current = true;
+    window.localStorage.removeItem('pendingPlanSku');
+    (async () => {
+      try {
+        const items = await commerceApi.getCatalog(accessToken, { type: 'DEVICE', sort: 'recommended', page_size: 250 });
+        const item = items.find((i) => i.sku === sku);
+        if (item) {
+          const data = await commerceApi.addCartLine(accessToken, {
+            product_id: item.product_id ?? item.id,
+            selections: {},
+            quantity: 1,
+            financial_model: 'CAPEX',
+            interval: 'MONTH',
+          });
+          setCart(data);
+          toast.success('Plan added to your cart');
+        }
+      } catch {
+        /* still route to the cart so the user lands somewhere sensible */
+      } finally {
+        navigate('/shop/cart');
+      }
+    })();
+  }, [accessToken, navigate]);
 
   const addProductToCart = useCallback(async (productId: string, options?: AddProductOptions) => {
     if (!accessToken) return;
