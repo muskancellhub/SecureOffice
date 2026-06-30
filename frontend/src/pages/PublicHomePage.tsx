@@ -8,6 +8,8 @@ import { useAuth } from '../context/AuthContext';
 const NetworkScene3D = lazy(() => import('../components/NetworkScene3D'));
 import { SceneErrorBoundary } from '../components/SceneErrorBoundary';
 import { BusinessIntakeModal } from '../components/BusinessIntakeModal';
+import PlanInfoModal from '../components/PlanInfoModal';
+import { PLAN_SLIDES } from '../data/planInfo';
 
 const offerCards = [
   {
@@ -135,6 +137,7 @@ export const PublicHomePage = () => {
   const plansRef = useScrollReveal();
   const vendorRef = useScrollReveal();
   const [intakeModalOpen, setIntakeModalOpen] = useState(false);
+  const [infoSku, setInfoSku] = useState<string | null>(null);
   // BUG-008: defer the 3D canvas until the page has fired `load`, so the
   // marketing content loads first and the animation loop can't block it.
   const [show3D, setShow3D] = useState(false);
@@ -257,7 +260,14 @@ export const PublicHomePage = () => {
           {planCards.map((card) => {
             const Icon = card.icon;
             return (
-              <article key={card.name} className={`ih-plan-card${card.bestValue ? ' best' : ''}`}>
+              <article
+                key={card.name}
+                className={`ih-plan-card${card.bestValue ? ' best' : ''}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => setInfoSku(card.sku)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setInfoSku(card.sku); } }}
+              >
                 {card.bestValue && <span className="ih-plan-badge"><Star size={12} /> Best Value</span>}
                 <div className="ih-plan-top">
                   <span className="ih-plan-icon"><Icon size={20} /></span>
@@ -273,8 +283,8 @@ export const PublicHomePage = () => {
                     <li key={f}><Check size={15} /> {f}</li>
                   ))}
                 </ul>
-                <button className="ih-plan-cta" onClick={() => handleGetPlan(card.sku)}>
-                  Get started <ArrowRight size={16} />
+                <button className="ih-plan-cta" onClick={(e) => { e.stopPropagation(); setInfoSku(card.sku); }}>
+                  Learn more <ArrowRight size={16} />
                 </button>
               </article>
             );
@@ -341,6 +351,22 @@ export const PublicHomePage = () => {
           </button>
         </div>
       </section>
+
+      {infoSku && (() => {
+        const card = planCards.find((c) => c.sku === infoSku);
+        if (!card) return null;
+        return (
+          <PlanInfoModal
+            key={infoSku}
+            planName={card.name}
+            price={card.price}
+            unit={card.unit}
+            slides={PLAN_SLIDES[infoSku] || []}
+            onClose={() => setInfoSku(null)}
+            onGetStarted={() => { setInfoSku(null); handleGetPlan(infoSku); }}
+          />
+        );
+      })()}
 
       <BusinessIntakeModal open={intakeModalOpen} onClose={() => setIntakeModalOpen(false)} />
     </section>
