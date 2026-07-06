@@ -490,6 +490,19 @@ export const updateNetworkDesignDiagram = async (
   return data as NetworkDesignDetail;
 };
 
+export const renameNetworkDesign = async (
+  accessToken: string,
+  designId: string,
+  designName: string,
+) => {
+  const { data } = await api.patch(
+    `/designs/${designId}/name`,
+    { designName },
+    { headers: authHeaders(accessToken) },
+  );
+  return data as NetworkDesignDetail;
+};
+
 export const addNetworkDesignUpdate = async (
   accessToken: string,
   designId: string,

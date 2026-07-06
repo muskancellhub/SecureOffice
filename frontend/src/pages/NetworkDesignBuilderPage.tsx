@@ -116,6 +116,9 @@ export const NetworkDesignBuilderPage = () => {
   const lastSavedHashRef = useRef<string>('');
   const saveTimerRef = useRef<number | undefined>(undefined);
   const displayName = savedDesign?.designName || 'New design — auto-named on first save';
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [renamingName, setRenamingName] = useState(false);
   const [addingAllToCart, setAddingAllToCart] = useState(false);
   const [addingLineId, setAddingLineId] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -423,6 +426,38 @@ export const NetworkDesignBuilderPage = () => {
     if (artifacts) setNotice('Design regenerated.');
   };
 
+  const startEditingName = () => {
+    if (!savedDesign) return;
+    setNameDraft(savedDesign.designName || '');
+    setEditingName(true);
+  };
+
+  const commitRename = async () => {
+    const design = savedDesignRef.current;
+    if (!accessToken || !design) {
+      setEditingName(false);
+      return;
+    }
+    const trimmed = nameDraft.trim();
+    if (!trimmed || trimmed === design.designName) {
+      setEditingName(false);
+      return;
+    }
+    setRenamingName(true);
+    setError('');
+    try {
+      const updated = await commerceApi.renameNetworkDesign(accessToken, design.id, trimmed);
+      setSavedDesign(updated);
+      savedDesignRef.current = updated;
+      setEditingName(false);
+      setNotice('Design renamed.');
+    } catch (err: any) {
+      setError(extractApiError(err, 'Failed to rename design'));
+    } finally {
+      setRenamingName(false);
+    }
+  };
+
   // Auto-save the current design. The backend assigns the name on first create
   // (design{N}-INITIALS-company-YYYY-MM-DD) — we deliberately don't send a name.
   const autoSave = useCallback(async (hash: string) => {
@@ -548,7 +583,36 @@ export const NetworkDesignBuilderPage = () => {
       <header className="apx-header">
         <div className="apx-header-text">
           <Link to="/shop/designs" className="dnb-back"><ArrowLeft size={15} /> Back to designs</Link>
-          <h1 className="dnb-name-display">{displayName}</h1>
+          {editingName ? (
+            <input
+              className="dnb-name-input"
+              value={nameDraft}
+              autoFocus
+              maxLength={255}
+              disabled={renamingName}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+                if (e.key === 'Escape') { e.preventDefault(); setEditingName(false); }
+              }}
+            />
+          ) : (
+            <h1 className="dnb-name-display">
+              {displayName}
+              {savedDesign && (
+                <button
+                  type="button"
+                  className="dnb-name-edit"
+                  onClick={startEditingName}
+                  aria-label="Rename design"
+                  title="Rename design"
+                >
+                  <Pencil size={15} />
+                </button>
+              )}
+            </h1>
+          )}
           <p className="apx-subtitle">Generated bill of materials and network topology from your intake. Changes save automatically.</p>
           <div className="apx-scope">
             <span className="apx-scope-meta">{saving ? 'Saving…' : savedDesign ? 'All changes saved' : 'Not saved yet'}</span>

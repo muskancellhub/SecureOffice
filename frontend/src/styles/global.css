@@ -12883,16 +12883,26 @@ textarea {
   margin-bottom: 14px;
 }
 .dnb-back:hover { color: #e1067d; }
+.dnb-name-display {
+  font-size: 38px; font-weight: 800; letter-spacing: -0.02em; color: #131722;
+  max-width: 640px; margin: 0 0 8px; line-height: 1.15;
+  display: flex; align-items: center; gap: 10px;
+}
+.dnb-name-edit {
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; padding: 4px; border-radius: 6px;
+  color: #8a94a6; cursor: pointer; flex: none;
+}
+.dnb-name-edit:hover { color: #e1067d; background: #f4f6f9; }
 .dnb-name-input {
-  border: 0; background: transparent; padding: 0;
-  font-size: 34px; font-weight: 800; letter-spacing: -0.02em; color: #131722;
-  width: 100%; max-width: 640px; margin: 0 0 8px;
+  display: block;
+  font-size: 38px; font-weight: 800; letter-spacing: -0.02em; color: #131722;
+  max-width: 640px; width: 100%; margin: 0 0 8px; line-height: 1.15;
+  border: 0; border-bottom: 2px solid #e1067d; background: transparent;
+  padding: 0 0 2px; outline: none; font-family: inherit;
 }
 .dnb-name-input:focus { outline: none; box-shadow: 0 2px 0 #e1067d; }
-.dnb-name-display {
-  font-size: 34px; font-weight: 800; letter-spacing: -0.02em; color: #131722;
-  max-width: 640px; margin: 0 0 8px; line-height: 1.15;
-}
+.dnb-name-input:disabled { opacity: 0.6; }
 .dnb-status-chip {
   display: inline-flex; align-items: center; padding: 5px 13px; border-radius: 999px;
   font-size: 12.5px; font-weight: 700; letter-spacing: 0.03em;

@@ -7,6 +7,7 @@ import {
   Layers,
   MapPin,
   Network,
+  Pencil,
   Server,
   ShieldCheck,
   ShoppingCart,
@@ -79,6 +80,9 @@ export const DesignDetailPage = () => {
   const [msSaving, setMsSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [addingAllToCart, setAddingAllToCart] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [renamingName, setRenamingName] = useState(false);
 
   const loadDesign = async () => {
     if (!accessToken || !designId) return;
@@ -293,6 +297,36 @@ export const DesignDetailPage = () => {
     }
   };
 
+  const startEditingName = () => {
+    if (!design) return;
+    setNameDraft(design.designName || '');
+    setEditingName(true);
+  };
+
+  const commitRename = async () => {
+    if (!accessToken || !design) {
+      setEditingName(false);
+      return;
+    }
+    const trimmed = nameDraft.trim();
+    if (!trimmed || trimmed === design.designName) {
+      setEditingName(false);
+      return;
+    }
+    setRenamingName(true);
+    setError('');
+    try {
+      const updated = await commerceApi.renameNetworkDesign(accessToken, design.id, trimmed);
+      setDesign(updated);
+      setEditingName(false);
+      setNotice('Design renamed.');
+    } catch (err: any) {
+      setError(extractApiError(err, 'Failed to rename design'));
+    } finally {
+      setRenamingName(false);
+    }
+  };
+
   const designLabel = design ? (design.designName || `Design ${design.id.slice(0, 8)}`) : '';
   const canDelete = !!design;
 
@@ -308,7 +342,34 @@ export const DesignDetailPage = () => {
           <header className="apx-header">
             <div className="apx-header-text">
               <Link to="/shop/designs" className="dnb-back"><ArrowLeft size={15} /> Back to designs</Link>
-              <h1>{designLabel}</h1>
+              {editingName ? (
+                <input
+                  className="dnb-name-input"
+                  value={nameDraft}
+                  autoFocus
+                  maxLength={255}
+                  disabled={renamingName}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  onBlur={commitRename}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+                    if (e.key === 'Escape') { e.preventDefault(); setEditingName(false); }
+                  }}
+                />
+              ) : (
+                <h1 className="dnb-name-display">
+                  {designLabel}
+                  <button
+                    type="button"
+                    className="dnb-name-edit"
+                    onClick={startEditingName}
+                    aria-label="Rename design"
+                    title="Rename design"
+                  >
+                    <Pencil size={15} />
+                  </button>
+                </h1>
+              )}
               <p className="apx-subtitle">Saved network design — bill of materials and topology.</p>
               <div className="apx-scope">
                 <span className="apx-scope-meta">Updated {formatDate(design.statusUpdatedAt || design.updatedAt)}</span>

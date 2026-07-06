@@ -1334,6 +1334,28 @@ class NetworkDesignService:
             raise NotFoundError('Design not found after diagram update')
         return refreshed
 
+    def rename_design(self, current_user: dict, design_id: str, design_name: str) -> NetworkDesign:
+        """Rename a design. Only touches design_name so renaming can't clobber
+        the rest of the design (BOM, topology, estimate, etc.)."""
+        self._assert_user_exists(current_user)
+        design = self.repo.get_design_by_id(design_id)
+        if not design:
+            raise NotFoundError('Design not found')
+        self._assert_design_access(current_user, design)
+
+        cleaned = self._clean_text(design_name)
+        if not cleaned:
+            raise AppError('Design name is required', 422)
+
+        design.design_name = cleaned
+        self._sync_existing_tables_for_design(design=design, current_user=current_user)
+        self.db.commit()
+        audit.log('design_renamed', design_id=str(design.id), design_name=cleaned)
+        refreshed = self.repo.get_design_by_id(str(design.id))
+        if not refreshed:
+            raise NotFoundError('Design not found after rename')
+        return refreshed
+
     def add_update_note(self, current_user: dict, design_id: str, payload: dict[str, Any]) -> NetworkDesign:
         self._assert_user_exists(current_user)
         if not self._is_admin(current_user.get('role')):

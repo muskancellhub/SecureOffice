@@ -19,6 +19,7 @@ from app.schemas.designs import (
     ManagedServicesDesignResponse,
     NetworkDesignDetailResponse,
     NetworkDesignSummaryResponse,
+    RenameNetworkDesignRequest,
     SaveNetworkDesignRequest,
     SubmitNetworkDesignRequest,
     UpdateNetworkDesignDiagramRequest,
@@ -335,6 +336,17 @@ def update_design_diagram(
     db: Session = Depends(get_db),
 ):
     row = NetworkDesignService(db).update_diagram(current_user, design_id, payload.drawio_xml)
+    return _serialize_detail(row, include_internal=_is_admin_actor(current_user), db=db)
+
+
+@router.patch('/{design_id}/name', response_model=NetworkDesignDetailResponse)
+def rename_design(
+    design_id: str,
+    payload: RenameNetworkDesignRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    row = NetworkDesignService(db).rename_design(current_user, design_id, payload.design_name)
     return _serialize_detail(row, include_internal=_is_admin_actor(current_user), db=db)
 
 

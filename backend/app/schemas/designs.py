@@ -197,6 +197,12 @@ class UpdateNetworkDesignDiagramRequest(BaseModel):
     drawio_xml: str = Field(alias='drawioXml', min_length=1, max_length=2_000_000)
 
 
+class RenameNetworkDesignRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    design_name: str = Field(alias='designName', min_length=1, max_length=255)
+
+
 class AddNetworkDesignUpdateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
