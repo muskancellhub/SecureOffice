@@ -41,6 +41,7 @@ from app.routes.quotes import router as quotes_router
 from app.routes.tenants import router as tenants_router
 from app.routes.tenant_settings import router as tenant_settings_router
 from app.routes.users import router as users_router
+from app.routes.search import router as search_router
 from app.services.catalog_service import CatalogService
 from app.services.oauth_service import register_oauth_clients
 from app import models  # noqa: F401
@@ -66,6 +67,37 @@ app = FastAPI(
     redoc_url=None if _is_prod else '/redoc',
     openapi_url=None if _is_prod else '/openapi.json',
 )
+
+
+def _custom_openapi():
+    """Declare a global HTTP Bearer scheme so Swagger UI shows an 'Authorize'
+    button. Auth is enforced by AuthContextMiddleware (it reads the
+    `Authorization: Bearer <access_token>` header), not per-route security
+    dependencies — so we inject the scheme into the schema here rather than
+    adding Security() to every endpoint."""
+    if app.openapi_schema:
+        return app.openapi_schema
+    from fastapi.openapi.utils import get_openapi
+
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        routes=app.routes,
+        description=app.description,
+    )
+    schema.setdefault('components', {}).setdefault('securitySchemes', {})['bearerAuth'] = {
+        'type': 'http',
+        'scheme': 'bearer',
+        'bearerFormat': 'JWT',
+    }
+    # Apply as a default so every operation shows the lock icon; endpoints that
+    # don't check auth simply ignore the header.
+    schema['security'] = [{'bearerAuth': []}]
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = _custom_openapi
 
 
 def _assert_production_hardening(settings) -> None:
@@ -370,3 +402,4 @@ app.include_router(zabbix_router)
 
 from app.routes.intake_chat import router as intake_chat_router
 app.include_router(intake_chat_router)
+app.include_router(search_router)
