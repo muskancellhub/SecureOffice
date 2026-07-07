@@ -12,7 +12,7 @@ const C = {
   chairSeat: '#2d2d2d', chairBack: '#1a1a1a',
   monitorFrame: '#222222', monitorScreen: '#0f2847',
   rackBody: '#111a2e', rackPanel: '#1a2540', rackPanelAlt: '#223050', rackPort: '#0a0f1a',
-  magenta: '#e1067d', magentaGlow: '#ff69b4',
+  magenta: '#564a96', magentaGlow: '#9d90de',
   cyan: '#00cfff', cyanGlow: '#22d3ee', cyanSoft: '#67e8f9',
   purple: '#8b5cf6', purpleGlow: '#a78bfa', purpleSoft: '#c4b5fd',
   blue: '#3b82f6', blueGlow: '#60a5fa',

@@ -14,7 +14,7 @@
   <path d="M164 176H358" stroke="#C6B8AF" stroke-width="12" stroke-linecap="round"/>
   <path d="M164 200H320" stroke="#B29F94" stroke-width="12" stroke-linecap="round"/>
   <rect x="420" y="170" width="78" height="54" rx="10" fill="#4D3D36" stroke="#8D7B71"/>
-  <circle cx="448" cy="197" r="7" fill="#E1067D"/>
+  <circle cx="448" cy="197" r="7" fill="#564A96"/>
   <circle cx="472" cy="197" r="7" fill="#CBBDB4"/>
   <rect x="180" y="268" width="280" height="16" rx="8" fill="#F2E5DD"/>
 </svg>

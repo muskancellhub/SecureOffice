@@ -14,7 +14,7 @@
   <rect x="152" y="174" width="220" height="12" rx="6" fill="#8DB0D4"/>
   <rect x="152" y="198" width="178" height="12" rx="6" fill="#6F93B8"/>
   <rect x="418" y="168" width="82" height="62" rx="10" fill="#1D3A5A" stroke="#567EA8"/>
-  <circle cx="448" cy="199" r="8" fill="#E1067D"/>
+  <circle cx="448" cy="199" r="8" fill="#564A96"/>
   <circle cx="474" cy="199" r="8" fill="#AAC4DF"/>
   <rect x="178" y="274" width="282" height="16" rx="8" fill="#D8E6F7"/>
 </svg>
