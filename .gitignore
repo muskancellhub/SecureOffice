@@ -77,6 +77,17 @@ id_rsa.pub
 **/.claude/settings.local.json
 .gstack/
 
+# --- Playwright E2E test artifacts ---
+# Auth state files contain session tokens - never commit
+frontend/e2e/.auth/*.json
+frontend/e2e/test-results/
+frontend/e2e/playwright-report/
+frontend/e2e/.cache/
+
+# OLD/DUPLICATE folders - all artifacts now in frontend/e2e/ only
+frontend/playwright-report/
+frontend/test-results/
+
 # Database dumps — sensitive (contain password hashes). Never commit.
 *_dump.sql
 *.dump

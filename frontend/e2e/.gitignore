@@ -1,0 +1,9 @@
+# Auth state files contain session cookies — never commit
+.auth/*.json
+
+# Test artifacts
+test-results/
+playwright-report/
+
+# Archived reports (optional: remove this line to commit archived reports)
+reports-archive/
