@@ -6,7 +6,7 @@ import { VerifyOtpPage } from '../pages/VerifyOtpPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { OAuthSuccessPage } from '../pages/OAuthSuccessPage';
 import { ProtectedRoute } from '../components/ProtectedRoute';
-import { RequireSuperAdmin } from '../components/RequireSuperAdmin';
+import { RequirePermission } from '../components/RequirePermission';
 import { ShopProvider } from '../context/ShopContext';
 import { TenantProvider } from '../context/TenantContext';
 import { ShopShell } from '../components/shop/ShopShell';
@@ -87,11 +87,15 @@ export const AppRouter = () => (
       <Route path="/shop/billing" element={<BillingPage />} />
       <Route path="/shop/cart" element={<CartPage />} />
       <Route path="/shop/orders/:orderId" element={<OrderDetailsPage />} />
-      <Route path="/shop/admin/products" element={<RequireSuperAdmin><AdminProductsPage /></RequireSuperAdmin>} />
+      {/* BUG-UA-003: gate admin pages on the same effective_permissions the
+          sidebar checks, so ADMIN users (not just SUPER_ADMIN) can reach the
+          pages their permissions grant. The products page hosts the financing
+          tab, so it accepts manage_products OR manage_pricing. */}
+      <Route path="/shop/admin/products" element={<RequirePermission permission={['manage_products', 'manage_pricing']}><AdminProductsPage /></RequirePermission>} />
       {/* Phase 7 D5: financing is a tab on the products page now. */}
       <Route path="/shop/admin/financing" element={<Navigate to="/shop/admin/products?tab=financing" replace />} />
-      <Route path="/shop/admin/catalog-sync" element={<RequireSuperAdmin><AdminCatalogSyncPage /></RequireSuperAdmin>} />
-      <Route path="/shop/admin/managed-services" element={<RequireSuperAdmin><AdminManagedServicesPage /></RequireSuperAdmin>} />
+      <Route path="/shop/admin/catalog-sync" element={<RequirePermission permission="manage_catalog_sync"><AdminCatalogSyncPage /></RequirePermission>} />
+      <Route path="/shop/admin/managed-services" element={<RequirePermission permission="manage_managed_services"><AdminManagedServicesPage /></RequirePermission>} />
       <Route path="/shop/admin/user-access" element={<AdminUserManagementPage />} />
       <Route path="/shop/admin/order-notifications" element={<AdminOrderNotificationsPage />} />
     </Route>
