@@ -1413,6 +1413,36 @@ def apply_runtime_migrations() -> None:
             """
         ))
 
+        # ── Slice 2: global-search full-text + fuzzy indexes on products ─────
+        # pg_trgm provides trigram similarity (typo tolerance).
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+
+        # GENERATED tsvector column — Postgres keeps it in sync automatically on
+        # every insert/update. Two-arg to_tsvector('english', ...) is IMMUTABLE
+        # (required for generated columns). setweight tags field importance
+        # A > B > C, so a name match ranks above a description match.
+        conn.execute(text("""
+            ALTER TABLE products ADD COLUMN IF NOT EXISTS search_vector tsvector
+            GENERATED ALWAYS AS (
+                setweight(to_tsvector('english', coalesce(name, '')),        'A') ||
+                setweight(to_tsvector('english', coalesce(vendor, '')),      'B') ||
+                setweight(to_tsvector('english', coalesce(sku, '')),         'B') ||
+                setweight(to_tsvector('english', coalesce(description, '')), 'C')
+            ) STORED
+        """))
+
+        # GIN index for full-text lookups.
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_products_search_vector "
+            "ON products USING gin (search_vector)"
+        ))
+
+        # GIN trigram index on name for fuzzy matching at scale.
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_products_name_trgm "
+            "ON products USING gin (name gin_trgm_ops)"
+        ))
+
         _apply_rls_policies(conn)
 
 
