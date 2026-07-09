@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useShop } from '../../context/ShopContext';
 import { ChatBot } from '../ChatBot';
 import { TenantSwitcher } from './TenantSwitcher';
-
+import { GlobalSearch } from '../GlobalSearch';
 export const ShopShell = () => {
   const { user, logout } = useAuth();
   const { cart } = useShop();
@@ -189,6 +189,7 @@ export const ShopShell = () => {
       <main className="shop-main">
         <header className="shop-main-topbar">
           <TenantSwitcher />
+          <GlobalSearch />
           <button className="icon-circle-btn cart-icon-btn" onClick={() => navigate('/shop/cart')} aria-label="Open cart">
             <ShoppingCart size={16} />
             <span className="cart-badge">{cart?.lines?.length || 0}</span>

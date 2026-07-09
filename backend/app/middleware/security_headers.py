@@ -37,12 +37,26 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # No browser-level feature access. We're an API, not a page.
         response.headers.setdefault('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
 
-        # Restrictive CSP — this backend never serves rendered HTML to users.
-        # The frontend (separate origin, set in its own deployment) has its own CSP.
-        response.headers.setdefault(
-            'Content-Security-Policy',
-            "default-src 'none'; frame-ancestors 'none'",
-        )
+        # Restrictive CSP — this backend never serves rendered HTML to users,
+        # except the interactive API docs (Swagger UI / ReDoc), which load assets
+        # from a CDN and run an inline bootstrap script. Those routes get a
+        # loosened CSP; everything else stays JSON-only. Docs are disabled in
+        # production (see main.py), so this relaxation only applies in dev.
+        if request.url.path in ('/docs', '/redoc'):
+            response.headers.setdefault(
+                'Content-Security-Policy',
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "img-src 'self' data: https://cdn.jsdelivr.net https://fastapi.tiangolo.com; "
+                "worker-src 'self' blob:; "
+                "frame-ancestors 'none'",
+            )
+        else:
+            response.headers.setdefault(
+                'Content-Security-Policy',
+                "default-src 'none'; frame-ancestors 'none'",
+            )
 
         # HSTS only in production; local HTTP dev would break under it.
         if self.app_env == 'production':
