@@ -1,24 +1,28 @@
-"""Global search — lexical + semantic, fused with Reciprocal Rank Fusion.
+"""Global search — multi-entity, lexical + semantic, fused across entities.
 
-Lanes (each produces a ranked list of product ids; RRF fuses them):
-  1. Full-text  — field-weighted tsvector, prefix-aware  (Slice 2)
-  2. Fuzzy      — pg_trgm word_similarity, typo tolerant  (Slice 2)
-  3. Semantic   — pgvector cosine over OpenAI embeddings   (Slice 3)
-  4. Popularity — historical click counts per product      (Slice 5)
+Products (global catalog) use the full engine — full-text + fuzzy + pgvector
+semantic, fused with Reciprocal Rank Fusion, plus click-popularity and an LLM
+fallback (Slices 2-5). Tenant/user-scoped entities (orders, quotes, … — Slice 6+)
+run a scoped lexical lane each; every entity's ranked hits are then fused across
+types via RRF.
 
-On top of product results:
-  - Action lane — command intents like "make a new network design" (Slice 4)
-  - LLM fallback — when every lane is empty, expand the query and retry (Slice 5)
+Security spine (`_scope_sql`): every non-product lane is scoped by THREE layers —
+  1. tenant   — explicit predicate on the request's EFFECTIVE tenant (db.info),
+                so it holds even if RLS is off and covers non-RLS tables.
+  2. ownership — a non-admin only sees their own rows (created_by/owner).
+  3. permission — a lane only runs if the user holds its gating permission, so an
+                  unauthorized entity is never queried and cannot leak.
 
-The HTTP contract is still list[SearchHit] {id, type, title, subtitle}. Semantic
-and LLM lanes degrade gracefully (skip) when pgvector or an OpenAI key is absent.
-All user input is passed as bound parameters.
+Contract: list[SearchHit] {id, type, title, subtitle, url}. `url` is the deep-link
+the frontend navigates to. All user input is passed as bound parameters; table and
+column names come only from fixed provider configs, never from user input.
 """
 from __future__ import annotations
 
 import json
 import logging
 import re
+from dataclasses import dataclass
 
 import httpx
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -28,7 +32,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.permissions import PERM_VIEW_CATALOG
+from app.core.permissions import (
+    PERM_VIEW_CATALOG,
+    PERM_VIEW_ORDERS,
+    PERM_VIEW_QUOTES,
+)
 from app.middleware.dependencies import get_current_user
 from app.services.authorization_service import AuthorizationService
 from app.services.search_embedding_service import embed_query, to_pgvector_literal
@@ -49,12 +57,15 @@ _RRF_K = 60
 # LLM fallback could never trigger.
 _SEMANTIC_MAX_DISTANCE = 0.65
 
+_ADMIN_ROLES = {'ADMIN', 'SUPER_ADMIN'}
+
 
 class SearchHit(BaseModel):
     id: str
     type: str
     title: str
     subtitle: str | None = None
+    url: str | None = None  # deep-link the frontend navigates to (Slice 6)
 
 
 class SearchClickIn(BaseModel):
@@ -64,7 +75,7 @@ class SearchClickIn(BaseModel):
     position: int | None = None
 
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+# ── generic helpers ──────────────────────────────────────────────────────────
 
 def _build_tsquery(q: str, op: str = '&') -> str:
     """Raw user text -> a SAFE prefix full-text query string.
@@ -77,15 +88,6 @@ def _build_tsquery(q: str, op: str = '&') -> str:
     return f' {op} '.join(f'{t}:*' for t in terms)
 
 
-def _row_to_hit(r) -> SearchHit:
-    return SearchHit(
-        id=str(r.id),
-        type='product',
-        title=r.name,
-        subtitle=f'{r.vendor} · {r.sku}',
-    )
-
-
 def _rrf(lanes: list[list[str]], k: int = _RRF_K) -> dict[str, float]:
     """Reciprocal Rank Fusion: score(id) = Σ_lanes 1 / (k + rank)."""
     scores: dict[str, float] = {}
@@ -95,29 +97,112 @@ def _rrf(lanes: list[list[str]], k: int = _RRF_K) -> dict[str, float]:
     return scores
 
 
-# ── Slice 4: action / command lane ───────────────────────────────────────────
-
-_CREATE_VERB = r'(?:create|make|new|build|start|add|generate|set\s*up|setup)'
-# A create-verb anywhere near "design", OR the explicit "new network" phrase.
-_CREATE_DESIGN_RE = re.compile(
-    rf'\b{_CREATE_VERB}\b.*\bdesign\b|\bnew\s+network\b', re.IGNORECASE
-)
+def _is_admin(current_user: dict) -> bool:
+    return str(current_user.get('role') or '').upper() in _ADMIN_ROLES
 
 
-def _detect_actions(q: str) -> list[SearchHit]:
-    """Map command-style queries to actionable hits the frontend can route."""
-    actions: list[SearchHit] = []
-    if _CREATE_DESIGN_RE.search(q):
-        actions.append(SearchHit(
-            id='action:create-design',
-            type='action',
-            title='Create a new network design',
-            subtitle='Open the design builder',
-        ))
-    return actions
+# ── the security spine ───────────────────────────────────────────────────────
+
+def _scope_sql(db: Session, alias: str, provider: 'EntityProvider',
+               current_user: dict) -> tuple[str, dict]:
+    """Build the tenant + ownership WHERE fragment for a scoped entity lane.
+
+    Uses the request's EFFECTIVE tenant (the one get_db applied to RLS), so
+    SUPER_ADMIN cross-tenant targeting via X-Tenant-Id keeps working. Non-admins
+    are additionally pinned to their own rows. Values are bound params.
+    """
+    clauses: list[str] = []
+    params: dict = {}
+    tenant = db.info.get('tenant_id')
+    if tenant:
+        clauses.append(f'{alias}.{provider.tenant_col} = :s_tenant')
+        params['s_tenant'] = str(tenant)
+    if not _is_admin(current_user):
+        clauses.append(f'{alias}.{provider.owner_col} = :s_uid')
+        params['s_uid'] = current_user.get('user_id')
+    return (' AND '.join(clauses) or 'true'), params
 
 
-# ── lexical lanes ────────────────────────────────────────────────────────────
+# ── entity providers (Slice 6+) ──────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class EntityProvider:
+    """Config for one tenant/user-scoped searchable entity.
+
+    All fields are developer constants (never user input) so they are safe to
+    interpolate into SQL; user text/ids are always bound parameters.
+    """
+    type: str
+    permission: str
+    table: str
+    line_table: str
+    line_fk: str
+    url_prefix: str
+    title_prefix: str
+    id_col: str = 'public_id'
+    status_col: str = 'status'
+    tenant_col: str = 'tenant_id'
+    owner_col: str = 'created_by'
+
+    def to_hit(self, row) -> SearchHit:
+        pretty_status = (row.status or '').replace('_', ' ').strip().title()
+        return SearchHit(
+            id=str(row.id),
+            type=self.type,
+            title=f'{self.title_prefix} {row.public_id}',
+            subtitle=pretty_status or None,
+            url=f'{self.url_prefix}{row.id}',
+        )
+
+
+PROVIDERS: list[EntityProvider] = [
+    EntityProvider('order', PERM_VIEW_ORDERS, 'orders', 'order_lines',
+                   'order_id', '/shop/orders/', 'Order'),
+    EntityProvider('quote', PERM_VIEW_QUOTES, 'quotes', 'quote_lines',
+                   'quote_id', '/shop/quotes/', 'Quote'),
+]
+
+
+def _run_entity(db: Session, q: str, limit: int, provider: EntityProvider,
+                current_user: dict) -> list[SearchHit]:
+    """Scoped lexical lane for one entity: matches public id, status, or line
+    text; ranks exact-id matches first, then recency ('where is my order')."""
+    scope_sql, params = _scope_sql(db, 'e', provider, current_user)
+    params['like'] = f'%{q}%'
+    params['lim'] = limit
+    sql = f"""
+        SELECT e.id, e.{provider.id_col} AS public_id,
+               e.{provider.status_col}::text AS status
+        FROM {provider.table} e
+        WHERE ({scope_sql})
+          AND (
+            e.{provider.id_col} ILIKE :like
+            OR e.{provider.status_col}::text ILIKE :like
+            OR EXISTS (
+                SELECT 1 FROM {provider.line_table} l
+                WHERE l.{provider.line_fk} = e.id
+                  AND (l.name ILIKE :like OR l.sku ILIKE :like
+                       OR l.vendor ILIKE :like)
+            )
+          )
+        ORDER BY (e.{provider.id_col} ILIKE :like) DESC, e.created_at DESC
+        LIMIT :lim
+    """
+    rows = db.execute(text(sql), params).all()
+    return [provider.to_hit(r) for r in rows]
+
+
+# ── product lanes (Slices 2-5) ───────────────────────────────────────────────
+
+def _product_to_hit(r) -> SearchHit:
+    return SearchHit(
+        id=str(r.id),
+        type='product',
+        title=r.name,
+        subtitle=f'{r.vendor} · {r.sku}',
+        url=f'/shop/routers/{r.id}',
+    )
+
 
 def _run_fts(db: Session, tsq: str, limit: int, pdata: dict) -> list[str]:
     """Full-text lane. Returns product ids in rank order; fills pdata[id]=row."""
@@ -166,8 +251,6 @@ def _run_fuzzy(db: Session, q: str, limit: int, pdata: dict) -> list[str]:
     return ids
 
 
-# ── Slice 3: semantic lane ───────────────────────────────────────────────────
-
 _semantic_column: bool | None = None  # cached: does products.embedding exist?
 
 
@@ -210,8 +293,6 @@ def _run_semantic(db: Session, q: str, limit: int, pdata: dict) -> list[str]:
         ids.append(rid)
     return ids
 
-
-# ── Slice 5: popularity lane + LLM fallback ──────────────────────────────────
 
 def _run_popularity(db: Session, candidate_ids: list[str]) -> list[str]:
     """Rank the already-found candidates by historical click count. Pure re-
@@ -258,13 +339,82 @@ def _llm_expand_query(q: str) -> list[str]:
         )
         resp.raise_for_status()
         content = resp.json()['choices'][0]['message']['content'].strip()
-        # Tolerate code-fenced or bare JSON.
         content = re.sub(r'^```(?:json)?|```$', '', content, flags=re.MULTILINE).strip()
         terms = json.loads(content)
         return [str(t) for t in terms if isinstance(t, (str, int, float))][:6]
     except Exception as exc:  # noqa: BLE001
         logger.warning('LLM query expansion failed: %s', exc)
         return []
+
+
+def _product_hits(db: Session, q: str, limit: int) -> list[SearchHit]:
+    """The product pipeline (Slices 2-5, minus the LLM fallback) as a ranked list.
+
+    The fallback is deliberately NOT here — it must fire only when the WHOLE
+    cross-entity search is empty (see global_search), otherwise an order-id query
+    that matched an order would still trigger a noisy product expansion."""
+    fetch_k = max(limit * 2, 20)
+    pdata: dict = {}
+
+    fts_ids = _run_fts(db, _build_tsquery(q), fetch_k, pdata)
+    fuzzy_ids = _run_fuzzy(db, q, fetch_k, pdata)
+    semantic_ids = _run_semantic(db, q, fetch_k, pdata)
+
+    popularity_ids = _run_popularity(db, list(pdata.keys()))
+    fused = _rrf([fts_ids, fuzzy_ids, semantic_ids, popularity_ids])
+    ordered = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)
+    return [_product_to_hit(pdata[hid]) for hid, _ in ordered[:limit]]
+
+
+def _product_llm_fallback(db: Session, q: str, limit: int) -> list[SearchHit]:
+    """Last resort when the entire search is empty: expand the query via the LLM
+    and retry product full-text with the alternative keywords."""
+    hits: list[SearchHit] = []
+    for term in _llm_expand_query(q):
+        expand_pdata: dict = {}
+        for hid in _run_fts(db, _build_tsquery(term, op='|'), limit, expand_pdata):
+            hits.append(_product_to_hit(expand_pdata[hid]))
+            if len(hits) >= limit:
+                return hits
+    return hits
+
+
+# ── Slice 4: action / command lane ───────────────────────────────────────────
+
+_CREATE_VERB = r'(?:create|make|new|build|start|add|generate|set\s*up|setup)'
+_CREATE_DESIGN_RE = re.compile(
+    rf'\b{_CREATE_VERB}\b.*\bdesign\b|\bnew\s+network\b', re.IGNORECASE
+)
+
+
+def _detect_actions(q: str) -> list[SearchHit]:
+    """Map command-style queries to actionable hits the frontend can route."""
+    actions: list[SearchHit] = []
+    if _CREATE_DESIGN_RE.search(q):
+        actions.append(SearchHit(
+            id='action:create-design',
+            type='action',
+            title='Create a new network design',
+            subtitle='Open the design builder',
+            url='/shop/designs/new',
+        ))
+    return actions
+
+
+# ── cross-entity fusion ──────────────────────────────────────────────────────
+
+def _merge_cross_entity(lists: list[list[SearchHit]], limit: int) -> list[SearchHit]:
+    """Fuse per-entity ranked lists into one, via RRF over each hit's rank in
+    its own list. Dedups by (type, id)."""
+    scores: dict[tuple[str, str], float] = {}
+    hit_by_key: dict[tuple[str, str], SearchHit] = {}
+    for lst in lists:
+        for rank, hit in enumerate(lst, start=1):
+            key = (hit.type, hit.id)
+            scores[key] = scores.get(key, 0.0) + 1.0 / (_RRF_K + rank)
+            hit_by_key.setdefault(key, hit)
+    ordered = sorted(scores, key=lambda kk: scores[kk], reverse=True)
+    return [hit_by_key[kk] for kk in ordered[:limit]]
 
 
 # ── endpoints ────────────────────────────────────────────────────────────────
@@ -276,45 +426,31 @@ def global_search(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[SearchHit]:
-    AuthorizationService(db).require(current_user, PERM_VIEW_CATALOG)
-
     q = q.strip()
     if len(q) < 2:
         return []
 
-    # Slice 4: command intents surface as action hits above product results.
+    # Command intents surface as action hits pinned above everything.
     action_hits = _detect_actions(q)
 
-    # Fetch a few extra per lane so RRF has material to fuse, then trim.
-    fetch_k = max(limit * 2, 20)
-    pdata: dict = {}
+    # Permission-gated fan-out: only lanes the user is authorized for run at all.
+    perms = AuthorizationService(db).effective_permissions(current_user)
 
-    fts_ids = _run_fts(db, _build_tsquery(q), fetch_k, pdata)
-    fuzzy_ids = _run_fuzzy(db, q, fetch_k, pdata)
-    semantic_ids = _run_semantic(db, q, fetch_k, pdata)
-
-    candidate_ids = list(pdata.keys())
-    popularity_ids = _run_popularity(db, candidate_ids)
-
-    fused = _rrf([fts_ids, fuzzy_ids, semantic_ids, popularity_ids])
-    ordered = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)
+    lists: list[list[SearchHit]] = []
+    if PERM_VIEW_CATALOG in perms:
+        lists.append(_product_hits(db, q, limit))
+    for provider in PROVIDERS:
+        if provider.permission in perms:
+            lists.append(_run_entity(db, q, limit, provider, current_user))
 
     product_slots = max(limit - len(action_hits), 0)
-    product_hits = [_row_to_hit(pdata[hid]) for hid, _ in ordered[:product_slots]]
+    merged = _merge_cross_entity(lists, product_slots)
 
-    # Slice 5: nothing lexical/semantic matched — expand the query and retry FTS.
-    if not product_hits and product_slots:
-        for term in _llm_expand_query(q):
-            tsq = _build_tsquery(term, op='|')
-            expand_pdata: dict = {}
-            for hid in _run_fts(db, tsq, product_slots, expand_pdata):
-                product_hits.append(_row_to_hit(expand_pdata[hid]))
-                if len(product_hits) >= product_slots:
-                    break
-            if len(product_hits) >= product_slots:
-                break
+    # LLM fallback fires only when the WHOLE search came up empty.
+    if not merged and product_slots and PERM_VIEW_CATALOG in perms:
+        merged = _product_llm_fallback(db, q, product_slots)
 
-    return action_hits + product_hits
+    return action_hits + merged
 
 
 @router.post('/click', status_code=status.HTTP_204_NO_CONTENT)
@@ -323,8 +459,8 @@ def record_click(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Response:
-    """Record a result click — a learning-to-rank signal for the popularity lane."""
-    AuthorizationService(db).require(current_user, PERM_VIEW_CATALOG)
+    """Record a result click — a learning-to-rank signal for the popularity lane.
+    Any authenticated user may log a click (search itself is permission-gated)."""
     db.execute(
         text("""
             INSERT INTO search_click_log (user_id, query, hit_id, hit_type, position)

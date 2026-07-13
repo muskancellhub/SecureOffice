@@ -1,9 +1,28 @@
-"""Unit tests for the deterministic global-search logic (Slices 2-5).
+"""Unit tests for the deterministic global-search logic (Slices 2-6).
 
 Covers the pure functions — prefix tsquery building, action/command detection,
-and Reciprocal Rank Fusion — without touching the DB, OpenAI, or pgvector.
+Reciprocal Rank Fusion, the tenant/ownership scoping spine, entity-hit mapping,
+and cross-entity fusion — without touching the DB, OpenAI, or pgvector.
 """
-from app.routes.search import _build_tsquery, _detect_actions, _rrf
+from types import SimpleNamespace
+
+from app.routes.search import (
+    PROVIDERS,
+    SearchHit,
+    _build_tsquery,
+    _detect_actions,
+    _merge_cross_entity,
+    _rrf,
+    _scope_sql,
+)
+
+
+class _FakeDB:
+    def __init__(self, tenant_id):
+        self.info = {'tenant_id': tenant_id}
+
+
+_ORDER = next(p for p in PROVIDERS if p.type == 'order')
 
 
 class TestBuildTsquery:
@@ -63,3 +82,86 @@ class TestRRF:
         scores = _rrf([['x', 'y']], k=60)
         assert abs(scores['x'] - 1 / 61) < 1e-9
         assert abs(scores['y'] - 1 / 62) < 1e-9
+
+
+class TestScopeSql:
+    """The security spine — must always tenant-scope, and owner-scope non-admins."""
+
+    def test_non_admin_gets_tenant_and_owner_predicates(self):
+        db = _FakeDB('tenant-1')
+        user = {'role': 'USER', 'user_id': 'user-9'}
+        sql, params = _scope_sql(db, 'e', _ORDER, user)
+        assert 'e.tenant_id = :s_tenant' in sql
+        assert 'e.created_by = :s_uid' in sql
+        assert params == {'s_tenant': 'tenant-1', 's_uid': 'user-9'}
+
+    def test_admin_is_tenant_scoped_but_not_owner_scoped(self):
+        db = _FakeDB('tenant-1')
+        user = {'role': 'ADMIN', 'user_id': 'admin-1'}
+        sql, params = _scope_sql(db, 'e', _ORDER, user)
+        assert 'e.tenant_id = :s_tenant' in sql
+        assert 'created_by' not in sql          # admin sees the whole tenant
+        assert params == {'s_tenant': 'tenant-1'}
+
+    def test_super_admin_uses_effective_tenant_from_db_info(self):
+        # get_db stashes the (possibly X-Tenant-Id-targeted) tenant; scope follows it.
+        db = _FakeDB('other-tenant')
+        user = {'role': 'SUPER_ADMIN', 'user_id': 'sa-1'}
+        sql, params = _scope_sql(db, 'e', _ORDER, user)
+        assert params['s_tenant'] == 'other-tenant'
+        assert 'created_by' not in sql
+
+    def test_no_effective_tenant_and_admin_is_unfiltered(self):
+        db = _FakeDB(None)
+        user = {'role': 'SUPER_ADMIN', 'user_id': 'sa-1'}
+        sql, params = _scope_sql(db, 'e', _ORDER, user)
+        assert sql == 'true'
+        assert params == {}
+
+    def test_non_admin_still_owner_scoped_without_tenant(self):
+        db = _FakeDB(None)
+        user = {'role': 'USER', 'user_id': 'user-9'}
+        sql, params = _scope_sql(db, 'e', _ORDER, user)
+        assert sql == 'e.created_by = :s_uid'
+        assert params == {'s_uid': 'user-9'}
+
+
+class TestEntityHit:
+    def test_order_hit_shape_and_deeplink(self):
+        row = SimpleNamespace(id='abc-123', public_id='OID0007', status='SHIPPED')
+        hit = _ORDER.to_hit(row)
+        assert hit.type == 'order'
+        assert hit.title == 'Order OID0007'
+        assert hit.subtitle == 'Shipped'            # humanized status
+        assert hit.url == '/shop/orders/abc-123'
+
+    def test_status_underscores_humanized(self):
+        row = SimpleNamespace(id='q1', public_id='QID0002', status='PENDING_REVIEW')
+        hit = next(p for p in PROVIDERS if p.type == 'quote').to_hit(row)
+        assert hit.subtitle == 'Pending Review'
+        assert hit.url == '/shop/quotes/q1'
+
+
+class TestMergeCrossEntity:
+    def _hit(self, t, i):
+        return SearchHit(id=i, type=t, title=f'{t}-{i}')
+
+    def test_dedups_by_type_and_id(self):
+        a = [self._hit('product', '1'), self._hit('product', '2')]
+        b = [self._hit('product', '1')]  # same (type,id) as a[0]
+        merged = _merge_cross_entity([a, b], limit=10)
+        keys = [(h.type, h.id) for h in merged]
+        assert keys.count(('product', '1')) == 1
+
+    def test_cross_type_interleaves_by_rank(self):
+        products = [self._hit('product', 'p1'), self._hit('product', 'p2')]
+        orders = [self._hit('order', 'o1')]
+        merged = _merge_cross_entity([products, orders], limit=10)
+        # rank-1 of each list ties; both out-rank product rank-2.
+        top2 = {(h.type, h.id) for h in merged[:2]}
+        assert top2 == {('product', 'p1'), ('order', 'o1')}
+        assert merged[2].id == 'p2'
+
+    def test_respects_limit(self):
+        big = [self._hit('product', str(i)) for i in range(20)]
+        assert len(_merge_cross_entity([big], limit=5)) == 5
