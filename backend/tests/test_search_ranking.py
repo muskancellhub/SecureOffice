@@ -11,6 +11,7 @@ from app.routes.search import (
     SearchHit,
     _build_tsquery,
     _detect_actions,
+    _detect_nav,
     _merge_cross_entity,
     _rrf,
     _scope_sql,
@@ -61,6 +62,23 @@ class TestDetectActions:
     def test_design_word_without_create_verb_is_not_an_action(self):
         # A bare noun search shouldn't hijack into a command.
         assert _detect_actions('design') == []
+
+
+class TestDetectNav:
+    def test_billing_keyword_routes_to_billing(self):
+        hits = _detect_nav('billing')
+        assert hits and hits[0].type == 'nav'
+        assert hits[0].url == '/shop/billing'
+
+    def test_designs_phrase(self):
+        assert _detect_nav('show me my designs')[0].url == '/shop/designs'
+
+    def test_no_false_trigger_on_product_query(self):
+        assert _detect_nav('cisco router') == []
+
+    def test_capped_at_two(self):
+        # A query hitting many page keywords still returns at most 2 nav hits.
+        assert len(_detect_nav('orders quotes designs billing cart')) <= 2
 
 
 class TestRRF:

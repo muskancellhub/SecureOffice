@@ -471,6 +471,54 @@ def _detect_actions(q: str) -> list[SearchHit]:
     return actions
 
 
+# ── Slice 10: navigation lane ────────────────────────────────────────────────
+# Page-name queries ("billing", "onboarding", "my orders") jump straight to the
+# page. Keyword-driven, no DB. Every target is a real route in AppRouter.
+_NAV_TARGETS: list[tuple[re.Pattern, str, str]] = [
+    (re.compile(r'\b(billing|invoice|invoices|payment|payments)\b', re.I),
+     'Billing & invoices', '/shop/billing'),
+    (re.compile(r'\b(onboarding|kyc|verification)\b', re.I),
+     'Onboarding', '/shop/onboarding'),
+    (re.compile(r'\b(orders?)\b', re.I), 'Your orders', '/shop/orders'),
+    (re.compile(r'\b(quotes?)\b', re.I), 'Your quotes', '/shop/quotes'),
+    (re.compile(r'\b(designs?)\b', re.I), 'Your designs', '/shop/designs'),
+    (re.compile(r'\b(managed\s+services?|services?)\b', re.I),
+     'Managed services', '/shop/services'),
+    (re.compile(r'\b(cart|basket)\b', re.I), 'Your cart', '/shop/cart'),
+    (re.compile(r'\b(dashboard|home)\b', re.I), 'Dashboard', '/shop/dashboard'),
+]
+
+
+def _detect_nav(q: str) -> list[SearchHit]:
+    hits: list[SearchHit] = []
+    for rx, title, url in _NAV_TARGETS:
+        if rx.search(q):
+            hits.append(SearchHit(id=f'nav:{url}', type='nav', title=title,
+                                  subtitle='Go to page', url=url))
+    return hits[:2]
+
+
+def _managed_service_hits(db: Session, q: str, limit: int) -> list[SearchHit]:
+    """Managed-service catalog (product_components) — global, gated by
+    view_catalog, deep-links to the managed-services listing."""
+    rows = db.execute(
+        text("""
+            SELECT DISTINCT ON (lower(label)) label
+            FROM product_components
+            WHERE component_type = 'MANAGED_SERVICE' AND is_active = true
+              AND (label ILIKE :like OR vendor_component_sku ILIKE :like)
+            ORDER BY lower(label)
+            LIMIT :lim
+        """),
+        {'like': f'%{q}%', 'lim': limit},
+    ).all()
+    return [
+        SearchHit(id=f'managed-service:{r.label}', type='managed_service',
+                  title=r.label, subtitle='Managed service', url='/shop/services')
+        for r in rows
+    ]
+
+
 # ── cross-entity fusion ──────────────────────────────────────────────────────
 
 def _merge_cross_entity(lists: list[list[SearchHit]], limit: int) -> list[SearchHit]:
@@ -500,8 +548,8 @@ def global_search(
     if len(q) < 2:
         return []
 
-    # Command intents surface as action hits pinned above everything.
-    action_hits = _detect_actions(q)
+    # Command + navigation intents are pinned above record results.
+    pinned = (_detect_actions(q) + _detect_nav(q))[:limit]
 
     # Permission-gated fan-out: only lanes the user is authorized for run at all.
     perms = AuthorizationService(db).effective_permissions(current_user)
@@ -509,18 +557,19 @@ def global_search(
     lists: list[list[SearchHit]] = []
     if PERM_VIEW_CATALOG in perms:
         lists.append(_product_hits(db, q, limit))
+        lists.append(_managed_service_hits(db, q, limit))
     for provider in PROVIDERS:
         if provider.permission is None or provider.permission in perms:
             lists.append(_run_entity(db, q, limit, provider, current_user))
 
-    product_slots = max(limit - len(action_hits), 0)
-    merged = _merge_cross_entity(lists, product_slots)
+    record_slots = max(limit - len(pinned), 0)
+    merged = _merge_cross_entity(lists, record_slots)
 
     # LLM fallback fires only when the WHOLE search came up empty.
-    if not merged and product_slots and PERM_VIEW_CATALOG in perms:
-        merged = _product_llm_fallback(db, q, product_slots)
+    if not merged and record_slots and PERM_VIEW_CATALOG in perms:
+        merged = _product_llm_fallback(db, q, record_slots)
 
-    return action_hits + merged
+    return pinned + merged
 
 
 @router.post('/click', status_code=status.HTTP_204_NO_CONTENT)
