@@ -141,6 +141,25 @@ class TestEntityHit:
         assert hit.subtitle == 'Pending Review'
         assert hit.url == '/shop/quotes/q1'
 
+    def test_design_hit_uses_name_and_deeplink(self):
+        design = next(p for p in PROVIDERS if p.type == 'design')
+        row = SimpleNamespace(id='d1', design_name='HQ Network', status='REVIEWED')
+        hit = design.to_hit(row)
+        assert hit.type == 'design'
+        assert hit.title == 'HQ Network'
+        assert hit.subtitle == 'Reviewed'
+        assert hit.url == '/shop/designs/d1'
+
+    def test_design_untitled_fallback(self):
+        design = next(p for p in PROVIDERS if p.type == 'design')
+        row = SimpleNamespace(id='d2', design_name=None, status='DRAFT')
+        assert design.to_hit(row).title == 'Untitled design'
+
+    def test_design_available_to_any_authenticated_user(self):
+        # Designs are ownership-scoped, not permission-gated.
+        design = next(p for p in PROVIDERS if p.type == 'design')
+        assert design.permission is None
+
 
 class TestMergeCrossEntity:
     def _hit(self, t, i):

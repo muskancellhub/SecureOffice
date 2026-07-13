@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import httpx
@@ -125,67 +126,95 @@ def _scope_sql(db: Session, alias: str, provider: 'EntityProvider',
 
 # ── entity providers (Slice 6+) ──────────────────────────────────────────────
 
+def _humanize(value: str | None) -> str:
+    return (value or '').replace('_', ' ').strip().title()
+
+
+def _order_hit(r) -> SearchHit:
+    return SearchHit(id=str(r.id), type='order', title=f'Order {r.public_id}',
+                     subtitle=_humanize(r.status) or None,
+                     url=f'/shop/orders/{r.id}')
+
+
+def _quote_hit(r) -> SearchHit:
+    return SearchHit(id=str(r.id), type='quote', title=f'Quote {r.public_id}',
+                     subtitle=_humanize(r.status) or None,
+                     url=f'/shop/quotes/{r.id}')
+
+
+def _design_hit(r) -> SearchHit:
+    return SearchHit(id=str(r.id), type='design',
+                     title=r.design_name or 'Untitled design',
+                     subtitle=_humanize(r.status) or 'Design',
+                     url=f'/shop/designs/{r.id}')
+
+
 @dataclass(frozen=True)
 class EntityProvider:
     """Config for one tenant/user-scoped searchable entity.
 
-    All fields are developer constants (never user input) so they are safe to
-    interpolate into SQL; user text/ids are always bound parameters.
+    All structural fields are developer constants (never user input) so they are
+    safe to interpolate into SQL; user text/ids are always bound parameters.
+    ``permission=None`` means any authenticated user may search it (still scoped
+    to their own rows); otherwise the lane runs only if the user holds it.
     """
     type: str
-    permission: str
+    permission: str | None
     table: str
-    line_table: str
-    line_fk: str
-    url_prefix: str
-    title_prefix: str
-    id_col: str = 'public_id'
-    status_col: str = 'status'
+    select: str                     # SELECT column list, aliased for to_hit
+    match_cols: tuple[str, ...]     # main-table columns matched via ILIKE
+    to_hit: Callable[[object], SearchHit]
     tenant_col: str = 'tenant_id'
     owner_col: str = 'created_by'
-
-    def to_hit(self, row) -> SearchHit:
-        pretty_status = (row.status or '').replace('_', ' ').strip().title()
-        return SearchHit(
-            id=str(row.id),
-            type=self.type,
-            title=f'{self.title_prefix} {row.public_id}',
-            subtitle=pretty_status or None,
-            url=f'{self.url_prefix}{row.id}',
-        )
+    line_table: str | None = None   # optional line-item table to also match
+    line_fk: str | None = None
+    prefer_col: str | None = None   # exact-match-first ordering (e.g. public_id)
+    order_tail: str = 'e.created_at DESC'
 
 
 PROVIDERS: list[EntityProvider] = [
-    EntityProvider('order', PERM_VIEW_ORDERS, 'orders', 'order_lines',
-                   'order_id', '/shop/orders/', 'Order'),
-    EntityProvider('quote', PERM_VIEW_QUOTES, 'quotes', 'quote_lines',
-                   'quote_id', '/shop/quotes/', 'Quote'),
+    EntityProvider(
+        type='order', permission=PERM_VIEW_ORDERS, table='orders',
+        select='e.id, e.public_id, e.status::text AS status',
+        match_cols=('public_id', 'status'),
+        line_table='order_lines', line_fk='order_id',
+        prefer_col='public_id', to_hit=_order_hit),
+    EntityProvider(
+        type='quote', permission=PERM_VIEW_QUOTES, table='quotes',
+        select='e.id, e.public_id, e.status::text AS status',
+        match_cols=('public_id', 'status'),
+        line_table='quote_lines', line_fk='quote_id',
+        prefer_col='public_id', to_hit=_quote_hit),
+    EntityProvider(
+        type='design', permission=None, table='network_designs',
+        select='e.id, e.design_name, e.status::text AS status',
+        match_cols=('design_name', 'status'),
+        prefer_col='design_name', to_hit=_design_hit),
 ]
 
 
 def _run_entity(db: Session, q: str, limit: int, provider: EntityProvider,
                 current_user: dict) -> list[SearchHit]:
-    """Scoped lexical lane for one entity: matches public id, status, or line
-    text; ranks exact-id matches first, then recency ('where is my order')."""
+    """Scoped lexical lane for one entity: matches its text columns (and line
+    text if any); ranks exact/name matches first, then recency."""
     scope_sql, params = _scope_sql(db, 'e', provider, current_user)
     params['like'] = f'%{q}%'
     params['lim'] = limit
+
+    match = [f'e.{c}::text ILIKE :like' for c in provider.match_cols]
+    if provider.line_table:
+        match.append(
+            f'EXISTS (SELECT 1 FROM {provider.line_table} l '
+            f'WHERE l.{provider.line_fk} = e.id '
+            f'AND (l.name ILIKE :like OR l.sku ILIKE :like '
+            f'OR l.vendor ILIKE :like))'
+        )
+    prefix = f'(e.{provider.prefer_col}::text ILIKE :like) DESC, ' if provider.prefer_col else ''
     sql = f"""
-        SELECT e.id, e.{provider.id_col} AS public_id,
-               e.{provider.status_col}::text AS status
+        SELECT {provider.select}
         FROM {provider.table} e
-        WHERE ({scope_sql})
-          AND (
-            e.{provider.id_col} ILIKE :like
-            OR e.{provider.status_col}::text ILIKE :like
-            OR EXISTS (
-                SELECT 1 FROM {provider.line_table} l
-                WHERE l.{provider.line_fk} = e.id
-                  AND (l.name ILIKE :like OR l.sku ILIKE :like
-                       OR l.vendor ILIKE :like)
-            )
-          )
-        ORDER BY (e.{provider.id_col} ILIKE :like) DESC, e.created_at DESC
+        WHERE ({scope_sql}) AND ({' OR '.join(match)})
+        ORDER BY {prefix}{provider.order_tail}
         LIMIT :lim
     """
     rows = db.execute(text(sql), params).all()
@@ -440,7 +469,7 @@ def global_search(
     if PERM_VIEW_CATALOG in perms:
         lists.append(_product_hits(db, q, limit))
     for provider in PROVIDERS:
-        if provider.permission in perms:
+        if provider.permission is None or provider.permission in perms:
             lists.append(_run_entity(db, q, limit, provider, current_user))
 
     product_slots = max(limit - len(action_hits), 0)
