@@ -2866,6 +2866,15 @@ textarea {
   background: #f4f6fa;
 }
 
+/* Action/command hits (Slice 4) — distinct from product results. */
+.global-search-result-action {
+  border-left: 3px solid var(--color-primary, #6d28d9);
+}
+
+.global-search-result-action .global-search-result-title {
+  color: var(--color-primary, #6d28d9);
+}
+
 .global-search-result-title {
   font-weight: 600;
   font-size: 13.5px;

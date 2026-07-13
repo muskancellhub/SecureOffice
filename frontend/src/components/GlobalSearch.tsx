@@ -1,10 +1,17 @@
 import { Search } from 'lucide-react';
 import { useEffect,useRef, useState } from 'react';
-import { globalSearch, type SearchHit } from '../api/searchApi';
+import { useNavigate } from 'react-router-dom';
+import { globalSearch, logSearchClick, type SearchHit } from '../api/searchApi';
 import { useAuth } from '../context/AuthContext';
+
+// Maps an action hit's id to the route it opens (Slice 4).
+const ACTION_ROUTES: Record<string, string> = {
+    'action:create-design': '/shop/designs/new',
+};
 
 export function GlobalSearch() {
     const { accessToken } = useAuth();
+    const navigate = useNavigate();
     const [hits, setHits] = useState<SearchHit[]>([]);
     const [query, setQuery] = useState('');
     const [open, setOpen] = useState(false);
@@ -41,6 +48,30 @@ export function GlobalSearch() {
         controller.abort();
     };
 }, [accessToken, query]);
+
+const handleSelect = (hit: SearchHit, position: number) => {
+    // Slice 5: log the pick (fire-and-forget) so popularity can learn from it.
+    if (accessToken) {
+        void logSearchClick(accessToken, {
+            query: query.trim(),
+            hit_id: hit.id,
+            hit_type: hit.type,
+            position,
+        });
+    }
+    setOpen(false);
+
+    // Slice 4: action hits route to their flow; products open their detail page.
+    if (hit.type === 'action') {
+        const route = ACTION_ROUTES[hit.id];
+        if (route) navigate(route);
+        return;
+    }
+    if (hit.type === 'product') {
+        navigate(`/shop/routers/${hit.id}`);
+    }
+};
+
 return (
     <div className="global-search">
       <div className="global-search-box">
@@ -59,16 +90,11 @@ return (
 
       {open && hits.length > 0 && (
         <ul className="global-search-results">
-          {hits.map((hit) => (
+          {hits.map((hit, index) => (
             <li
               key={hit.id}
-              className="global-search-result"
-              onClick={() => {
-                // Slice 1: just log. Later this navigates to the product page
-                // or fires the matched action.
-                console.log('selected', hit);
-                setOpen(false);
-              }}
+              className={`global-search-result${hit.type === 'action' ? ' global-search-result-action' : ''}`}
+              onClick={() => handleSelect(hit, index)}
             >
               <div className="global-search-result-title">{hit.title}</div>
               {hit.subtitle && (

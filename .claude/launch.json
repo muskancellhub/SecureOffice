@@ -9,6 +9,13 @@
       "cwd": "frontend"
     },
     {
+      "name": "backend",
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["-c", "cd backend && .venv/bin/uvicorn app.main:app --port 8000"],
+      "port": 8000,
+      "cwd": "."
+    },
+    {
       "name": "one-pager",
       "runtimeExecutable": "/bin/bash",
       "runtimeArgs": ["-c", "python3 -m http.server 8099"],

@@ -19,3 +19,18 @@ export const globalSearch = async (
     });
     return data as SearchHit[];
 }
+
+// Slice 5: record which result the user picked. Fire-and-forget — a failed
+// click log must never disrupt navigation, so callers ignore the result.
+export const logSearchClick = async (
+    accessToken: string,
+    payload: { query: string; hit_id: string; hit_type: string; position?: number },
+): Promise<void> => {
+    try {
+        await api.post('/search/click', payload, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+        });
+    } catch {
+        /* best-effort telemetry; swallow errors */
+    }
+}

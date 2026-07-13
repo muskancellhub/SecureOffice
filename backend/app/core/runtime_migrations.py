@@ -1443,6 +1443,51 @@ def apply_runtime_migrations() -> None:
             "ON products USING gin (name gin_trgm_ops)"
         ))
 
+        # ── Slice 3: pgvector semantic-search column + index on products ─────
+        # pgvector is NOT a "trusted" extension, so only a superuser can run
+        # CREATE EXTENSION. We therefore never require it here: we only add the
+        # embedding column + index when the `vector` TYPE already exists (i.e. a
+        # DBA/superuser installed pgvector out of band, exactly like managed
+        # Postgres). Where pgvector is absent this block is a clean no-op and the
+        # search route degrades to lexical-only — boot never breaks.
+        vector_ready = conn.execute(text(
+            "SELECT 1 FROM pg_type WHERE typname = 'vector'"
+        )).scalar()
+        if vector_ready:
+            # No-op when already present; harmless for the app role.
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            conn.execute(text(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS embedding vector(1536)"
+            ))
+            # HNSW cosine index for fast approximate nearest-neighbour search.
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_products_embedding "
+                "ON products USING hnsw (embedding vector_cosine_ops)"
+            ))
+
+        # ── Slice 5: search click log (learning-to-rank signal) ──────────────
+        # Every result the user picks is recorded here; the search ranker folds
+        # per-product click popularity in as an extra RRF lane.
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS search_click_log (
+                id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id     uuid,
+                query       text NOT NULL,
+                hit_id      text NOT NULL,
+                hit_type    text NOT NULL,
+                position    integer,
+                clicked_at  timestamptz NOT NULL DEFAULT now()
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_search_click_log_hit "
+            "ON search_click_log (hit_id)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_search_click_log_clicked_at "
+            "ON search_click_log (clicked_at)"
+        ))
+
         _apply_rls_policies(conn)
 
 
