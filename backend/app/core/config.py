@@ -117,6 +117,24 @@ class Settings(BaseSettings):
 
     crewai_verbose: bool = Field(default=False, alias='CREWAI_VERBOSE')
 
+    # ── Global search (Slices 3–5) ───────────────────────────────────────────
+    # Semantic lane: embeds the query + products and fuses vector hits with the
+    # lexical lanes via Reciprocal Rank Fusion. Degrades gracefully to lexical-
+    # only when pgvector isn't installed or no OpenAI key is set.
+    search_semantic_enabled: bool = Field(default=True, alias='SEARCH_SEMANTIC_ENABLED')
+    search_embedding_model: str = Field(
+        default='text-embedding-3-small', alias='SEARCH_EMBEDDING_MODEL'
+    )
+    search_embedding_dim: int = Field(default=1536, alias='SEARCH_EMBEDDING_DIM')
+    # LLM fallback: when every lexical/semantic lane comes up empty, ask the
+    # model to expand the query into alternative keywords and retry full-text.
+    search_llm_fallback_enabled: bool = Field(
+        default=True, alias='SEARCH_LLM_FALLBACK_ENABLED'
+    )
+    search_llm_fallback_model: str = Field(
+        default='gpt-4.1-mini', alias='SEARCH_LLM_FALLBACK_MODEL'
+    )
+
     # RAG guardrails 2.1 — secondary model-based injection classifier. Off by
     # default: it adds an OpenAI call (cost + latency) and only runs on
     # borderline inputs the deterministic filter didn't already block.
