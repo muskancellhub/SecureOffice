@@ -34,7 +34,9 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.permissions import (
+    PERM_VIEW_BILLING,
     PERM_VIEW_CATALOG,
+    PERM_VIEW_LIFECYCLE,
     PERM_VIEW_ORDERS,
     PERM_VIEW_QUOTES,
 )
@@ -119,7 +121,11 @@ def _scope_sql(db: Session, alias: str, provider: 'EntityProvider',
         clauses.append(f'{alias}.{provider.tenant_col} = :s_tenant')
         params['s_tenant'] = str(tenant)
     if not _is_admin(current_user):
-        clauses.append(f'{alias}.{provider.owner_col} = :s_uid')
+        # Entities whose owner is reached through a join (invoices,
+        # subscriptions) supply an explicit predicate; it is written to HIDE
+        # rather than leak when a link is missing. Others use a direct column.
+        clauses.append(provider.owner_predicate
+                       or f'{alias}.{provider.owner_col} = :s_uid')
         params['s_uid'] = current_user.get('user_id')
     return (' AND '.join(clauses) or 'true'), params
 
@@ -149,6 +155,30 @@ def _design_hit(r) -> SearchHit:
                      url=f'/shop/designs/{r.id}')
 
 
+def _subscription_hit(r) -> SearchHit:
+    return SearchHit(id=str(r.id), type='subscription',
+                     title=r.name or 'Subscription',
+                     subtitle=_humanize(r.status) or 'Subscription',
+                     url='/shop/billing')
+
+
+def _invoice_hit(r) -> SearchHit:
+    parts = [p for p in (_humanize(r.status), str(r.billing_month or '')) if p]
+    return SearchHit(id=str(r.id), type='invoice',
+                     title=f'Invoice INV-{str(r.id)[:8].upper()}',
+                     subtitle=' · '.join(parts) or None,
+                     url='/shop/billing')
+
+
+# Ownership reached through joins — written to HIDE, not leak, on missing links.
+_SUB_OWNER = ('e.contract_id IN '
+              '(SELECT c.id FROM contracts c WHERE c.created_by = :s_uid)')
+_INVOICE_OWNER = ('e.subscription_id IN '
+                  '(SELECT s.id FROM subscriptions s '
+                  'JOIN contracts c ON c.id = s.contract_id '
+                  'WHERE c.created_by = :s_uid)')
+
+
 @dataclass(frozen=True)
 class EntityProvider:
     """Config for one tenant/user-scoped searchable entity.
@@ -166,6 +196,7 @@ class EntityProvider:
     to_hit: Callable[[object], SearchHit]
     tenant_col: str = 'tenant_id'
     owner_col: str = 'created_by'
+    owner_predicate: str | None = None  # join-based ownership (else owner_col)
     line_table: str | None = None   # optional line-item table to also match
     line_fk: str | None = None
     prefer_col: str | None = None   # exact-match-first ordering (e.g. public_id)
@@ -190,6 +221,16 @@ PROVIDERS: list[EntityProvider] = [
         select='e.id, e.design_name, e.status::text AS status',
         match_cols=('design_name', 'status'),
         prefer_col='design_name', to_hit=_design_hit),
+    EntityProvider(
+        type='subscription', permission=PERM_VIEW_LIFECYCLE, table='subscriptions',
+        select='e.id, e.name, e.status::text AS status',
+        match_cols=('name', 'sku', 'vendor', 'status'),
+        owner_predicate=_SUB_OWNER, prefer_col='name', to_hit=_subscription_hit),
+    EntityProvider(
+        type='invoice', permission=PERM_VIEW_BILLING, table='invoices',
+        select='e.id, e.status::text AS status, e.billing_month',
+        match_cols=('status', 'billing_month', 'amount'),
+        owner_predicate=_INVOICE_OWNER, to_hit=_invoice_hit),
 ]
 
 

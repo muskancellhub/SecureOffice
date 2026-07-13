@@ -160,6 +160,50 @@ class TestEntityHit:
         design = next(p for p in PROVIDERS if p.type == 'design')
         assert design.permission is None
 
+    def test_subscription_hit(self):
+        sub = next(p for p in PROVIDERS if p.type == 'subscription')
+        row = SimpleNamespace(id='s1', name='Cloud Controller', status='ACTIVE')
+        hit = sub.to_hit(row)
+        assert hit.type == 'subscription'
+        assert hit.title == 'Cloud Controller'
+        assert hit.subtitle == 'Active'
+        assert hit.url == '/shop/billing'
+
+    def test_invoice_hit_reference_and_deeplink(self):
+        inv = next(p for p in PROVIDERS if p.type == 'invoice')
+        row = SimpleNamespace(id='3f79a5df-0000-0000-0000-000000000000',
+                              status='PAID', billing_month='2026-06-01')
+        hit = inv.to_hit(row)
+        assert hit.title == 'Invoice INV-3F79A5DF'
+        assert hit.subtitle == 'Paid · 2026-06-01'
+        assert hit.url == '/shop/billing'
+
+
+class TestJoinOwnerScoping:
+    """Invoices/subscriptions scope ownership through a join, not a direct col."""
+
+    def _provider(self, t):
+        return next(p for p in PROVIDERS if p.type == t)
+
+    def test_non_admin_uses_join_owner_predicate(self):
+        db = _FakeDB('tenant-1')
+        user = {'role': 'USER', 'user_id': 'user-9'}
+        sql, params = _scope_sql(db, 'e', self._provider('subscription'), user)
+        assert 'e.contract_id IN' in sql          # join predicate, not created_by
+        assert 'e.created_by = :s_uid' not in sql
+        assert params['s_uid'] == 'user-9'
+
+    def test_admin_skips_owner_predicate_entirely(self):
+        db = _FakeDB('tenant-1')
+        user = {'role': 'ADMIN', 'user_id': 'admin-1'}
+        sql, params = _scope_sql(db, 'e', self._provider('invoice'), user)
+        assert 'subscription_id IN' not in sql     # admin sees whole tenant
+        assert params == {'s_tenant': 'tenant-1'}
+
+    def test_billing_lifecycle_permission_gates(self):
+        assert self._provider('invoice').permission == 'view_billing'
+        assert self._provider('subscription').permission == 'view_lifecycle'
+
 
 class TestMergeCrossEntity:
     def _hit(self, t, i):
