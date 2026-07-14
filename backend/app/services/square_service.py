@@ -20,6 +20,8 @@ from app.core.config import get_settings
 from app.models.order import Order
 from app.models.quote import BillingType
 from app.services.audit_logger import audit
+from app.models.onboarding import TenantOnboarding
+from app.services.avalara_service import AvalaraService, AvalaraError, TaxAddress
 
 logger = logging.getLogger(__name__)
 
@@ -74,12 +76,11 @@ class SquareService:
         return body
 
     @staticmethod
-    def order_amount_cents(order: Order) -> int:
-        """One-time charge for the order in minor units (cents).
+    def order_subtotal_cents(order: Order) -> int:
+        """One-time, PRE-TAX charge for the order in cents.
 
-        Only ONE_TIME lines are charged to the card upfront. RECURRING lines
-        (monthly device services / subscriptions) are billed separately by the
-        invoicing engine each cycle — including them here would double-bill them.
+        Only ONE_TIME lines are charged upfront. RECURRING lines are billed
+        monthly by the invoicing engine — including them here would double-bill.
         """
         total = 0
         for line in order.lines:
@@ -90,22 +91,60 @@ class SquareService:
             total += unit_amount * int(line.qty)
         return total
 
-    # ── payments ─────────────────────────────────────────────────────────────
-    def create_payment(self, order: Order, source_id: str, idempotency_key: str) -> dict:
-        """Charge the order's one-time total against the card nonce.
+    def _ship_to_address(self, order: Order) -> TaxAddress | None:
+        """Destination (tax jurisdiction) = the tenant's billing address, falling
+        back to operations_address. None if no usable US address is on file."""
+        row = self.db.get(TenantOnboarding, order.tenant_id)
+        if not row:
+            return None
+        addr = row.billing_address or {}
+        if not (addr.get('line1') or addr.get('postal_code')):
+            addr = row.operations_address or {}
+        if not (addr.get('postal_code') or addr.get('city')):
+            return None
+        return TaxAddress(
+            line1=addr.get('line1', ''),
+            city=addr.get('city', ''),
+            region=addr.get('state', ''),
+            postal_code=addr.get('postal_code', ''),
+            country=addr.get('country') or 'US',
+        )
 
-        Returns the Square ``payment`` object. ``idempotency_key`` makes retries
-        with the same key safe (Square returns the original payment, never a
-        double charge).
+    def order_charge_breakdown(self, order: Order) -> dict:
+        """{subtotal, tax, total, breakdown} in dollars for the one-time charge.
+
+        Tax is computed live from the tenant's own line prices (per-tenant
+        pricing) + destination address. Fails CLOSED: propagates AvalaraError so
+        the caller blocks the charge rather than under-collecting. When there's
+        nothing to tax or Avalara isn't configured, returns subtotal only.
         """
-        amount = self.order_amount_cents(order)
+        subtotal = self.order_subtotal_cents(order) / 100
+        if subtotal <= 0 or not AvalaraService.is_configured():
+            return {'subtotal': subtotal, 'tax': 0.0, 'total': subtotal, 'breakdown': []}
+
+        ship_to = self._ship_to_address(order)
+        if ship_to is None:
+            raise AvalaraError('No billing/operations address on file for this tenant; cannot calculate tax.')
+
+        quote = AvalaraService.estimate_tax(
+            subtotal=subtotal,
+            ship_to=ship_to,
+            customer_code=str(order.tenant_id),  # per-tenant, by who is logged in
+        )
+        return {'subtotal': quote.subtotal, 'tax': quote.tax,
+                'total': quote.total, 'breakdown': quote.breakdown}
+    # ── payments ─────────────────────────────────────────────────────────────
+    def create_payment(self, order: Order, source_id: str, idempotency_key: str,
+                       amount_cents: int | None = None) -> dict:
+        """Charge the card. ``amount_cents`` is the tax-inclusive total computed
+        by the caller (route) via order_charge_breakdown; falls back to the
+        pre-tax subtotal only if not supplied."""
+        amount = amount_cents if amount_cents is not None else self.order_subtotal_cents(order)
         payload = {
             'source_id': source_id,
             'idempotency_key': idempotency_key,
             'amount_money': {'amount': amount, 'currency': 'USD'},
             'location_id': _settings.square_location_id,
-            # reference_id lets the webhook map the payment back to our order
-            # without a side table (max 40 chars; a UUID is 36).
             'reference_id': str(order.id),
             'note': f'Order {getattr(order, "public_id", "") or order.id}',
             'autocomplete': True,

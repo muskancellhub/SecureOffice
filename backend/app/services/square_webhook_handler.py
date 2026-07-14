@@ -45,7 +45,7 @@ def _record_event(db: Session, event_id: str, event_type: str, payload: dict) ->
     return result.rowcount > 0
 
 
-def record_completed_payment(db: Session, payment: dict) -> Payment | None:
+def record_completed_payment(db: Session, payment: dict, tax_amount: float | None = None) -> Payment | None:
     """Idempotently mirror a captured Square payment into Invoice + Payment.
 
     No-op (returns None) when the payment is not in a paid status, has no
@@ -82,11 +82,13 @@ def record_completed_payment(db: Session, payment: dict) -> Payment | None:
     money = payment.get('amount_money') or {}
     amount = (money.get('amount') or 0) / 100
     currency = (money.get('currency') or 'USD').upper()
+    tax = round(float(tax_amount or 0.0), 2)
 
     invoice = Invoice(
         tenant_id=order.tenant_id,
         billing_month=date.today().replace(day=1),
-        amount=amount,
+        amount=amount,          # tax-inclusive total charged
+        tax_amount=tax,
         currency=currency,
         status=InvoiceStatus.PAID,
         due_date=date.today(),
@@ -98,6 +100,7 @@ def record_completed_payment(db: Session, payment: dict) -> Payment | None:
         tenant_id=order.tenant_id,
         invoice_id=invoice.id,
         amount=amount,
+        tax_amount=tax,
         currency=currency,
         method=PaymentMethod.SQUARE,
         status=PaymentStatus.SUCCEEDED,

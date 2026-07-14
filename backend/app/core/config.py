@@ -169,6 +169,18 @@ class Settings(BaseSettings):
     square_success_url: str = Field(default='', alias='SQUARE_SUCCESS_URL')
     square_cancel_url: str = Field(default='', alias='SQUARE_CANCEL_URL')
 
+    avalara_environment: str = Field(default='production', alias='AVALARA_ENVIRONMENT')
+    avalara_account_id: str = Field(default='', alias='AVALARA_ACCOUNT_ID')
+    avalara_license_key: str = Field(default='', alias='AVALARA_LICENSE_KEY')
+    allow_avalara_commit: bool = Field(default=False, alias='ALLOW_AVALARA_COMMIT')
+
+    @property
+    def avalara_base_url(self) -> str:
+        if (self.avalara_environment or 'production').strip().lower() == 'sandbox':
+            return 'https://sandbox-rest.avatax.com'
+        return 'https://rest.avatax.com'
+
+
     # Per-tenant PII encryption master key (KEK) — base64 of exactly 32 random
     # bytes (docs/PII_ENCRYPTION.md §5). Wraps every per-tenant DEK; never stored
     # in the DB. Generate with:

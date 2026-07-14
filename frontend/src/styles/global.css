@@ -14048,3 +14048,28 @@ textarea {
   font-weight: 600;
   white-space: nowrap;
 }
+
+/* Order charge summary (subtotal / sales tax / total) beside the Pay button. */
+.odx-pay-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+}
+.odx-pay-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  font-size: 14px;
+  color: var(--text-secondary, #5b5b6b);
+}
+.odx-pay-line.odx-pay-total {
+  padding-top: 6px;
+  border-top: 1px solid var(--border-subtle, #e5e5ee);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text-primary, #1c1c28);
+}
+.odx-pay-box .apx-add-btn {
+  margin-top: 6px;
+}

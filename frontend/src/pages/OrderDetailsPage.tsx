@@ -33,6 +33,7 @@ export const OrderDetailsPage = () => {
   const [error, setError] = useState('');
   const [showSquareForm, setShowSquareForm] = useState(false);
   const [paymentResult, setPaymentResult] = useState<SquarePaymentResult | null>(null);
+  const [taxQuote, setTaxQuote] = useState<commerceApi.OrderTaxQuote | null>(null);
 
   const load = async () => {
     if (!accessToken || !orderId) return;
@@ -44,6 +45,13 @@ export const OrderDetailsPage = () => {
       ]);
       setOrder(orderData);
       setWorkflow(workflowData);
+      if (!orderData.is_paid && orderData.status === 'SUBMITTED') {
+        try {
+          setTaxQuote(await commerceApi.getOrderTaxQuote(accessToken, orderId));
+        } catch {
+          setTaxQuote(null);
+        }
+      }
     } catch (err: any) {
       setError(extractApiError(err, 'Failed to load order'));
     }
@@ -65,6 +73,7 @@ export const OrderDetailsPage = () => {
   };
 
   const isPaid = !!order?.is_paid;
+  const taxUnavailable = !!taxQuote && !taxQuote.tax_available;
   const isPayable = order?.status === 'SUBMITTED' && !isPaid;
 
   // Card charge covers ONE-TIME lines only; recurring services are invoiced
@@ -74,6 +83,10 @@ export const OrderDetailsPage = () => {
       .filter((line) => line.billing !== 'RECURRING')
       .reduce((sum, line) => sum + (line.unit_price || 0) * (line.qty || 1), 0);
   }, [order?.lines]);
+
+  // Card charge = subtotal + sales tax (tax comes from the backend quote; JS never
+  // recomputes tax). Falls back to subtotal until the quote resolves.
+  const chargeTotal = taxQuote?.total ?? payTotal;
 
   const parentNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -128,7 +141,7 @@ export const OrderDetailsPage = () => {
       {showSquareForm && orderId && (
         <SquarePaymentForm
           orderId={orderId}
-          amountLabel={money(payTotal)}
+          amountLabel={money(chargeTotal)}
           onSuccess={onSquareSuccess}
           onCancel={() => setShowSquareForm(false)}
         />
@@ -185,9 +198,18 @@ export const OrderDetailsPage = () => {
               </div>
             </div>
             {isPayable && (
-              <button className="apx-add-btn" onClick={onPayWithCard} disabled={showSquareForm}>
-                <CreditCard size={18} /> Pay with card
-              </button>
+              <div className="odx-pay-box">
+                <div className="odx-pay-line"><span>Subtotal</span><span>{money(taxQuote?.subtotal ?? payTotal)}</span></div>
+                <div className="odx-pay-line">
+                  <span>Sales tax</span>
+                  <span>{taxQuote?.tax_available ? money(taxQuote?.tax ?? 0) : '—'}</span>
+                </div>
+                <div className="odx-pay-line odx-pay-total"><span>Total</span><span>{money(chargeTotal)}</span></div>
+                {taxUnavailable && <p className="mini-note error-text">{taxQuote?.message || 'Tax could not be calculated right now.'}</p>}
+                <button className="apx-add-btn" onClick={onPayWithCard} disabled={showSquareForm || taxUnavailable}>
+                  <CreditCard size={18} /> Pay with card
+                </button>
+              </div>
             )}
             {isPaid && (
               <span className="odx-paid-badge" title={order?.paid_at ? `Paid ${fmtIso(order.paid_at)}` : 'Paid'}>

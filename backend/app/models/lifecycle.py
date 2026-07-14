@@ -241,6 +241,7 @@ class Invoice(Base):
     )
     billing_month: Mapped[date] = mapped_column(Date, nullable=False)
     amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    tax_amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0, server_default='0')
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default='USD')
     status: Mapped[InvoiceStatus] = mapped_column(
         Enum(InvoiceStatus, name='invoice_status_v1', native_enum=False),
@@ -270,6 +271,7 @@ class Payment(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('tenants.id', ondelete='RESTRICT'), nullable=False)
     invoice_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('invoices.id', ondelete='CASCADE'), nullable=False)
     amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    tax_amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0, server_default='0')
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default='USD')
     status: Mapped[PaymentStatus] = mapped_column(
         Enum(PaymentStatus, name='payment_status_v1', native_enum=False),
