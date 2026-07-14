@@ -31,6 +31,8 @@ import type {
   QuoteSummary,
   SubscriptionStatus,
   SubscriptionSummary,
+  VendorOrderDetail,
+  VendorOrderSummary,
   WorkflowInstance,
 } from '../types/commerce';
 
@@ -188,6 +190,34 @@ export const listOrders = async (accessToken: string) => {
 export const getOrder = async (accessToken: string, orderId: string) => {
   const { data } = await api.get(`/orders/${orderId}`, { headers: authHeaders(accessToken) });
   return data as OrderDetail;
+};
+
+// Vendor dashboard: orders that contain this vendor's products, projected to
+// only their own lines (backend filters by the caller's vendor tenant).
+export const listVendorOrders = async (accessToken: string) => {
+  const { data } = await api.get('/vendor/orders', { headers: authHeaders(accessToken) });
+  return data as VendorOrderSummary[];
+};
+
+export const getVendorOrder = async (accessToken: string, orderId: string) => {
+  const { data } = await api.get(`/vendor/orders/${orderId}`, { headers: authHeaders(accessToken) });
+  return data as VendorOrderDetail;
+};
+
+export interface OrderTaxQuote {
+  subtotal: number;
+  tax: number | null;
+  total: number | null;
+  currency: string;
+  tax_available: boolean;
+  message?: string | null;
+}
+
+export const getOrderTaxQuote = async (accessToken: string, orderId: string) => {
+  const { data } = await api.get(`/billing/square/orders/${orderId}/tax-quote`, {
+    headers: authHeaders(accessToken),
+  });
+  return data as OrderTaxQuote;
 };
 
 export const getOrderNotificationRecipients = async (accessToken: string) => {

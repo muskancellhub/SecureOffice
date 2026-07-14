@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.permissions import PERM_MANAGE_MANAGED_SERVICES
+from app.core.permissions import PERM_MANAGE_MANAGED_SERVICES, PERM_VIEW_CATALOG
 from app.middleware.dependencies import get_current_user
 from app.middleware.tenant_context import TenantContext, get_tenant_context
 from app.models.catalog import CatalogItemType
@@ -37,12 +37,15 @@ def list_catalog_items(
     sort: str | None = Query(default='recommended'),
     page: int = Query(default=1, ge=1),
     page_size: int | None = Query(default=None, ge=1, le=250),
-    _: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
     ctx: TenantContext = Depends(get_tenant_context),
     db: Session = Depends(get_db),
 ):
     """Product-backed catalog (Phase 7 WS3), priced for the EFFECTIVE tenant —
     switching the active tenant (X-Tenant-Id) reprices every card."""
+    # Gate on view_catalog so vendor tokens (orders-only scope) can't read the
+    # catalog — every buyer role holds this permission.
+    AuthorizationService(db).require(current_user, PERM_VIEW_CATALOG)
     service = CatalogService(db)
     items = service.list_items(
         item_type=type,
@@ -70,10 +73,11 @@ def list_catalog_items(
 @router.get('/catalog/{item_id}', response_model=CatalogItemResponse)
 def get_catalog_item(
     item_id: str,
-    _: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
     ctx: TenantContext = Depends(get_tenant_context),
     db: Session = Depends(get_db),
 ):
+    AuthorizationService(db).require(current_user, PERM_VIEW_CATALOG)
     service = CatalogService(db)
     item = service.get_item_by_id(item_id, tenant_id=ctx.effective_tenant_id, include_components=True)
     return CatalogItemResponse(**service.to_catalog_response_dict(item))

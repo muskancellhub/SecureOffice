@@ -80,18 +80,19 @@ ADMIN_PERMISSION_SCOPE = USER_PERMISSION_SCOPE | {
 
 SUPER_ADMIN_PERMISSION_SCOPE = set(PERMISSION_CATALOG.keys())
 
+# Vendor dashboard v1 is orders-only: a vendor may see ONLY the orders that
+# contain their products — no catalog browsing, product management, analytics,
+# or team management yet. Those perms (PERM_MANAGE_PRODUCTS, PERM_VIEW_CATALOG,
+# PERM_VIEW_VENDOR_ANALYTICS, PERM_MANAGE_VENDOR_TEAM) stay defined and get
+# re-added here when the corresponding slices ship. Keeping view_catalog OUT is
+# what stops a vendor token from reading /catalog or surfacing catalog items in
+# global search (both gate on view_catalog).
 VENDOR_ADMIN_PERMISSION_SCOPE = {
-    PERM_MANAGE_PRODUCTS,
     PERM_VIEW_VENDOR_ORDERS,
-    PERM_MANAGE_VENDOR_TEAM,
-    PERM_VIEW_VENDOR_ANALYTICS,
-    PERM_VIEW_CATALOG,
 }
 
 VENDOR_USER_PERMISSION_SCOPE = {
     PERM_VIEW_VENDOR_ORDERS,
-    PERM_VIEW_CATALOG,
-    PERM_VIEW_VENDOR_ANALYTICS,
 }
 
 COMPANY_ADMIN_PERMISSION_SCOPE = {

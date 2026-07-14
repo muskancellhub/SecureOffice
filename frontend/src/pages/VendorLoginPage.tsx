@@ -21,7 +21,9 @@ export const VendorLoginPage = () => {
     setLoading(true);
     try {
       await login({ email, password });
-      navigate(nextParam || '/shop/dashboard', { replace: true });
+      // Land on /shop, which routes vendors to their dashboard and everyone else
+      // to the buyer flow (see ShopLandingPage).
+      navigate(nextParam || '/shop', { replace: true });
     } catch (err: any) {
       setError(extractApiError(err, 'Login failed. Check your credentials.'));
     } finally {
