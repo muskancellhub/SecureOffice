@@ -99,7 +99,12 @@ class LifecycleService:
             raise UnauthorizedError('User not found')
 
     def _assert_order_access(self, current_user: dict, order: Order) -> None:
-        if self._is_admin(current_user.get('role')):
+        role = current_user.get('role')
+        # SUPER_ADMIN operates cross-tenant (mirrors OrderService.get_order), so
+        # the order-detail workflow loads for any tenant's order, not just CellHub.
+        if role == UserRole.SUPER_ADMIN.value:
+            return
+        if self._is_admin(role):
             if str(order.tenant_id) != current_user['tenant_id']:
                 raise ForbiddenError('Order not found in your tenant')
             return
