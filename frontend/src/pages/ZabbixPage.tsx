@@ -389,7 +389,7 @@ export const ZabbixPage = () => {
                 type="url"
                 placeholder="https://zabbix.example.com"
                 value={credsUrl}
-                onChange={(e) => setCredsUrl(e.target.value)}
+                onChange={(e) => { setCredsUrl(e.target.value); setCredsError(''); }}
                 disabled={credsSaving}
               />
             </label>
@@ -399,7 +399,7 @@ export const ZabbixPage = () => {
                 type="text"
                 autoComplete="off"
                 value={credsUsername}
-                onChange={(e) => setCredsUsername(e.target.value)}
+                onChange={(e) => { setCredsUsername(e.target.value); setCredsError(''); }}
                 disabled={credsSaving}
               />
             </label>
@@ -410,7 +410,7 @@ export const ZabbixPage = () => {
                 autoComplete="new-password"
                 placeholder="••••••••"
                 value={credsPassword}
-                onChange={(e) => setCredsPassword(e.target.value)}
+                onChange={(e) => { setCredsPassword(e.target.value); setCredsError(''); }}
                 disabled={credsSaving}
               />
             </label>
