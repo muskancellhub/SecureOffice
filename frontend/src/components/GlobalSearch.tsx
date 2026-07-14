@@ -61,15 +61,16 @@ const handleSelect = (hit: SearchHit, position: number) => {
     }
     setOpen(false);
 
-    // Slice 4: action hits route to their flow; products open their detail page.
-    if (hit.type === 'action') {
-        const route = ACTION_ROUTES[hit.id];
-        if (route) navigate(route);
-        return;
-    }
-    if (hit.type === 'product') {
-        navigate(`/shop/routers/${hit.id}`);
-    }
+    // Slice 6: the backend supplies a deep-link per hit. Fall back to the
+    // legacy per-type routing for older hits without a url.
+    const dest =
+        hit.url ??
+        (hit.type === 'action'
+            ? ACTION_ROUTES[hit.id]
+            : hit.type === 'product'
+                ? `/shop/routers/${hit.id}`
+                : undefined);
+    if (dest) navigate(dest);
 };
 
 return (
