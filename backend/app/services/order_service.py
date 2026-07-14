@@ -36,7 +36,16 @@ class OrderService:
         if not order:
             raise NotFoundError('Order not found')
 
-        if self._is_admin(current_user.get('role')):
+        role = current_user.get('role')
+        # SUPER_ADMIN is the cross-tenant operator — they can open any order by id
+        # (support console / direct URL), not just orders in their home tenant.
+        # BUG-TENANT-001 fixed this for list_orders; get_order was still pinned to
+        # the JWT home tenant, so a super-admin got 403 on any non-CellHub order.
+        if role == UserRole.SUPER_ADMIN.value:
+            return order
+
+        # Regular ADMIN stays scoped to their own tenant.
+        if self._is_admin(role):
             if str(order.tenant_id) != current_user['tenant_id']:
                 raise ForbiddenError('Order not found in your tenant')
             return order
