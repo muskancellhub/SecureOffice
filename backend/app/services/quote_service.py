@@ -236,7 +236,6 @@ class QuoteService:
                 product.id, financial_model=financial_model, interval='MONTH',
                 selections=group['selections'], tenant_id=tenant_id,
             )
-            self._validate_requires_device(result)
             self._check_capacity(product, result)
             groups.append({
                 'product': product,
@@ -262,6 +261,11 @@ class QuoteService:
                 'services': [],
             })
 
+        # Requires-device is a QUOTE-wide rule (§5): a device in ANY group (grouped
+        # or standalone) satisfies it for every line charge in the cart. Validating
+        # per-group here would reject a line-charge product that shares the cart
+        # with a device product in a different group.
+        self._validate_requires_device_across_groups(groups)
         return groups, currency
 
     @staticmethod
@@ -458,6 +462,26 @@ class QuoteService:
                 raise AppError(
                     f"{line['component_type']} requires a device line in the same quote", 400
                 )
+
+    @staticmethod
+    def _validate_requires_device_across_groups(groups: list[dict]) -> None:
+        """Quote-wide requires-device rule (§5). A DEVICE line in ANY group in the
+        cart (grouped or standalone) satisfies the requirement for every LINE_CHARGE
+        / SIM in the quote — unlike _validate_requires_device, which only sees one
+        product's lines and wrongly rejects a line-charge product that shares the
+        cart with a device product in a different group."""
+        has_device = any(
+            l['component_type'] == ComponentType.DEVICE.value
+            for g in groups for l in g['result']['lines']
+        )
+        if has_device:
+            return
+        for g in groups:
+            for line in g['result']['lines']:
+                if line['component_type'] in REQUIRES_DEVICE_TYPES:
+                    raise AppError(
+                        f"{line['component_type']} requires a device line in the same quote", 400
+                    )
 
     def _component_line_kwargs(self, quote_id, product, financial_model, result, line, parent_line_id,
                                extra_metadata: dict | None = None):
@@ -761,6 +785,19 @@ class QuoteService:
                   old_status=old_status.value, new_status=QuoteStatus.ACCEPTED.value)
         return self.quote_repo.get_by_id(str(quote.id))
 
+    def _vendor_tenant_by_product(self, lines) -> dict:
+        """Map product_id -> vendor_tenant_id for the given lines in one query,
+        so order lines can be stamped with the durable vendor link at creation."""
+        product_ids = {line.product_id for line in lines if line.product_id}
+        if not product_ids:
+            return {}
+        rows = (
+            self.db.query(Product.id, Product.vendor_tenant_id)
+            .filter(Product.id.in_(product_ids))
+            .all()
+        )
+        return {pid: vendor_tenant_id for pid, vendor_tenant_id in rows}
+
     def convert_quote(self, current_user: dict, quote_id: str):
         quote = self.get_quote(current_user, quote_id)
         if not self.onboarding_service.is_payment_validated(current_user['tenant_id']):
@@ -787,6 +824,9 @@ class QuoteService:
             key=lambda line: 1 if line.line_type == QuoteLineType.SERVICE else 0,
         )
         order_line_id_by_quote_line_id: dict[str, str] = {}
+        # Resolve the durable vendor→tenant link once for the whole order so each
+        # order line carries vendor_tenant_id at creation (no backfill needed).
+        vendor_tenant_by_product = self._vendor_tenant_by_product(sorted_lines)
 
         for quote_line in sorted_lines:
             parent_line_id = None
@@ -813,6 +853,7 @@ class QuoteService:
                 financial_model=quote_line.financial_model,
                 product_id=quote_line.product_id,
                 component_id=quote_line.component_id,
+                vendor_tenant_id=vendor_tenant_by_product.get(quote_line.product_id),
                 cost_snapshot=quote_line.cost_snapshot,
                 margin_pct_snapshot=quote_line.margin_pct_snapshot,
                 leasing_pct_snapshot=quote_line.leasing_pct_snapshot,

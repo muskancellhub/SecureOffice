@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CreditCard, Download, TrendingUp } from 'lucide-react';
 import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
-import type { BillingOverview, InvoiceRecord, OnboardingProfile, SubscriptionSummary } from '../types/commerce';
+import type { Address, BillingOverview, InvoiceRecord, OnboardingProfile, PaymentRecord, SubscriptionSummary } from '../types/commerce';
 import { extractApiError } from '../utils/extractApiError';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -33,13 +33,57 @@ const csvCell = (value: string | number): string => {
   const str = String(value ?? '');
   return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
 };
+const formatAddress = (addr?: Address): string => {
+  if(!addr) return ''; //null or undefined
+  return [addr.line1, addr.line2, addr.city, addr.state, addr.postal_code, addr.country]
+  .filter(Boolean) //filter out empty or null strinhgs
+  .join(', ');
+};
 
-const downloadCsv = (filename: string, rows: InvoiceRecord[]) => {
-  const header = ['Invoice', 'Period', 'Status', 'Amount', 'Due date'];
+const successfulPayment= (invoice: InvoiceRecord) : PaymentRecord | null => 
+  invoice.payments.find((p) => p.status === 'SUCCEEDED') ?? null;
+
+const downloadCsv = (filename: string, rows: InvoiceRecord[], profile: OnboardingProfile | null) => {
+  const header = [
+    'Invoice ID',
+    'Customer',
+    'Customer Email',
+    'Billing Address',
+    'Billing Period',
+    'Issue Date',
+    'Due Date',
+    'Status',
+    'Total Amount',
+    'Currency',
+    'Payment Method',
+    'Payment Date',
+    'Payment Reference',
+  ];
+  
   const lines = [header.join(',')].concat(
-    rows.map((r) => [invoiceRef(r), periodLong(r.billing_month), r.status, r.amount.toFixed(2), r.due_date]
-      .map(csvCell).join(',')),
+    rows.map((r) => {
+      // Look up the successful payment (if any) for this specific invoice.
+      const paid = successfulPayment(r);
+      return [
+        invoiceRef(r),                              // Invoice ID (e.g. INV-1A2B3C4D)
+        profile?.organization_name ?? '',           // Customer (same for all rows in this tenant)
+        profile?.admin_email ?? '',                 // Customer Email
+        formatAddress(profile?.billing_address),    // Billing Address (flattened)
+        periodLong(r.billing_month),                // Billing Period (e.g. "Jun 2026")
+        r.issued_at,                                // Issue Date (raw ISO date)
+        r.due_date,                                 // Due Date
+        r.status,                                   // DUE | PAID | VOID
+        r.amount.toFixed(2),                        // Total Amount, 2 decimals
+        r.currency,                                 // Currency (e.g. USD)
+        paid?.method ?? '',                         // How it was paid: CARD | BANK_TRANSFER | MANUAL
+        r.paid_at ?? paid?.paid_at ?? '',           // When it was paid (invoice field, fall back to payment)
+        paid?.external_reference ?? '',             // Gateway/txn reference, if any
+      ]
+        .map(csvCell) // escape commas/quotes/newlines in every cell
+        .join(',');
+    }),
   );
+
   const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -248,7 +292,7 @@ export const BillingPage = () => {
               )}
               <button
                 className="bil-link-btn"
-                onClick={() => downloadCsv('invoices.csv', invoices)}
+                onClick={() => downloadCsv('invoices.csv', invoices, profile)}
                 disabled={invoices.length === 0}
               >
                 Export all
@@ -289,7 +333,7 @@ export const BillingPage = () => {
                         className="bil-download-btn"
                         title="Download invoice (CSV)"
                         aria-label="Download invoice"
-                        onClick={() => downloadCsv(`${invoiceRef(invoice)}.csv`, [invoice])}
+                        onClick={() => downloadCsv(`${invoiceRef(invoice)}.csv`, [invoice], profile)}
                       >
                         <Download size={16} />
                       </button>

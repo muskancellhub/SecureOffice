@@ -24,6 +24,8 @@ import { AdminUserManagementPage } from '../pages/AdminUserManagementPage';
 import { AdminOrderNotificationsPage } from '../pages/AdminOrderNotificationsPage';
 import { BillingPage } from '../pages/BillingPage';
 import { CustomerDashboardPage } from '../pages/CustomerDashboardPage';
+import { VendorDashboardPage } from '../pages/VendorDashboardPage';
+import { VendorOrderDetailsPage } from '../pages/VendorOrderDetailsPage';
 import { IntroHomePage } from '../pages/IntroHomePage';
 import { OnboardingPage } from '../pages/OnboardingPage';
 import { ManagedServicesCatalogPage } from '../pages/ManagedServicesCatalogPage';
@@ -75,6 +77,11 @@ export const AppRouter = () => (
       <Route path="/shop/onboarding" element={<OnboardingPage />} />
       <Route path="/shop/home" element={<IntroHomePage />} />
       <Route path="/shop/dashboard" element={<CustomerDashboardPage />} />
+      {/* Vendor (supplier) order-visibility dashboard — gated on the vendor
+          permission so buyers/staff can't reach it even by typing the URL. */}
+      <Route path="/shop/vendor" element={<RequirePermission permission="view_vendor_orders"><VendorDashboardPage /></RequirePermission>} />
+      <Route path="/shop/vendor/orders" element={<RequirePermission permission="view_vendor_orders"><VendorDashboardPage /></RequirePermission>} />
+      <Route path="/shop/vendor/orders/:orderId" element={<RequirePermission permission="view_vendor_orders"><VendorOrderDetailsPage /></RequirePermission>} />
       <Route path="/shop/designs" element={<DesignHistoryPage />} />
       <Route path="/shop/designs/new" element={<NetworkDesignBuilderPage />} />
       <Route path="/shop/designs/:designId" element={<DesignDetailPage />} />

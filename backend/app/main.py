@@ -236,6 +236,7 @@ def startup() -> None:
                 )
                 db.add(vendor_profile)
                 db.flush()
+                from app.core.permissions import VENDOR_ADMIN_PERMISSION_SCOPE
                 vendor_user = User(
                     email=vendor_email,
                     name='Demo Vendor',
@@ -244,7 +245,10 @@ def startup() -> None:
                     is_verified=True,
                     role=UserRole.ADMIN,
                     user_type=UserType.VENDOR,
-                    permissions=default_permissions_for_role(UserRole.ADMIN),
+                    # Vendor-specific scope (incl. view_vendor_orders) so the vendor
+                    # dashboard + /vendor/orders are reachable. The generic ADMIN
+                    # scope lacks view_vendor_orders and would 403 the guard.
+                    permissions=sorted(VENDOR_ADMIN_PERMISSION_SCOPE),
                     tenant_id=vendor_tenant.id,
                 )
                 db.add(vendor_user)
@@ -252,6 +256,83 @@ def startup() -> None:
                 TenantProvisioningService(db).provision(vendor_tenant.id)
                 db.commit()
                 logger.info('[dev] seeded demo vendor: vendor@gmail.com / vendor123 (APP_ENV=%s)', settings.app_env)
+
+            # MIX Networks — the real onboarded supplier whose catalog we resell.
+            # company_name MUST equal mix_seed.MIX_VENDOR so its seeded products
+            # (products.vendor = 'MIX Networks') link to this tenant, giving the
+            # vendor dashboard real orders to show.
+            from sqlalchemy import text as _text
+            from app.core.permissions import VENDOR_ADMIN_PERMISSION_SCOPE
+            from app.services.mix_seed import MIX_VENDOR
+            mix_email = 'vendor@mixnetworks.com'
+            if not db.scalar(select(User).where(User.email == mix_email)):
+                from app.core.security import hash_value
+                mix_tenant = Tenant(name=MIX_VENDOR, tenant_type=TenantType.VENDOR)
+                db.add(mix_tenant)
+                db.flush()
+                db.add(Vendor(
+                    tenant_id=mix_tenant.id,
+                    company_name=MIX_VENDOR,
+                    address_street='1 Network Way',
+                    address_city='Dallas',
+                    address_state='TX',
+                    address_zip='75201',
+                    company_website='https://mixnetworks.com',
+                    company_email='orders@mixnetworks.com',
+                    federal_tax_id='98-7654321',
+                    bbb_good_standing=True,
+                    sos_good_standing=True,
+                    corporate_liable_sales=True,
+                    is_approved=True,
+                ))
+                mix_user = User(
+                    email=mix_email,
+                    name='MIX Networks Admin',
+                    password_hash=hash_value('Password123!'),
+                    provider='LOCAL',
+                    is_verified=True,
+                    role=UserRole.ADMIN,
+                    user_type=UserType.VENDOR,
+                    permissions=sorted(VENDOR_ADMIN_PERMISSION_SCOPE),
+                    tenant_id=mix_tenant.id,
+                )
+                db.add(mix_user)
+                from app.services.tenant_provisioning_service import TenantProvisioningService
+                TenantProvisioningService(db).provision(mix_tenant.id)
+                db.flush()
+                # Link MIX's catalog + any historical order lines to this tenant now
+                # (the runtime-migration backfill also does this on later boots).
+                db.execute(_text(
+                    'UPDATE products SET vendor_tenant_id = :tid '
+                    'WHERE vendor = :name AND vendor_tenant_id IS NULL'
+                ), {'tid': mix_tenant.id, 'name': MIX_VENDOR})
+                db.execute(_text(
+                    'UPDATE order_lines ol SET vendor_tenant_id = :tid FROM products p '
+                    'WHERE ol.product_id = p.id AND p.vendor = :name AND ol.vendor_tenant_id IS NULL'
+                ), {'tid': mix_tenant.id, 'name': MIX_VENDOR})
+                db.execute(_text(
+                    'UPDATE order_lines SET vendor_tenant_id = :tid '
+                    'WHERE vendor = :name AND vendor_tenant_id IS NULL'
+                ), {'tid': mix_tenant.id, 'name': MIX_VENDOR})
+                db.commit()
+                logger.info('[dev] seeded MIX vendor: vendor@mixnetworks.com / Password123! (APP_ENV=%s)', settings.app_env)
+
+    # Enforce the v1 vendor policy (orders-only) on every vendor account,
+    # including any provisioned before the scope was narrowed — otherwise a
+    # stale `view_catalog`/`manage_products` grant would still let a vendor read
+    # the catalog. Mirrors the super-admin reconciliation above.
+    from app.core.permissions import VENDOR_ADMIN_PERMISSION_SCOPE
+    with SessionLocal() as db:
+        vendor_users = db.scalars(select(User).where(User.user_type == UserType.VENDOR)).all()
+        target = sorted(VENDOR_ADMIN_PERMISSION_SCOPE)
+        changed = False
+        for vu in vendor_users:
+            if sorted(vu.permissions or []) != target:
+                vu.permissions = list(target)
+                changed = True
+        if changed:
+            db.commit()
+            logger.info('Reconciled %d vendor user(s) to orders-only scope', len(vendor_users))
 
     register_oauth_clients()
 
@@ -383,6 +464,8 @@ app.include_router(designs_router)
 app.include_router(cart_router)
 app.include_router(quotes_router)
 app.include_router(orders_router)
+from app.routes.vendor import router as vendor_router
+app.include_router(vendor_router)
 app.include_router(pricing_router)
 app.include_router(products_router)
 app.include_router(bundles_router)

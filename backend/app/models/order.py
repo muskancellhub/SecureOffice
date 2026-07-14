@@ -107,6 +107,13 @@ class OrderLine(Base):
     component_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey('product_components.id', ondelete='SET NULL'), nullable=True
     )
+    # Snapshot FK to the supplier's VENDOR tenant (mirrors vendor_snapshot but
+    # id-based). Populated from the source Product at line creation; SET NULL so
+    # the line survives a product/vendor delete. This is what /vendor/orders
+    # filters on — a vendor sees only lines whose vendor_tenant_id == their tenant.
+    vendor_tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey('tenants.id', ondelete='SET NULL'), nullable=True, index=True
+    )
     cost_snapshot: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False, default=0, server_default='0')
     margin_pct_snapshot: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0, server_default='0')
     leasing_pct_snapshot: Mapped[float | None] = mapped_column(Numeric(6, 4), nullable=True)

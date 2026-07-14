@@ -773,13 +773,26 @@ class NetworkDesignService:
             self.db.delete(existing)
         self.db.flush()
 
-        for quote_line in list(quote.lines or []):
+        # Durable vendor→tenant link, resolved once for the order's lines.
+        quote_lines = list(quote.lines or [])
+        product_ids = {ql.product_id for ql in quote_lines if ql.product_id}
+        vendor_tenant_by_product: dict = {}
+        if product_ids:
+            vendor_tenant_by_product = {
+                pid: vtid
+                for pid, vtid in self.db.query(Product.id, Product.vendor_tenant_id)
+                .filter(Product.id.in_(product_ids))
+                .all()
+            }
+
+        for quote_line in quote_lines:
             order_line = OrderLine(
                 order_id=order.id,
                 line_type=quote_line.line_type,
                 catalog_item_id=quote_line.catalog_item_id,
                 product_id=quote_line.product_id,
                 component_id=quote_line.component_id,
+                vendor_tenant_id=vendor_tenant_by_product.get(quote_line.product_id),
                 name_snapshot=quote_line.name_snapshot,
                 sku_snapshot=quote_line.sku_snapshot,
                 vendor_snapshot=quote_line.vendor_snapshot,

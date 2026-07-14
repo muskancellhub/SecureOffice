@@ -783,6 +783,11 @@ def apply_runtime_migrations() -> None:
         conn.execute(text("ALTER TABLE order_lines ALTER COLUMN list_price_snapshot SET DEFAULT 0"))
         conn.execute(text("ALTER TABLE order_lines ALTER COLUMN list_price_snapshot SET NOT NULL"))
 
+        # Avalara sales tax — persisted tax on the charge + invoice
+        # (docs/plans/AVALARA_TAX_PLAN.md). Tax-inclusive total stays in `amount`.
+        conn.execute(text("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS tax_amount NUMERIC(12, 2) NOT NULL DEFAULT 0"))
+        conn.execute(text("ALTER TABLE payments ADD COLUMN IF NOT EXISTS tax_amount NUMERIC(12, 2) NOT NULL DEFAULT 0"))
+
         # Pricing tables (customer commercial config + per-deal discounts).
         # Phase 7 dropped the legacy list_prices table — the component engine
         # owns every live price (cost × (1 + markup)).
@@ -919,6 +924,76 @@ def apply_runtime_migrations() -> None:
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
+                """
+            )
+        )
+
+        # ── Vendor dashboard: id-based product/order → vendor tenant link ──
+        # Orders are keyed to the BUYER's tenant; the only vendor attribution was
+        # a denormalized string (products.vendor / order_lines.vendor_snapshot,
+        # e.g. 'MIX Networks'). Add a durable vendor_tenant_id FK to both, then
+        # backfill it ONCE from the legacy name by matching vendors.company_name.
+        # New order lines set the FK at creation (order/network-design services),
+        # so the name match is only ever used to seed history. Idempotent.
+        conn.execute(text("ALTER TABLE products ADD COLUMN IF NOT EXISTS vendor_tenant_id UUID"))
+        conn.execute(text("ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS vendor_tenant_id UUID"))
+        conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint WHERE conname = 'products_vendor_tenant_id_fkey'
+                    ) THEN
+                        ALTER TABLE products
+                        ADD CONSTRAINT products_vendor_tenant_id_fkey
+                        FOREIGN KEY (vendor_tenant_id) REFERENCES tenants(id) ON DELETE SET NULL;
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint WHERE conname = 'order_lines_vendor_tenant_id_fkey'
+                    ) THEN
+                        ALTER TABLE order_lines
+                        ADD CONSTRAINT order_lines_vendor_tenant_id_fkey
+                        FOREIGN KEY (vendor_tenant_id) REFERENCES tenants(id) ON DELETE SET NULL;
+                    END IF;
+                END
+                $$;
+                """
+            )
+        )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_products_vendor_tenant ON products (vendor_tenant_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_order_lines_vendor_tenant ON order_lines (vendor_tenant_id)"))
+        # One-time name-string → tenant-id backfill (self-heals each boot once the
+        # matching vendor tenant exists — the MIX vendor seed also runs it eagerly).
+        conn.execute(
+            text(
+                """
+                UPDATE products p
+                SET vendor_tenant_id = v.tenant_id
+                FROM vendors v
+                WHERE p.vendor = v.company_name AND p.vendor_tenant_id IS NULL
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE order_lines ol
+                SET vendor_tenant_id = p.vendor_tenant_id
+                FROM products p
+                WHERE ol.product_id = p.id
+                  AND p.vendor_tenant_id IS NOT NULL
+                  AND ol.vendor_tenant_id IS NULL
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE order_lines ol
+                SET vendor_tenant_id = v.tenant_id
+                FROM vendors v
+                WHERE ol.vendor = v.company_name AND ol.vendor_tenant_id IS NULL
                 """
             )
         )

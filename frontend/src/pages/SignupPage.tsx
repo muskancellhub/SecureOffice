@@ -61,7 +61,7 @@ export const SignupPage = () => {
         <input type="text" placeholder="Full Name" value={name} onChange={(e) => setName(e.target.value)} required />
         <input type="text" placeholder="Company Name" value={companyName} onChange={(e) => setCompanyName(e.target.value)} required />
         <input type="email" placeholder="Company Email Address" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <PhoneInput value={mobile} onChange={setMobile} />
+        <PhoneInput value={mobile} onChange={setMobile} aria-label="Mobile Number" />
         <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
         {error && <div className="error-text">{error}</div>}
         <button className="primary-btn" type="submit" disabled={loading}>{loading ? 'Creating...' : 'Continue'}</button>

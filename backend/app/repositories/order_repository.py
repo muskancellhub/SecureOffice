@@ -44,3 +44,17 @@ class OrderRepository:
             .order_by(desc(Order.created_at))
         )
         return list(self.db.scalars(stmt).all())
+
+    def list_for_vendor(self, vendor_tenant_id: str) -> list[Order]:
+        """Orders (buyer orders) that contain at least one line supplied by this
+        vendor tenant. Distinct on the order; all lines are eager-loaded (the
+        route projects them down to just this vendor's). Ordered newest-first."""
+        stmt = (
+            select(Order)
+            .join(OrderLine, OrderLine.order_id == Order.id)
+            .where(OrderLine.vendor_tenant_id == uuid.UUID(vendor_tenant_id))
+            .options(selectinload(Order.lines), selectinload(Order.quote))
+            .order_by(desc(Order.created_at))
+            .distinct()
+        )
+        return list(self.db.scalars(stmt).all())

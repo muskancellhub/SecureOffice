@@ -181,6 +181,38 @@ export interface OrderDetail extends OrderSummary {
   paid_at?: string | null;
 }
 
+// Vendor-facing order projection — a supplier sees only the lines they supply
+// and each order's fulfillment status. No pricing/margin fields exist here by
+// design (the backend strips them server-side; see schemas/vendor_orders.py).
+export interface VendorOrderLine {
+  id: string;
+  name: string;
+  sku: string | null;
+  qty: number;
+  line_type: 'DEVICE' | 'SERVICE';
+  component_type: string | null;
+  billing: 'ONE_TIME' | 'RECURRING';
+  interval: 'MONTH' | 'YEAR' | null;
+  created_at: string;
+}
+
+export interface VendorOrderSummary {
+  id: string;
+  public_id: string;
+  status: string;
+  buyer_company?: string | null;
+  estimated_delivery_date?: string | null;
+  confirmed_delivery_date?: string | null;
+  line_count: number;
+  total_qty: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VendorOrderDetail extends VendorOrderSummary {
+  lines: VendorOrderLine[];
+}
+
 export interface OrderNotificationRecipients {
   tenant_id: string;
   recipients: string[];

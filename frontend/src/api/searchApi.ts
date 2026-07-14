@@ -5,6 +5,7 @@ export interface SearchHit {
     type: string;
     title: string;
     subtitle?: string;
+    url?: string;   // deep-link to navigate to (Slice 6)
 }
 
 export const globalSearch = async (

@@ -66,10 +66,18 @@ class Product(Base):
     __tablename__ = 'products'
     __table_args__ = (
         Index('idx_products_vendor_tech', 'vendor', 'technology'),
+        Index('idx_products_vendor_tenant', 'vendor_tenant_id'),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     vendor: Mapped[str] = mapped_column(String(128), nullable=False)
+    # Durable, id-based link to the supplier's VENDOR tenant. The `vendor` string
+    # above stays as the catalog/display label; this FK is what vendor-scoped
+    # order queries key off (nullable — not every product maps to an onboarded
+    # vendor tenant). SET NULL so deleting a vendor tenant doesn't cascade the SKU.
+    vendor_tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey('tenants.id', ondelete='SET NULL'), nullable=True
+    )
     technology: Mapped[str] = mapped_column(String(128), nullable=False)
     sku: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     vendor_sku: Mapped[str | None] = mapped_column(String(128), nullable=True)

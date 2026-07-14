@@ -1,6 +1,6 @@
 import { Boxes, Landmark, LayoutGrid, LogOut, Mail, MonitorCheck, Package, PanelLeft, PencilRuler, ReceiptText, RefreshCcw, Router, ShieldCheck, ShoppingCart, Sparkles, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useShop } from '../../context/ShopContext';
 import { ChatBot } from '../ChatBot';
@@ -20,6 +20,9 @@ export const ShopShell = () => {
   const canManageUserAccess = permissionSet.has('manage_users');
   const canManageLifecycle = permissionSet.has('manage_lifecycle');
   const canViewBilling = permissionSet.has('view_billing');
+  // Vendors (suppliers) get a trimmed nav — just their order visibility — not the
+  // buyer commerce flow (Catalog/Cart/Designs) which doesn't apply to them.
+  const isVendor = user?.user_type === 'VENDOR';
   const onboardingCompleted = Boolean(user?.onboarding_completed);
   const onboardingSkipped = window.localStorage.getItem('so2_onboarding_skip') === '1';
   // Super-admins browse other tenants via the switcher; an incomplete target
@@ -35,10 +38,19 @@ export const ShopShell = () => {
   useEffect(() => {
     if (!user) return;
     const path = location.pathname;
-    if (!onboardingCompleted && !onboardingSkipped && !isSuperAdmin && path !== '/shop/onboarding') {
+    if (!onboardingCompleted && !onboardingSkipped && !isSuperAdmin && !isVendor && path !== '/shop/onboarding') {
       navigate('/shop/onboarding', { replace: true });
     }
-  }, [user, onboardingCompleted, onboardingSkipped, isSuperAdmin, location.pathname, navigate]);
+  }, [user, onboardingCompleted, onboardingSkipped, isSuperAdmin, isVendor, location.pathname, navigate]);
+
+  // Hard lockdown: a vendor may ONLY be on their own pages. Any other /shop/*
+  // URL (typed directly, bookmarked, or reached via search) bounces to the
+  // vendor dashboard before the buyer page mounts or fires its API calls. This
+  // is the route-level counterpart to the trimmed sidebar and the backend
+  // permission gates.
+  if (isVendor && location.pathname !== '/shop' && !location.pathname.startsWith('/shop/vendor')) {
+    return <Navigate to="/shop/vendor" replace />;
+  }
 
   return (
     <div
@@ -69,6 +81,22 @@ export const ShopShell = () => {
             </button>
           </div>
 
+          {isVendor ? (
+            <>
+              <div className="nav-section-label sidebar-fade-target">Vendor</div>
+              <nav className="main-nav streamly-nav">
+                <NavLink to="/shop/vendor" end>
+                  <LayoutGrid size={17} />
+                  <span className="sidebar-fade-target">Dashboard</span>
+                </NavLink>
+                <NavLink to="/shop/vendor/orders">
+                  <Package size={17} />
+                  <span className="sidebar-fade-target">Orders</span>
+                </NavLink>
+              </nav>
+            </>
+          ) : (
+          <>
           <div className="nav-section-label sidebar-fade-target">Workspace</div>
           <nav className="main-nav streamly-nav">
             <NavLink to="/shop/dashboard">
@@ -161,6 +189,8 @@ export const ShopShell = () => {
               </NavLink>
             )}
           </nav>
+          </>
+          )}
 
           <div className="sidebar-profile">
             <span className="avatar-wrap avatar-initials" aria-hidden="true">
@@ -188,16 +218,21 @@ export const ShopShell = () => {
 
       <main className="shop-main">
         <header className="shop-main-topbar">
-          <TenantSwitcher />
-          <GlobalSearch />
-          <button className="icon-circle-btn cart-icon-btn" onClick={() => navigate('/shop/cart')} aria-label="Open cart">
-            <ShoppingCart size={16} />
-            <span className="cart-badge">{cart?.lines?.length || 0}</span>
-          </button>
+          {!isVendor && <TenantSwitcher />}
+          {/* Search surfaces catalog/orders a vendor isn't scoped to — omit it. */}
+          {!isVendor && <GlobalSearch />}
+          {!isVendor && (
+            <button className="icon-circle-btn cart-icon-btn" onClick={() => navigate('/shop/cart')} aria-label="Open cart">
+              <ShoppingCart size={16} />
+              <span className="cart-badge">{cart?.lines?.length || 0}</span>
+            </button>
+          )}
         </header>
         <Outlet />
       </main>
-      <ChatBot />
+      {/* AI assistant answers catalog/design/commerce questions a vendor isn't
+          scoped to — not part of the orders-only vendor experience. */}
+      {!isVendor && <ChatBot />}
     </div>
   );
 };
