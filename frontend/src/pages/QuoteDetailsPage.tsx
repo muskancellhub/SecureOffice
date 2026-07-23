@@ -81,7 +81,10 @@ export const QuoteDetailsPage = () => {
     [quote?.lines],
   );
 
-  const estimatedTax = useMemo(() => (quote ? quote.one_time_total * 0.08 : 0), [quote]);
+  // BUG-MS-TAX-002: tax now comes from the backend (jurisdiction-based, split by
+  // cadence) instead of a hardcoded 8% of the one-time hardware total.
+  const estimatedTax = useMemo(() => quote?.one_time_tax ?? 0, [quote]);
+  const monthlyTax = useMemo(() => quote?.monthly_tax ?? 0, [quote]);
   const estimatedShipping = useMemo(() => (deviceLines.length > 0 ? 49 : 0), [deviceLines.length]);
   const estimatedDueToday = useMemo(
     () => (quote ? quote.one_time_total + estimatedTax + estimatedShipping : 0),
@@ -226,29 +229,43 @@ export const QuoteDetailsPage = () => {
 
           <aside className="quote-summary card">
             <h3>Totals</h3>
-            <div className="billing-row">
-              <span>Default discount</span>
-              <strong>{((quote.default_discount_pct || 0) * 100).toFixed(2)}%</strong>
-            </div>
-            <div className="billing-row">
-              <span>Deal discount</span>
-              <strong>{((quote.incremental_discount_pct || 0) * 100).toFixed(2)}%</strong>
-            </div>
+            {/* BUG-QUOTE-DISC-001: the "default discount" is a retired-model
+                artifact — pricing is cost-plus markup, so it isn't applied. Only
+                an explicitly-set deal discount actually adjusts prices; show it
+                only when non-zero to avoid implying an unapplied discount. */}
+            {(quote.incremental_discount_pct || 0) > 0 && (
+              <div className="billing-row">
+                <span>Deal discount</span>
+                <strong>{((quote.incremental_discount_pct || 0) * 100).toFixed(2)}%</strong>
+              </div>
+            )}
             <div className="billing-row">
               <span>One-time total</span>
               <strong>${quote.one_time_total.toFixed(2)}</strong>
             </div>
             <div className="billing-row">
+              <span>One-time tax</span>
+              <strong>${estimatedTax.toFixed(2)}</strong>
+            </div>
+            <div className="billing-row">
               <span>Monthly total</span>
               <strong>${quote.monthly_total.toFixed(2)}</strong>
             </div>
+            {quote.monthly_total > 0 && (
+              <>
+                <div className="billing-row">
+                  <span>Monthly tax</span>
+                  <strong>${monthlyTax.toFixed(2)}</strong>
+                </div>
+                <div className="billing-row">
+                  <span>Monthly total (incl. tax)</span>
+                  <strong>${quote.monthly_total_with_tax.toFixed(2)}</strong>
+                </div>
+              </>
+            )}
             <div className="billing-row">
               <span>Projected 12-month</span>
               <strong>${quote.projected_12_month_cost.toFixed(2)}</strong>
-            </div>
-            <div className="billing-row">
-              <span>Estimated tax</span>
-              <strong>${estimatedTax.toFixed(2)}</strong>
             </div>
             <div className="billing-row">
               <span>Estimated shipping</span>

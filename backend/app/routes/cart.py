@@ -77,6 +77,21 @@ def _serialize_cart(cart) -> CartResponse:
             'Please review the quantities before checkout.'
         )
 
+    # BUG-BOM-CART-PRICE-001: lines added from a design carry a `price_changed`
+    # flag set at add-time when the cart's current price differed from the BOM
+    # estimate. Surface a single, non-blocking notice so the change isn't silent.
+    repriced = sum(1 for line in cart.lines if (line.price_snapshot or {}).get('price_changed'))
+    if repriced:
+        warnings.append(
+            f'{repriced} item(s) were repriced from your design estimate to current '
+            'catalog rates. Review the updated prices before checkout.'
+        )
+
+    # BUG-CART-SETUP-001: setup & deployment is bundled with managed services, so
+    # it's only "included" when the cart actually contains a recurring service —
+    # derived from cart contents, not hard-coded.
+    setup_included = monthly_subtotal > 0
+
     return CartResponse(
         id=str(cart.id),
         status=cart.status.value,
@@ -86,6 +101,7 @@ def _serialize_cart(cart) -> CartResponse:
         estimated_12_month_total=round(estimated_12_month_total, 2),
         currency=currency,
         warnings=warnings,
+        setup_included=setup_included,
     )
 
 
@@ -115,6 +131,7 @@ def add_cart_line(
         financial_model=payload.financial_model,
         interval=payload.interval,
         applies_to_line_id=payload.applies_to_line_id,
+        source_unit_price=payload.source_unit_price,
     )
     return _serialize_cart(cart)
 

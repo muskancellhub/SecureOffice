@@ -74,6 +74,16 @@ class ProductAdminService:
         return product
 
     def create_product(self, payload: dict) -> Product:
+        product = self._build_product(payload)
+        self.db.add(product)
+        self.db.commit()
+        audit.log('product_created', product_id=str(product.id), sku=product.sku,
+                  vendor=product.vendor, technology=product.technology, name=product.name)
+        return self.get_product(product.id)
+
+    def _build_product(self, payload: dict) -> Product:
+        """Validate product fields + SKU uniqueness and return an unsaved Product.
+        Shared by create_product and create_product_with_components."""
         for field in ('vendor', 'technology', 'sku', 'name'):
             if not (payload.get(field) or '').strip():
                 raise AppError(f'{field} is required', 400)
@@ -82,17 +92,64 @@ class ProductAdminService:
         fm = payload.get('default_financial_model', 'BOTH')
         if fm not in _FINANCIAL_MODELS:
             raise AppError('Invalid default_financial_model', 422)
-        product = Product(
+        return Product(
             vendor=payload['vendor'], technology=payload['technology'], sku=payload['sku'],
             vendor_sku=payload.get('vendor_sku'), name=payload['name'],
             description=payload.get('description'), default_financial_model=fm,
             margin_pct=_dec(payload.get('margin_pct')), leasing_pct=_dec(payload.get('leasing_pct')),
             is_active=payload.get('is_active', True), attributes=payload.get('attributes') or {},
         )
+
+    def _build_component(self, product_id, payload: dict) -> ProductComponent:
+        """Validate + return an unsaved ProductComponent for the given product."""
+        self._validate_component_fields(payload, partial=False)
+        return ProductComponent(
+            product_id=product_id,
+            component_type=payload['component_type'],
+            financial_model=payload.get('financial_model', 'BOTH'),
+            label=payload['label'],
+            vendor_component_sku=payload.get('vendor_component_sku'),
+            vendor_cost=_dec(payload['vendor_cost']),
+            msrp=_dec(payload.get('msrp')),
+            uom=payload.get('uom', 'PER_DEVICE'),
+            billing=payload.get('billing', 'ONE_TIME'),
+            interval=payload.get('interval'),
+            margin_pct=_dec(payload.get('margin_pct')),
+            leasing_pct=_dec(payload.get('leasing_pct')),
+            default_qty=payload.get('default_qty', 1),
+            is_required=payload.get('is_required', True),
+            is_active=payload.get('is_active', True),
+            attributes=payload.get('attributes') or {},
+        )
+
+    def create_product_with_components(self, product_payload: dict, components: list[dict]) -> Product:
+        """BUG-PRODUCT-DATA-004: create a product and all its components in ONE
+        transaction. Everything is validated BEFORE anything is added, and a
+        single commit persists it all — so an invalid component never leaves an
+        orphaned product (and its SKU free to retry) behind.
+        """
+        if not components:
+            raise AppError('At least one component is required', 400)
+        # Validate the product first, then every component — annotating which
+        # component failed — with NOTHING written to the DB yet.
+        product = self._build_product(product_payload)
+        built_components = []
+        for idx, comp_payload in enumerate(components):
+            try:
+                built_components.append(self._build_component(None, comp_payload))
+            except AppError as err:
+                raise AppError(f'Component {idx + 1}: {err.message}', err.status_code)
+
+        # All valid — persist atomically.
         self.db.add(product)
+        self.db.flush()  # assign product.id (and surface a unique-SKU race here)
+        for component in built_components:
+            component.product_id = product.id
+            self.db.add(component)
         self.db.commit()
         audit.log('product_created', product_id=str(product.id), sku=product.sku,
-                  vendor=product.vendor, technology=product.technology, name=product.name)
+                  vendor=product.vendor, technology=product.technology, name=product.name,
+                  component_count=len(built_components), atomic=True)
         return self.get_product(product.id)
 
     def update_product(self, product_id, payload: dict) -> Product:

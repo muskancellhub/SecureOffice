@@ -9,6 +9,7 @@ from app.schemas.products import (
     ComponentResponse,
     CreateComponentRequest,
     CreateProductRequest,
+    CreateProductWithComponentsRequest,
     ProductResponse,
     UpdateComponentRequest,
     UpdateProductRequest,
@@ -88,6 +89,20 @@ def get_product(product_id: str, current_user: dict = Depends(get_current_user),
 def create_product(payload: CreateProductRequest, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     AuthorizationService(db).require(current_user, PERM_MANAGE_PRODUCTS)
     return _serialize_product(ProductAdminService(db).create_product(payload.model_dump(exclude_unset=True)))
+
+
+@router.post('/with-components', response_model=ProductResponse)
+def create_product_with_components(
+    payload: CreateProductWithComponentsRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """BUG-PRODUCT-DATA-004: create a product and its components atomically."""
+    AuthorizationService(db).require(current_user, PERM_MANAGE_PRODUCTS)
+    data = payload.model_dump(exclude_unset=True)
+    components = data.pop('components', [])
+    return _serialize_product(
+        ProductAdminService(db).create_product_with_components(data, components))
 
 
 @router.patch('/{product_id}', response_model=ProductResponse)

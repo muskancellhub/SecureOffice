@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CreditCard, Download, TrendingUp } from 'lucide-react';
+import { Download, TrendingUp } from 'lucide-react';
 import * as commerceApi from '../api/commerceApi';
 import { useAuth } from '../context/AuthContext';
 import type { Address, BillingOverview, InvoiceRecord, OnboardingProfile, PaymentRecord, SubscriptionSummary } from '../types/commerce';
@@ -190,15 +190,12 @@ export const BillingPage = () => {
 
   const mrr = overview?.totals.current_monthly_recurring ?? 0;
   const projected = overview?.totals.projected_next_12_months ?? 0;
-  const cardLast4 = profile?.payment_method_last4 ?? null;
-  const cardBrand = profile?.payment_method_type === 'BANK_TRANSFER' ? 'Bank' : 'Card';
-  const orgName = profile?.organization_name || 'Your organization';
 
   return (
     <section className="content-wrap fade-in billing-page">
       <header className="bil-header">
         <h1>Billing</h1>
-        <p className="bil-subtitle">Recurring charges, invoices, and payment methods.</p>
+        <p className="bil-subtitle">Recurring charges and invoices.</p>
       </header>
 
       {loading && <div className="mini-note">Loading billing data...</div>}
@@ -234,27 +231,6 @@ export const BillingPage = () => {
               <span>{bars[bars.length - 1].label}</span>
             </div>
           )}
-        </article>
-
-        {/* Payment method */}
-        <article className="bil-card bil-payment-card">
-          <h3 className="bil-card-title">Payment method</h3>
-          <div className="bil-credit-card">
-            <div className="bil-cc-top">
-              <span className="bil-cc-chip"><CreditCard size={20} /></span>
-              <span className="bil-cc-brand">{cardBrand}</span>
-            </div>
-            <div className="bil-cc-number">
-              <span>••••</span><span>••••</span><span>••••</span><span>{cardLast4 || '••••'}</span>
-            </div>
-            <div className="bil-cc-foot">
-              <span>{orgName}</span>
-              <span>{cardLast4 ? 'On file' : 'No card'}</span>
-            </div>
-          </div>
-          <p className="mini-note bil-pay-note">
-            Card payments are collected per order at checkout (Pay with card on the order page).
-          </p>
         </article>
 
         {/* Active subscriptions */}

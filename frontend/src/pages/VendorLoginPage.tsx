@@ -36,6 +36,9 @@ export const VendorLoginPage = () => {
       <form className="auth-form" onSubmit={onSubmit}>
         <input
           type="email"
+          name="email"
+          id="vendor-login-email"
+          autoComplete="username"
           placeholder="Email Address"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -43,6 +46,9 @@ export const VendorLoginPage = () => {
         />
         <input
           type="password"
+          name="password"
+          id="vendor-login-password"
+          autoComplete="current-password"
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}

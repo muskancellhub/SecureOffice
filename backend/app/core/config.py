@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     # cuts email cost, without punishing a legit user who simply mistyped.
     otp_resend_cooldown_seconds: int = 60
 
+    # BUG-AUTH-011: how long an unverified account may sit before it's considered
+    # abandoned and eligible to be reaped (freeing the email for a fresh signup).
+    # Kept comfortably above otp_expire_minutes so a user mid-verification is
+    # never purged out from under an active code.
+    unverified_account_ttl_minutes: int = 30
+
     design_handoff_email: str = Field(default='', alias='DESIGN_HANDOFF_EMAIL')
     resend_api_key: str = Field(default='', alias='RESEND_API_KEY')
     resend_from_email: str = Field(default='', alias='RESEND_FROM_EMAIL')
@@ -173,6 +179,10 @@ class Settings(BaseSettings):
     avalara_account_id: str = Field(default='', alias='AVALARA_ACCOUNT_ID')
     avalara_license_key: str = Field(default='', alias='AVALARA_LICENSE_KEY')
     allow_avalara_commit: bool = Field(default=False, alias='ALLOW_AVALARA_COMMIT')
+    # BUG-MS-TAX-002: fallback sales-tax rate (percent) used for tax ESTIMATES when
+    # Avalara can't compute a jurisdiction rate (unconfigured / no address / error).
+    # 0 = show $0 rather than guess. Not used when Avalara returns a rate.
+    default_tax_rate_pct: float = Field(default=0.0, alias='DEFAULT_TAX_RATE_PCT')
 
     @property
     def avalara_base_url(self) -> str:

@@ -4,6 +4,7 @@ import math
 from typing import Any
 
 from app.models.catalog import CatalogItemType
+from app.services.tax_estimator import address_from_dict, estimate_split_tax
 
 # Thresholds for the large-deployment advisory (BUG-DES-002). Well above a normal
 # single-site office (typically a handful to low-tens of APs); only very large
@@ -265,6 +266,7 @@ class NetworkBomService:
         quantity: int,
         category_override: str | None,
         selection_reason: str,
+        billing: str = 'one_time',
     ) -> dict[str, Any]:
         quantity = max(1, int(quantity or 1))
         item_dict = self.catalog_service.to_catalog_response_dict(item)
@@ -286,6 +288,9 @@ class NetworkBomService:
             'quantity': quantity,
             'unit_price': unit_price,
             'line_total': round(unit_price * quantity, 2),
+            # BUG-MS-TAX-001: preserve billing cadence per line so one-time and
+            # recurring (monthly) charges can be subtotalled and taxed separately.
+            'billing': billing,
             'selection_reason': selection_reason,
         }
         if connectivity:
@@ -303,6 +308,7 @@ class NetworkBomService:
         selection_reason: str,
         sku: str | None = None,
         connectivity: str | None = None,
+        billing: str = 'one_time',
     ) -> dict[str, Any]:
         quantity = max(1, int(quantity or 1))
         unit_price = float(unit_price or 0.0)
@@ -321,6 +327,7 @@ class NetworkBomService:
             'quantity': quantity,
             'unit_price': round(unit_price, 2),
             'line_total': round(unit_price * quantity, 2),
+            'billing': billing,  # BUG-MS-TAX-001: see _line_from_catalog_item.
             'selection_reason': selection_reason,
         }
         if detected_connectivity:
@@ -1000,6 +1007,7 @@ class NetworkBomService:
                         quantity=max(1, switch_count),
                         category_override='managed_service_candidate',
                         selection_reason='Managed service option added from existing managed service catalog tier.',
+                        billing='recurring',  # monthly managed service
                     )
                 )
             else:
@@ -1011,11 +1019,19 @@ class NetworkBomService:
                         quantity=1,
                         unit_price=0.0,
                         selection_reason='No managed service SKU available; placeholder line added for later quote refinement.',
+                        billing='recurring',
                     )
                 )
                 assumptions.append('Managed service placeholder was added because no managed service SKU was found.')
 
-        subtotal = round(sum(float(line['line_total']) for line in line_items), 2)
+        # BUG-MS-TAX-001: split by billing cadence so the recurring (monthly)
+        # managed-service charge is taxed too, not lumped into the one-time total.
+        def _is_recurring(line: dict) -> bool:
+            return str(line.get('billing') or 'one_time').lower() == 'recurring'
+
+        one_time_subtotal = round(sum(float(l['line_total']) for l in line_items if not _is_recurring(l)), 2)
+        recurring_subtotal = round(sum(float(l['line_total']) for l in line_items if _is_recurring(l)), 2)
+        subtotal = round(one_time_subtotal + recurring_subtotal, 2)  # back-compat field
 
         # preferences arrives via model_dump(exclude_none=True), so the key is the
         # snake_case field name (tax_pct), not the camelCase alias. Read both variants
@@ -1024,8 +1040,22 @@ class NetworkBomService:
             pricing.get('taxPct'),
             self._as_float(self._pref_value(preferences, 'taxPct', 'tax_pct')),
         )
-        tax = round(subtotal * (tax_pct / 100.0), 2) if tax_pct > 0 else 0.0
-        grand_total = round(subtotal + tax, 2)
+
+        # Rate source: Avalara jurisdiction by the customer's ship-to address when
+        # available/configured, else the configured percentage (product decision).
+        ship_to = address_from_dict(
+            business_context.get('operations_address')
+            or business_context.get('address')
+            or business_context.get('billing_address'))
+        split = estimate_split_tax(
+            one_time_subtotal=one_time_subtotal,
+            recurring_subtotal=recurring_subtotal,
+            ship_to=ship_to,
+            customer_code=str(self.tenant_id or 'GUEST'),
+            fallback_rate_pct=tax_pct,
+        )
+        tax = split.one_time.tax                      # back-compat field (one-time)
+        grand_total = split.one_time.total            # back-compat field (one-time incl tax)
 
         summary_text = (
             f'Generated V1 BOM with {len(line_items)} lines for {ap_count} AP(s) and {switch_count} switch(es). '
@@ -1050,6 +1080,14 @@ class NetworkBomService:
             'subtotal': subtotal,
             'tax': tax,
             'grand_total': grand_total,
+            # BUG-MS-TAX-001: explicit one-time vs recurring (monthly) breakdown.
+            'one_time_subtotal': split.one_time.subtotal,
+            'one_time_tax': split.one_time.tax,
+            'one_time_total': split.one_time.total,
+            'monthly_subtotal': split.recurring.subtotal,
+            'monthly_tax': split.recurring.tax,
+            'monthly_total_with_tax': split.recurring.total,
+            'tax_source': split.as_dict()['tax_source'],
             'summary': summary_text,
             'assumptions': assumptions,
             'warnings': warnings,

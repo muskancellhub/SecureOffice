@@ -3466,6 +3466,24 @@ textarea {
   color: #186b52;
 }
 
+/* BUG-ONB-007: shared-data explanation banner on the onboarding page. */
+.onb-shared-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 20px;
+  border-radius: 12px;
+  background: #f6f9ff;
+  border: 1px solid #d9e5fb;
+  color: #37527f;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.onb-shared-note svg { flex-shrink: 0; margin-top: 2px; color: #4a6cb3; }
+.onb-shared-note strong { color: #2b3e63; }
+.onb-shared-note .onb-updated { color: #5a6b8c; }
+
 .onboarding-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -10401,6 +10419,13 @@ textarea {
   gap: 10px;
 }
 
+/* BUG-VENDOR-008: grid items default to min-width:auto, so the City text input
+   (intrinsic ~20ch) refuses to shrink and blows the row past the panel's left
+   edge on a narrow auth panel. min-width:0 lets both columns honor 1fr. (The
+   native <select> options popup itself is browser/OS-rendered and can't be
+   CSS-constrained — that overlay is normal native behavior.) */
+.vendor-row-2 > * { min-width: 0; }
+
 .vendor-check-row {
   display: flex;
   align-items: flex-start;
@@ -12004,64 +12029,6 @@ textarea {
   color: #9aa3b2;
 }
 
-/* Payment method card */
-.bil-credit-card {
-  margin-top: 20px;
-  padding: 22px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #14151b 0%, #23252e 100%);
-  color: #fff;
-  min-height: 178px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-}
-.bil-cc-top { display: flex; align-items: center; justify-content: space-between; }
-.bil-cc-chip {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 30px;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-}
-.bil-cc-brand { font-size: 16px; font-weight: 600; letter-spacing: 0.02em; }
-.bil-cc-number {
-  display: flex;
-  gap: 18px;
-  font-size: 19px;
-  letter-spacing: 0.08em;
-  font-variant-numeric: tabular-nums;
-  margin: 18px 0;
-}
-.bil-cc-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 14px;
-  color: #b6bac6;
-}
-.bil-update-btn {
-  width: 100%;
-  margin-top: 16px;
-  height: 46px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border: 0;
-  border-radius: 12px;
-  background: #f1f3f7;
-  color: #2a3242;
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 140ms ease;
-}
-.bil-update-btn:hover { background: #e6e9ef; }
-.bil-update-btn:disabled { opacity: 0.6; cursor: default; }
-
 /* Active subscriptions card */
 .bil-subs-list { list-style: none; margin: 16px 0 0; padding: 0; }
 .bil-subs-row {
@@ -12933,6 +12900,21 @@ textarea {
 .dbx-card-link:hover { color: #564a96; }
 .dbx-card-empty { display: flex; align-items: center; gap: 12px; color: #9aa3b2; font-size: 14px; padding: 8px 0; }
 .dbx-inline-cta { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: #564a96; font-weight: 600; font-size: 13.5px; cursor: pointer; }
+
+/* Orders-in-progress carousel (replaces the single-order tracker). */
+.dbx-orders-card .dbx-card-head h3 { display: inline-flex; align-items: center; gap: 8px; }
+.dbx-orders-count { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: #ece9f8; color: #564a96; font-size: 12px; font-weight: 700; }
+.dbx-orders-nav { display: inline-flex; align-items: center; gap: 6px; }
+.dbx-orders-arrow { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 1px solid #e6eaf0; border-radius: 8px; background: #fff; color: #564a96; cursor: pointer; }
+.dbx-orders-arrow:hover { background: #f4f2fb; }
+.dbx-orders-pos { font-size: 12.5px; font-weight: 600; color: #8a93a3; min-width: 30px; text-align: center; }
+.dbx-order-slide { margin-top: 14px; padding: 16px; border: 1px solid #eceef3; border-radius: 14px; background: #fbfbfe; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+.dbx-order-slide:hover { border-color: #d7d0f2; box-shadow: 0 6px 16px rgba(86, 74, 150, 0.08); }
+.dbx-order-slide-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
+.dbx-order-slide-foot .dbx-order-placed { margin-left: 0; }
+.dbx-orders-dots { display: flex; justify-content: center; gap: 7px; margin-top: 14px; }
+.dbx-orders-dot { width: 7px; height: 7px; padding: 0; border: 0; border-radius: 999px; background: #d6dae2; cursor: pointer; transition: background 0.15s, transform 0.15s; }
+.dbx-orders-dot.active { background: #564a96; transform: scale(1.25); }
 
 .dbx-order-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .dbx-order-id { font-family: 'SFMono-Regular', ui-monospace, Menlo, monospace; font-size: 15px; font-weight: 700; color: #1c2433; }

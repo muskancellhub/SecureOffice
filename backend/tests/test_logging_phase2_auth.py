@@ -113,12 +113,16 @@ class TestOtpEvents:
         assert sd(record)['attempts_remaining'] == 2
         assert sd(record)['locked'] is False
 
-    def test_unknown_email_otp_request_logged_as_skipped(self, captured):
+    def test_unknown_email_otp_request_logged_as_failure(self, captured):
+        # Unknown email now raises (enumeration trade-off accepted), but the probe
+        # is still audited so a stream of these stays visible to SOC.
+        from app.core.exceptions import NotFoundError
         service = make_service(user_repo=SimpleNamespace(get_by_email=lambda e: None))
-        service.request_login_otp(email='probe@example.com')
+        with pytest.raises(NotFoundError):
+            service.request_login_otp(email='probe@example.com')
         record = captured[0]
         assert record.msgid == 'otp_requested'
-        assert sd(record)['status'] == 'skipped'
+        assert sd(record)['status'] == 'failure'
         assert sd(record)['reason'] == 'unknown_email'
 
 

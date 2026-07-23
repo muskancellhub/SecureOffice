@@ -102,6 +102,14 @@ class QuoteSummaryResponse(BaseModel):
 
 class QuoteDetailResponse(QuoteSummaryResponse):
     lines: list[QuoteLineResponse]
+    # BUG-MS-TAX-002: server-computed tax, split by cadence (replaces the frontend
+    # hardcoded 8% that taxed only the one-time hardware). Jurisdiction via Avalara
+    # when available, else the configured fallback rate.
+    one_time_tax: float = 0.0
+    one_time_total_with_tax: float = 0.0
+    monthly_tax: float = 0.0
+    monthly_total_with_tax: float = 0.0
+    tax_source: str = 'none'
 
 
 class QuoteIdResponse(BaseModel):

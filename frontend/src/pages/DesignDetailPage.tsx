@@ -147,7 +147,13 @@ export const DesignDetailPage = () => {
     let fail = 0;
     for (const line of orderableLines) {
       try {
-        await commerceApi.addCartLine(accessToken, { product_id: line.item_id as string, quantity: Math.max(1, line.quantity) });
+        await commerceApi.addCartLine(accessToken, {
+          product_id: line.item_id as string,
+          quantity: Math.max(1, line.quantity),
+          // BUG-BOM-CART-PRICE-001: send the BOM's unit price so the cart can flag
+          // when its re-priced value differs.
+          source_unit_price: line.unit_price,
+        });
         ok += 1;
       } catch {
         fail += 1;

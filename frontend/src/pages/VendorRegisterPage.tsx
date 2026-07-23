@@ -22,7 +22,6 @@ export const VendorRegisterPage = () => {
   const [step, setStep] = useState(1);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
 
   const [form, setForm] = useState<VendorSignupPayload>({
     contact_name: '',
@@ -116,26 +115,19 @@ export const VendorRegisterPage = () => {
     setLoading(true);
     try {
       await authApi.vendorSignup(form);
-      setSuccess(true);
+      // Backend creates the vendor admin with is_verified=False and emails an
+      // OTP (same policy as regular signup). The account can't log in until the
+      // code is verified, so send the user to the shared OTP screen — NOT
+      // straight to login, which would fail with "verify OTP first" and no way
+      // to enter the code. After verify, land on /shop, which routes vendors to
+      // their dashboard (see VendorLoginPage / ShopLandingPage).
+      navigate('/verify-otp', { state: { email: form.contact_email, next: nextParam || '/shop' } });
     } catch (err: any) {
       setError(extractApiError(err, 'Registration failed. Please try again.'));
     } finally {
       setLoading(false);
     }
   };
-
-  if (success) {
-    return (
-      <AuthShell title="Application Submitted" subtitle="Your vendor application is under review" showTabs={false}>
-        <div className="vendor-success-msg">
-          <p>Your vendor account has been created. You can now log in to the vendor portal.</p>
-          <button className="primary-btn" onClick={() => navigate(nextParam ? `/vendor/login?next=${encodeURIComponent(nextParam)}` : '/vendor/login')} style={{ marginTop: 16 }}>
-            Go to Vendor Login
-          </button>
-        </div>
-      </AuthShell>
-    );
-  }
 
   return (
     <AuthShell title="Become a Vendor" subtitle="Apply to sell on CellHub Marketplace" showTabs={false}>
@@ -200,7 +192,7 @@ export const VendorRegisterPage = () => {
             </label>
             <label className="vendor-field">
               <span>Phone Number</span>
-              <PhoneInput value={form.contact_phone || ''} onChange={(v) => set('contact_phone', v)} />
+              <PhoneInput value={form.contact_phone || ''} onChange={(v) => set('contact_phone', v)} name="contact_phone" autoComplete="tel" />
               <span className="vendor-field-hint">U.S. format — (___) ___-____</span>
             </label>
             <label className="vendor-field">

@@ -92,6 +92,13 @@ class CreateProductRequest(BaseModel):
     attributes: dict = Field(default_factory=dict)
 
 
+class CreateProductWithComponentsRequest(CreateProductRequest):
+    # BUG-PRODUCT-DATA-004: product + all components submitted together so the
+    # backend can persist them in ONE transaction (no orphaned product if a
+    # component is invalid). At least one component is required.
+    components: list[CreateComponentRequest] = Field(min_length=1)
+
+
 class UpdateProductRequest(BaseModel):
     vendor: str | None = None
     technology: str | None = None

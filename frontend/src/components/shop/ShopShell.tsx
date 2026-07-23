@@ -150,6 +150,8 @@ export const ShopShell = () => {
             </NavLink>
           </nav>
 
+          {isSuperAdmin && (
+            <>
           <div className="nav-section-label sidebar-fade-target">Admin</div>
           <nav className="main-nav streamly-nav">
             {canManageProducts && (
@@ -189,6 +191,8 @@ export const ShopShell = () => {
               </NavLink>
             )}
           </nav>
+            </>
+          )}
           </>
           )}
 

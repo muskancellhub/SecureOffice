@@ -1,4 +1,4 @@
-import { Building2, CheckCircle2, CreditCard, FileCheck2, MapPin, ShieldCheck } from 'lucide-react';
+import { Building2, CheckCircle2, CreditCard, FileCheck2, MapPin, ShieldCheck, Users } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as commerceApi from '../api/commerceApi';
@@ -9,6 +9,13 @@ import { extractApiError, isValidEmail } from '../utils/extractApiError';
 const validationOptions: ValidationStatus[] = ['PENDING', 'VERIFIED', 'FAILED'];
 
 const prettyVal = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+
+// "2026-07-22T14:03:00Z" → "Jul 22, 2026, 2:03 PM" (locale-aware); '' if unparseable.
+const formatUpdated = (iso?: string | null): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? '' : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+};
 
 const US_STATES = [
   'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA',
@@ -200,6 +207,23 @@ export const OnboardingPage = () => {
 
       {!loading && (
         <>
+          {/* BUG-ONB-007: onboarding is tenant-scoped, so pre-filled values are
+              SHARED company data (saved by a teammate or earlier session) — not
+              something the current design generated. Say so explicitly and show
+              when it was last touched, so it can't be mistaken for fresh output. */}
+          <div className="onb-shared-note">
+            <Users size={16} />
+            <div>
+              <strong>Shared company information.</strong> This onboarding profile is saved at the
+              organization level — everyone in {organizationName || 'your company'} sees and edits the
+              same data, so anything already filled in was entered by a teammate or a previous session.
+              Saving here updates the shared values for the whole company.
+              {formatUpdated(profile?.updated_at) && (
+                <span className="onb-updated"> Last updated {formatUpdated(profile?.updated_at)}.</span>
+              )}
+            </div>
+          </div>
+
           <div className="apx-stats onb-stats">
             <article className="apx-stat">
               <div className="apx-stat-head"><span>Completion</span><span className="apx-stat-icon green"><CheckCircle2 size={16} /></span></div>
