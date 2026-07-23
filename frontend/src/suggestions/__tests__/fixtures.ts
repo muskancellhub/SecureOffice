@@ -19,3 +19,25 @@ export const calculatorFixture: CalculatorResult = {
   counts: { indoorAPsFinal: 6, switchCount: 1 },
   inputsNormalized: { wifiStandard: 'wifi6' as const },
 };
+
+/**
+ * A CalculatorResult with counts deliberately missing.
+ *
+ * `CalculatorResult` declares `summary` and `counts` as required, but the value
+ * crosses a runtime boundary — it arrives from the calculator, not from a
+ * literal — so the suggestion pipeline validates shapes the type system says
+ * cannot occur ("Missing calculator AP count", "…switch count"). Those tests
+ * can only exist if they can construct the malformed shape, so the assertion
+ * lives here once, explained, instead of at each call site.
+ */
+export const partialCalculatorResult = (
+  parts: {
+    summary?: Partial<CalculatorResult['summary']>;
+    counts?: Partial<CalculatorResult['counts']>;
+  } = {},
+): CalculatorResult =>
+  ({
+    summary: parts.summary ?? {},
+    counts: parts.counts ?? {},
+    inputsNormalized: { wifiStandard: 'wifi6' as const },
+  }) as CalculatorResult;

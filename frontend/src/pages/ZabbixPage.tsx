@@ -19,13 +19,16 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import * as commerceApi from '../api/commerceApi';
+import { GRAFANA_BASE_URL, GRAFANA_ENABLED } from '../api/config';
 import { extractApiError } from '../utils/extractApiError';
 
 /* ===================================================================
    Grafana embed config
    =================================================================== */
 
-const GRAFANA_BASE_URL = (import.meta as any).env?.VITE_GRAFANA_URL || 'http://localhost:3000';
+// Origin comes from api/config (relative + proxied by default). When Grafana
+// isn't reachable from a given deployment the tab hides itself rather than
+// rendering six iframes pointed at a host the browser can't resolve.
 
 const GRAFANA_PANELS = [
   { title: 'Network Overview', uid: 'secureoffice-overview', panelId: undefined },
@@ -433,16 +436,18 @@ export const ZabbixPage = () => {
         >
           <LayoutDashboard size={14} /> Overview
         </button>
-        <button
-          className={`zabbix-tab ${activeTab === 'grafana' ? 'active' : ''}`}
-          onClick={() => setActiveTab('grafana')}
-        >
-          <BarChart3 size={14} /> Grafana Dashboards
-        </button>
+        {GRAFANA_ENABLED && (
+          <button
+            className={`zabbix-tab ${activeTab === 'grafana' ? 'active' : ''}`}
+            onClick={() => setActiveTab('grafana')}
+          >
+            <BarChart3 size={14} /> Grafana Dashboards
+          </button>
+        )}
       </div>
 
       {/* ========== Grafana Tab ========== */}
-      {activeTab === 'grafana' && (
+      {GRAFANA_ENABLED && activeTab === 'grafana' && (
         <div className="zabbix-grafana-section">
           <div className="zabbix-grafana-controls">
             <span className="zabbix-grafana-label">Time range:</span>

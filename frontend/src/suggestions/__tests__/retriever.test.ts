@@ -50,8 +50,8 @@ describe('filtering', () => {
 describe('ranking and limits', () => {
   test('exact text match outranks substring match', () => {
     const catalog: CatalogItem[] = [
-      { vendor: 'A', model: 'ap9', category: 'wifi_ap', price: 100, pricingBasis: 'public' },
-      { vendor: 'B', model: 'ap900-plus', category: 'wifi_ap', price: 100, pricingBasis: 'public' },
+      { vendor: 'Meraki', model: 'ap9', category: 'wifi_ap', price: 100, pricingBasis: 'public' },
+      { vendor: 'InHand', model: 'ap900-plus', category: 'wifi_ap', price: 100, pricingBasis: 'public' },
     ];
     const r = new LocalInMemoryProductRetriever(catalog);
     expect(models(r.retrieveProducts({ query: 'ap9' }))[0]).toBe('ap9');
@@ -59,20 +59,20 @@ describe('ranking and limits', () => {
 
   test('price breaks score ties; vendor-model lexicographic as final tiebreak', () => {
     const catalog: CatalogItem[] = [
-      { vendor: 'Zeta', model: 'X1', category: 'switch', price: 200, pricingBasis: 'public' },
-      { vendor: 'Alpha', model: 'X1', category: 'switch', price: 200, pricingBasis: 'public' },
-      { vendor: 'Mid', model: 'X2', category: 'switch', price: 100, pricingBasis: 'public' },
+      { vendor: 'SkyMirr', model: 'X1', category: 'switch', price: 200, pricingBasis: 'public' },
+      { vendor: 'Extreme Networks', model: 'X1', category: 'switch', price: 200, pricingBasis: 'public' },
+      { vendor: 'InHand', model: 'X2', category: 'switch', price: 100, pricingBasis: 'public' },
     ];
     const r = new LocalInMemoryProductRetriever(catalog);
     const ranked = r.retrieveProducts({ categories: ['switch'] });
     expect(ranked[0].model).toBe('X2'); // cheapest scores higher + price tiebreak
-    expect(ranked[1].vendor).toBe('Alpha'); // lexicographic before Zeta
+    expect(ranked[1].vendor).toBe('Extreme Networks'); // lexicographic before SkyMirr
   });
 
   test('non-finite price ranks last', () => {
     const catalog: CatalogItem[] = [
-      { vendor: 'A', model: 'PRICED', category: 'switch', price: 100, pricingBasis: 'public' },
-      { vendor: 'B', model: 'FREEFORM', category: 'switch', price: Number.NaN, pricingBasis: 'public' },
+      { vendor: 'Meraki', model: 'PRICED', category: 'switch', price: 100, pricingBasis: 'public' },
+      { vendor: 'InHand', model: 'FREEFORM', category: 'switch', price: Number.NaN, pricingBasis: 'public' },
     ];
     const r = new LocalInMemoryProductRetriever(catalog);
     expect(models(r.retrieveProducts({ categories: ['switch'] }))).toEqual(['PRICED', 'FREEFORM']);

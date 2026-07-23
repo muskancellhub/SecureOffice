@@ -1,0 +1,44 @@
+# SecureOffice2 API — uvicorn behind nginx.
+#
+# Install: /etc/systemd/system/secureoffice2-api.service   (see deploy/README.md)
+#
+# EDIT BEFORE USE: WorkingDirectory + ExecStart paths, and User/Group.
+
+[Unit]
+Description=SecureOffice2 API (uvicorn)
+Documentation=https://github.com/muskancellhub/SecureOffice2
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=usr004199
+Group=usr004199
+
+# EDIT ME — must be the backend/ directory: pydantic-settings reads ./.env
+# relative to the working directory (app/core/config.py), so the app picks up
+# its configuration from backend/.env with no EnvironmentFile= needed.
+WorkingDirectory=/srv/secureoffice2/backend
+
+# --host 127.0.0.1     API is unreachable except through nginx.
+# --proxy-headers      honour X-Forwarded-* …
+# --forwarded-allow-ips  …but only when they come from nginx on loopback.
+# --root-path /api     nginx strips the prefix before proxying, so FastAPI has
+#                      to be told the public prefix or its generated URLs and
+#                      trailing-slash redirects would point outside the proxy.
+ExecStart=/srv/secureoffice2/backend/.venv/bin/uvicorn app.main:app \
+          --host 127.0.0.1 --port 8000 \
+          --proxy-headers --forwarded-allow-ips=127.0.0.1 \
+          --root-path /api
+
+Restart=always
+RestartSec=5
+
+# The app writes nothing outside its own tree: logs go to syslog
+# (LOG_SINK=syslog, see deploy/rsyslog.d/) and Postgres is over localhost.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

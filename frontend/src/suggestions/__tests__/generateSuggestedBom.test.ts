@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import { generateSuggestedBom, validateSuggestionInput } from '../generateSuggestedBom';
 import type { CatalogItem, ProductQuery, ProductSuggestionInput } from '../types';
-import { calculatorFixture, catalogFixture } from './fixtures';
+import { calculatorFixture, catalogFixture, partialCalculatorResult } from './fixtures';
 
 const makeInput = (overrides: Partial<ProductSuggestionInput> = {}): ProductSuggestionInput => ({
   calculatorResult: calculatorFixture,
@@ -23,11 +23,9 @@ describe('generateSuggestedBom', () => {
 
   test('falls back to summary counts and floors non-integers', () => {
     const out = generateSuggestedBom(makeInput({
-      calculatorResult: {
+      calculatorResult: partialCalculatorResult({
         summary: { recommendedIndoorAPs: 4.9, recommendedSwitches: 2.2 },
-        counts: {},
-        inputsNormalized: { wifiStandard: 'wifi6' as const },
-      },
+      }),
     }));
     expect(out.summary.recommendedIndoorAPs).toBe(4);
   });
@@ -35,7 +33,7 @@ describe('generateSuggestedBom', () => {
   test('invalid input collects all validateSuggestionInput warnings', () => {
     const warnings = validateSuggestionInput(makeInput({
       catalog: [],
-      calculatorResult: { summary: {}, counts: {}, inputsNormalized: { wifiStandard: 'wifi6' as const } },
+      calculatorResult: partialCalculatorResult(),
     }));
     expect(warnings).toHaveLength(3);
     expect(warnings[0]).toContain('Catalog is empty');
@@ -45,7 +43,7 @@ describe('generateSuggestedBom', () => {
 
   test('both count sources invalid -> 0 APs and warnings carried into output', () => {
     const out = generateSuggestedBom(makeInput({
-      calculatorResult: { summary: {}, counts: {}, inputsNormalized: { wifiStandard: 'wifi6' as const } },
+      calculatorResult: partialCalculatorResult(),
     }));
     expect(out.summary.recommendedIndoorAPs).toBe(0);
     expect(out.warnings.some((w) => w.includes('AP count'))).toBe(true);

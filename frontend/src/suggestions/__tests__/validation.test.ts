@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest';
 
 import { validatePipelineInput } from '../validation';
-import type { PipelineInput } from '../types';
-import { calculatorFixture, catalogFixture } from './fixtures';
+import type { CalculatorResult, PipelineInput } from '../types';
+import { calculatorFixture, catalogFixture, partialCalculatorResult } from './fixtures';
 
 const makeInput = (overrides: Partial<PipelineInput> = {}): PipelineInput => ({
   calculatorResult: calculatorFixture,
@@ -11,11 +11,10 @@ const makeInput = (overrides: Partial<PipelineInput> = {}): PipelineInput => ({
   ...overrides,
 });
 
-const calc = (counts: Record<string, number>, summary: Record<string, number> = {}) => ({
-  summary,
-  counts,
-  inputsNormalized: { wifiStandard: 'wifi6' as const },
-});
+const calc = (
+  counts: Partial<CalculatorResult['counts']>,
+  summary: Partial<CalculatorResult['summary']> = {},
+) => partialCalculatorResult({ counts, summary });
 
 describe('validatePipelineInput', () => {
   test('fully valid input -> no warnings', () => {

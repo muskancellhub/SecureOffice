@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import { generateConfigurationPreviewAndOrderPayload } from '../pipeline';
 import type { PipelineInput } from '../types';
-import { calculatorFixture, catalogFixture } from './fixtures';
+import { calculatorFixture, catalogFixture, partialCalculatorResult } from './fixtures';
 
 const makeInput = (overrides: Partial<PipelineInput> = {}): PipelineInput => ({
   calculatorResult: calculatorFixture,
@@ -96,11 +96,9 @@ describe('warning accumulation', () => {
 
   test('negative counts produce both negative-count warnings', () => {
     const out = generateConfigurationPreviewAndOrderPayload(makeInput({
-      calculatorResult: {
-        summary: {},
+      calculatorResult: partialCalculatorResult({
         counts: { indoorAPsFinal: -2, switchCount: -1 },
-        inputsNormalized: { wifiStandard: 'wifi6' as const },
-      },
+      }),
     }));
     expect(out.warnings.some((w) => w.includes('AP count is negative'))).toBe(true);
     expect(out.warnings.some((w) => w.includes('switch count is negative'))).toBe(true);

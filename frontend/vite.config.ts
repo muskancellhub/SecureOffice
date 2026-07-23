@@ -5,6 +5,17 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    // Dev stand-in for the production reverse proxy (nginx). Both strip the
+    // /api prefix before hitting FastAPI, whose routers are mounted at bare
+    // /auth, /orders, … — so the app only ever builds relative URLs and dev
+    // exercises exactly the code path production takes.
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+    },
   },
   test: {
     coverage: {

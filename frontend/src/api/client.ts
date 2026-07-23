@@ -1,8 +1,9 @@
 import axios from 'axios';
 import { getActiveTenantId } from './activeTenant';
+import { API_BASE_URL } from './config';
 
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
+  baseURL: API_BASE_URL,
   withCredentials: true,
 });
 

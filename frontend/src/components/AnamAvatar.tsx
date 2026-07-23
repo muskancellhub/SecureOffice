@@ -13,7 +13,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+import { API_BASE_URL } from '../api/config';
 
 interface AnamAvatarProps {
   formState: Record<string, string>;
@@ -79,7 +79,7 @@ export const AnamAvatar = forwardRef<AnamAvatarHandle, AnamAvatarProps>(({ formS
     async (transcript: string) => {
       if (!transcript || transcript.trim().length < 3) return;
       try {
-        const resp = await fetch(`${API_BASE}/anam/parse-intent`, {
+        const resp = await fetch(`${API_BASE_URL}/anam/parse-intent`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -125,7 +125,7 @@ export const AnamAvatar = forwardRef<AnamAvatarHandle, AnamAvatarProps>(({ formS
     setStatusText('Connecting to AI assistant...');
 
     try {
-      const tokenResp = await fetch(`${API_BASE}/anam/session`, {
+      const tokenResp = await fetch(`${API_BASE_URL}/anam/session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ form_state: formStateRef.current }),

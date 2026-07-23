@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { setActiveTenantRef } from '../api/activeTenant';
+import { API_BASE_URL } from '../api/config';
 import * as authApi from '../api/authApi';
 
 // Kept in sync with TenantContext's STORAGE_KEY. The active-tenant selection is
@@ -182,12 +183,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     await fetchMe(token.access_token);
   };
 
+  // Full-page navigations (not XHR), so they must resolve against the same base
+  // as the axios client — otherwise SSO leaves the proxied origin behind.
   const startGoogleSSO = () => {
-    window.location.href = `${import.meta.env.VITE_API_BASE_URL}/auth/google/login`;
+    window.location.href = `${API_BASE_URL}/auth/google/login`;
   };
 
   const startMicrosoftSSO = () => {
-    window.location.href = `${import.meta.env.VITE_API_BASE_URL}/auth/microsoft/login`;
+    window.location.href = `${API_BASE_URL}/auth/microsoft/login`;
   };
 
   const value = useMemo(
