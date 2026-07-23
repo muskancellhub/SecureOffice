@@ -22,7 +22,8 @@ export function GlobalSearch() {
     useEffect(() => {
         const q= query.trim();
 
-        if(!accessToken || q.length<2){
+        // Auto-suggest fires as soon as there are 3 characters — no Enter needed.
+        if(!accessToken || q.length<3){
             setHits([]);
             setOpen(false);
             return;

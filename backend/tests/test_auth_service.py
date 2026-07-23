@@ -70,6 +70,11 @@ def patched_io(monkeypatch):
         staticmethod(lambda *, to_email, link: sent['setup'].append((to_email, link))))
     monkeypatch.setattr(OTPService, 'generate_otp', staticmethod(lambda: '123456'))
     monkeypatch.setattr(settings, 'otp_resend_cooldown_seconds', 0)
+    # BUG-AUTH-010: signup now DNS-checks the email domain. Test domains use the
+    # reserved .example TLD (no MX), so stub the check to "deliverable" — the
+    # dedicated tests below override this to exercise the real reject path.
+    import app.services.auth_service as auth_service
+    monkeypatch.setattr(auth_service, 'domain_has_mail_exchange', lambda domain: True)
     return sent
 
 
@@ -94,6 +99,22 @@ def test_signup_rejects_free_email_provider(auth_db):
         with pytest.raises(AppError) as exc:
             _signup(_svc(db), f'someone-{RUN}@gmail.com')
         assert exc.value.status_code == 400
+
+
+def test_signup_rejects_undeliverable_domain(auth_db, monkeypatch):
+    # BUG-AUTH-010: a syntactically-valid but non-existent domain (e.g. a typo
+    # of a real provider) must be rejected BEFORE a tenant/user or OTP is made.
+    import app.services.auth_service as auth_service
+    from app.core.exceptions import AppError
+    monkeypatch.setattr(auth_service, 'domain_has_mail_exchange', lambda domain: False)
+    email = f'typo-{RUN}@gmali-{RUN}.com'
+    with auth_db() as db:
+        svc = _svc(db)
+        with pytest.raises(AppError) as exc:
+            _signup(svc, email)
+        assert exc.value.status_code == 400
+        # nothing was persisted for the bogus domain
+        assert svc.user_repo.get_by_email(email) is None
 
 
 def test_signup_rejects_blank_company(auth_db):
@@ -286,22 +307,103 @@ def test_login_oauth_user_without_password_blocked(auth_db):
             _svc(db).login(email=email, password=PASSWORD)
 
 
+# ── reaping abandoned unverified accounts (BUG-AUTH-011) ─────────────────────
+
+def _backdate_user(db, email, minutes):
+    """Age a user's created_at so the reaper considers it abandoned."""
+    from sqlalchemy import text
+    old = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    db.execute(text('UPDATE users SET created_at = :c WHERE email = :e'), {'c': old, 'e': email})
+    db.commit()
+
+
+def test_purge_stale_unverified_reaps_orphan_tenant(auth_db):
+    # A stranded first-signup owns a fresh tenant with no other members; reaping
+    # the user must delete that orphan tenant too, freeing the domain.
+    domain = f'reap-{uuid.uuid4().hex[:8]}.example'
+    email = f'founder@{domain}'
+    with auth_db() as db:
+        svc = _svc(db)
+        svc.signup(email=email, password=PASSWORD, mobile=None, name='Reap Me',
+                   company_name=f'{PFX}Reap Co')
+        assert svc.tenant_repo.get_by_email_domain(domain) is not None
+        _backdate_user(db, email, minutes=999)
+
+        assert svc.purge_stale_unverified() >= 1
+        assert svc.user_repo.get_by_email(email) is None
+        assert svc.tenant_repo.get_by_email_domain(domain) is None  # orphan gone
+
+
+def test_purge_spares_verified_and_fresh_unverified(auth_db, verified_user):
+    # Reaper must never touch a verified account, nor a still-fresh unverified one.
+    domain = f'fresh-{uuid.uuid4().hex[:8]}.example'
+    email = f'fresh@{domain}'
+    with auth_db() as db:
+        svc = _svc(db)
+        svc.signup(email=email, password=PASSWORD, mobile=None, name='Fresh',
+                   company_name=f'{PFX}Fresh Co')  # created just now -> within TTL
+
+        svc.purge_stale_unverified()
+        assert svc.user_repo.get_by_email(verified_user) is not None  # verified: safe
+        assert svc.user_repo.get_by_email(email) is not None          # fresh: safe
+
+        # self-clean: age it out and reap
+        _backdate_user(db, email, minutes=999)
+        svc.purge_stale_unverified()
+
+
+def test_signup_lazy_reaps_stale_unverified_and_reclaims_admin(auth_db):
+    # Re-signing up with an abandoned unverified email must succeed (no 409) and
+    # restore founding-admin status rather than joining the orphan as a pending user.
+    from app.models.user import UserRole, UserStatus
+    domain = f'resignup-{uuid.uuid4().hex[:8]}.example'
+    email = f'again@{domain}'
+    with auth_db() as db:
+        svc = _svc(db)
+        svc.signup(email=email, password=PASSWORD, mobile=None, name='First Try',
+                   company_name=f'{PFX}Again Co')
+        _backdate_user(db, email, minutes=999)
+
+        # second signup, same email — lazily reaps the stale account, starts fresh
+        svc.signup(email=email, password=PASSWORD, mobile=None, name='Second Try',
+                   company_name=f'{PFX}Again Co')
+        user = svc.user_repo.get_by_email(email)
+        assert user is not None and user.name == 'Second Try'
+        assert user.role == UserRole.ADMIN and user.status == UserStatus.ACTIVE
+        assert user.is_verified is False
+
+        # self-clean
+        _backdate_user(db, email, minutes=999)
+        svc.purge_stale_unverified()
+
+
 # ── request_login_otp / login_with_otp ──────────────────────────────────────
 
-def test_request_login_otp_unknown_email_is_silent(auth_db, patched_io):
+def test_request_login_otp_unknown_email_reveals_not_found(auth_db, patched_io):
+    # Product decision (enumeration trade-off accepted): unknown email → 404, and
+    # no OTP is issued.
+    from app.core.exceptions import NotFoundError
     with auth_db() as db:
-        _svc(db).request_login_otp(email=f'ghost3-{RUN}@{DOMAIN}')
+        with pytest.raises(NotFoundError):
+            _svc(db).request_login_otp(email=f'ghost3-{RUN}@{DOMAIN}')
         assert patched_io['otp'] == []
 
 
-def test_request_login_otp_unverified_unauthorized(auth_db):
-    from app.core.exceptions import UnauthorizedError
-    email = _email('otpunv')
+def test_unverified_user_recovers_via_login_otp(auth_db, patched_io):
+    # BUG-AUTH-011: an unverified user who abandoned /verify-otp must be able to
+    # recover through the login-OTP flow — requesting a code now works (no longer
+    # rejected) and verifying it flips is_verified and logs them in.
+    email = _email('otprecover')
     with auth_db() as db:
         svc = _svc(db)
         _signup(svc, email)
-        with pytest.raises(UnauthorizedError):
-            svc.request_login_otp(email=email)
+        assert svc.user_repo.get_by_email(email).is_verified is False
+
+        svc.request_login_otp(email=email)          # previously raised — now issues
+        assert patched_io['otp'][-1][0] == email
+        tokens = svc.login_with_otp(email=email, otp='123456')
+        assert tokens['access_token']
+        assert svc.user_repo.get_by_email(email).is_verified is True
 
 
 def test_request_login_otp_cooldown_429(auth_db, verified_user, monkeypatch):

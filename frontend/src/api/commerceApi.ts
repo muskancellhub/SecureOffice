@@ -129,6 +129,8 @@ export const addCartLine = async (
     financial_model?: 'CAPEX' | 'OPEX';
     interval?: 'MONTH' | 'YEAR';
     applies_to_line_id?: string;
+    // BUG-BOM-CART-PRICE-001: BOM price for change detection in the cart.
+    source_unit_price?: number;
   },
 ) => {
   const { data } = await api.post('/cart/lines', payload, { headers: authHeaders(accessToken) });

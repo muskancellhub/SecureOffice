@@ -1,6 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
+import { setActiveTenantRef } from '../api/activeTenant';
 import * as authApi from '../api/authApi';
+
+// Kept in sync with TenantContext's STORAGE_KEY. The active-tenant selection is
+// a SUPER_ADMIN-only concern; it must never survive into a different user's
+// session in the same browser (see fetchMe / logout below).
+const ACTIVE_TENANT_STORAGE_KEY = 'so2_active_tenant';
 import type { LoginOtpVerifyPayload, LoginPayload, MeResponse, SignupPayload, VerifyOtpPayload } from '../types/auth';
 
 interface AuthContextValue {
@@ -27,6 +33,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   const fetchMe = useCallback(async (token: string) => {
+    // Never let a prior (super-admin) session's active-tenant selection ride
+    // along on this session's first /users/me call. The tenant switcher's
+    // X-Tenant-Id is valid only for a SUPER_ADMIN; if a non-super user logs in
+    // while a stale tenant ref lingers, /users/me 403s ("Cross-tenant access
+    // requires SUPER_ADMIN") and the login looks like it failed even though the
+    // session was created. TenantContext re-establishes the header for genuine
+    // super-admins after it mounts.
+    setActiveTenantRef(null);
     const me = await authApi.me(token);
     setUser(me);
   }, []);
@@ -146,6 +160,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     await authApi.logout();
     setAccessToken(null);
     setUser(null);
+    // Clear the active-tenant selection so a super-admin's chosen tenant can't
+    // leak into the next user's session in the same browser (poisons the first
+    // /users/me with a foreign X-Tenant-Id -> 403).
+    window.localStorage.removeItem(ACTIVE_TENANT_STORAGE_KEY);
+    setActiveTenantRef(null);
   };
 
   const refreshMe = useCallback(async () => {

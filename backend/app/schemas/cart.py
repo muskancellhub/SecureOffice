@@ -18,6 +18,10 @@ class AddCartLineRequest(BaseModel):
     financial_model: str = Field(default='CAPEX', pattern='^(CAPEX|OPEX)$')
     interval: str = Field(default='MONTH', pattern='^(MONTH|YEAR)$')
     applies_to_line_id: UUID | None = None
+    # BUG-BOM-CART-PRICE-001: the per-product price shown in the source design BOM,
+    # so the cart can flag when its (re-priced) value differs. Optional — only the
+    # "order this design" flow sends it.
+    source_unit_price: float | None = Field(default=None, ge=0)
 
     @model_validator(mode='after')
     def _exactly_one_source(self):
@@ -62,3 +66,6 @@ class CartResponse(BaseModel):
     currency: str
     # BUG-CART-003: non-blocking advisories (e.g. unusually high-value lines).
     warnings: list[str] = Field(default_factory=list)
+    # BUG-CART-SETUP-001: whether setup & deployment is actually included, derived
+    # from cart contents (managed services bundle deployment) — not hard-coded.
+    setup_included: bool = False

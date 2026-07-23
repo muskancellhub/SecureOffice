@@ -120,7 +120,7 @@ class CartService:
 
     # ── add a configured product (configurator confirm, D9) ─────────────────
     def _add_product_lines(self, current_user: dict, cart, *, product_id, selections, quantity,
-                           financial_model, interval) -> None:
+                           financial_model, interval, source_unit_price=None) -> None:
         product = self.db.get(Product, self._parse_uuid(product_id, 'product_id'))
         if product is None or not product.is_active:
             raise NotFoundError('Product not found')
@@ -131,6 +131,17 @@ class CartService:
         )
         if not result['lines']:
             raise AppError('Selection contains no purchasable components', 400)
+
+        # BUG-BOM-CART-PRICE-001: the cart re-prices a product into its component
+        # lines with current tenant pricing, which can differ from the price the
+        # source design BOM showed. Compare the summed per-product price now (both
+        # numbers in hand) and flag the parent line so the cart can warn.
+        effective_unit_price = sum(float(l['unit_price']) * int(l['qty']) for l in result['lines'])
+        price_changed = (
+            source_unit_price is not None
+            and source_unit_price > 0
+            and abs(effective_unit_price - float(source_unit_price)) / float(source_unit_price) > 0.01
+        )
 
         # Capacity: every selected consumer vs the device's (scaled) capacity.
         consumes = self._consumes_for_components(
@@ -163,6 +174,8 @@ class CartService:
                     **self._snapshot_from_engine_line(product, result, only),
                     'is_parent': True,
                     'selections': None,
+                    'price_changed': price_changed,
+                    'source_bom_unit_price': float(source_unit_price) if source_unit_price is not None else None,
                 }
                 self.db.flush()
                 audit.log(
@@ -186,6 +199,9 @@ class CartService:
                     **self._snapshot_from_engine_line(product, result, line),
                     'is_parent': is_parent,
                     'selections': {str(k): int(v) for k, v in (selections or {}).items()} if is_parent else None,
+                    # Flag only the parent so the cart warns once per product.
+                    'price_changed': price_changed if is_parent else False,
+                    'source_bom_unit_price': (float(source_unit_price) if source_unit_price is not None else None) if is_parent else None,
                 },
                 applies_to_line_id=None if (is_parent or parent_db_line is None) else parent_db_line.id,
             )
@@ -341,6 +357,7 @@ class CartService:
         financial_model: str = 'CAPEX',
         interval: str = 'MONTH',
         applies_to_line_id=None,
+        source_unit_price=None,
     ):
         self._assert_user_exists(current_user)
         if bool(product_id) == bool(component_id):
@@ -351,6 +368,7 @@ class CartService:
             self._add_product_lines(
                 current_user, cart, product_id=product_id, selections=selections,
                 quantity=quantity, financial_model=financial_model, interval=interval,
+                source_unit_price=source_unit_price,
             )
         else:
             self._add_standalone_component(

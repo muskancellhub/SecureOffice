@@ -6,12 +6,13 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.exceptions import AppError, ForbiddenError, NotFoundError, UnauthorizedError
 import hashlib
-from app.core.email_domains import extract_domain, is_free_email_provider
+from app.core.email_domains import domain_has_mail_exchange, extract_domain, is_free_email_provider
 from app.core.permissions import default_permissions_for_role
 from app.core.security import hash_value, verify_value, password_strength_error
 from app.core.tenancy import CELLHUB_MASTER_TENANT_ID
 from app.models import AuthProvider, UserRole, UserStatus, UserType
 from app.models.tenant import Tenant, TenantType
+from app.models.user import User
 from app.models.vendor import Vendor
 from app.repositories.onboarding_repository import OnboardingRepository
 from app.repositories.otp_repository import OTPRepository
@@ -89,6 +90,61 @@ class AuthService:
         )
         EmailService.send_otp_email(to_email=user.email, otp=otp, purpose=purpose)
 
+    def _purge_unverified_user(self, user) -> bool:
+        """Delete one abandoned, unverified user and — if that empties its tenant
+        — the tenant too (BUG-AUTH-011). Does NOT commit; the caller owns the
+        transaction.
+
+        Deleting the user ORM-cascades its OTPs and refresh sessions. The tenant
+        is removed only when no members remain; its config children
+        (onboarding/settings/etc.) are ON DELETE CASCADE, so a single DELETE
+        clears them. Should some blocking record exist (it shouldn't for an
+        unverified signup), the tenant delete is isolated in a SAVEPOINT so it
+        fails alone and the user is still purged. Returns True if a user was
+        deleted.
+        """
+        if user.is_verified:
+            return False  # never reap a verified account
+        tenant_id = user.tenant_id
+        self.db.delete(user)
+        self.db.flush()
+
+        remaining = self.db.query(User).filter(User.tenant_id == tenant_id).count()
+        if remaining == 0:
+            try:
+                with self.db.begin_nested():
+                    self.db.query(Tenant).filter(Tenant.id == tenant_id).delete(
+                        synchronize_session=False)
+            except Exception:
+                # Tenant still has RESTRICT-protected records (orders/quotes/…).
+                # Leave it; the stranded user is gone, which is what unblocks
+                # re-signup / recovery.
+                pass
+        return True
+
+    def purge_stale_unverified(self, older_than_minutes: int | None = None) -> int:
+        """Reap every unverified account older than the TTL (BUG-AUTH-011).
+
+        A signup persists the user as ``is_verified=False`` before the OTP step,
+        so an abandoned verification leaves a row that blocks the email from ever
+        signing up again. This is the scheduled-job entry point (also invoked
+        lazily from ``signup`` for a single email). Idempotent and safe to run
+        repeatedly. Returns the number of users purged.
+        """
+        ttl = older_than_minutes if older_than_minutes is not None else \
+            settings.unverified_account_ttl_minutes
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=ttl)
+        stale = (
+            self.db.query(User)
+            .filter(User.is_verified.is_(False), User.created_at < cutoff)
+            .all()
+        )
+        purged = sum(1 for u in stale if self._purge_unverified_user(u))
+        if purged:
+            self.db.commit()
+            audit.log('unverified_accounts_reaped', count=purged, ttl_minutes=ttl)
+        return purged
+
     def signup(self, *, email: str, password: str, mobile: str | None, name: str, company_name: str):
         """Company-first signup (PLAN.md §1). The signup email's domain is the
         company key:
@@ -104,14 +160,31 @@ class AuthService:
         `_ensure_bootstrap_super_admin` after OTP.
         """
         email_norm = email.lower().strip()
-        if self.user_repo.get_by_email(email_norm):
-            raise AppError('Email already in use', 409)
+        existing = self.user_repo.get_by_email(email_norm)
+        if existing:
+            # BUG-AUTH-011: reap an abandoned, still-unverified account past its
+            # TTL so this email can start fresh (and, for a first-signup, reclaim
+            # its founding-admin tenant). A verified account — or an unverified
+            # one still inside the grace window (possibly mid-verification, and
+            # recoverable via the login-OTP path) — keeps the 409.
+            cutoff = datetime.now(timezone.utc) - timedelta(
+                minutes=settings.unverified_account_ttl_minutes)
+            if not existing.is_verified and existing.created_at and existing.created_at < cutoff:
+                self._purge_unverified_user(existing)
+                self.db.commit()
+            else:
+                raise AppError('Email already in use', 409)
 
         domain = extract_domain(email_norm)
         if not domain:
             raise AppError('Please enter a valid email address', 400)
         if is_free_email_provider(email_norm):
             raise AppError('Please use your company email address.', 400)
+        # BUG-AUTH-010: reject typo'd/non-existent domains BEFORE creating the
+        # tenant/user and "sending" an OTP that could never be delivered.
+        if not domain_has_mail_exchange(domain):
+            raise AppError(
+                "This email domain can't receive mail — please check for a typo.", 400)
 
         company_name = (company_name or '').strip()
         if not company_name:
@@ -188,6 +261,11 @@ class AuthService:
         existing = self.user_repo.get_by_email(contact_email)
         if existing:
             raise AppError('Email already in use', 409)
+        # BUG-AUTH-010: the OTP is sent to contact_email, so its domain must be
+        # able to receive mail — same guard as regular signup.
+        if not domain_has_mail_exchange(extract_domain(contact_email.lower().strip())):
+            raise AppError(
+                "This email domain can't receive mail — please check for a typo.", 400)
 
         from app.models.tenant import Tenant
         vendor_tenant = Tenant(name=company_name, tenant_type=TenantType.VENDOR)
@@ -333,12 +411,16 @@ class AuthService:
     def request_login_otp(self, *, email: str):
         user = self.user_repo.get_by_email(email)
         if not user:
-            # Response stays silent (no email enumeration), but the attempt is
-            # still recorded — a stream of these is an enumeration probe.
-            audit.log('otp_requested', status='skipped', email_attempted=email, reason='unknown_email')
-            return
-        if not user.is_verified:
-            raise UnauthorizedError('Please verify OTP first')
+            # Product decision: tell the user plainly that no account exists (better
+            # UX than a silent no-op). NOTE: this makes the OTP endpoint an account-
+            # enumeration oracle — the attempt is still audited so a stream of these
+            # is visible as an enumeration probe.
+            audit.log('otp_requested', status='failure', email_attempted=email, reason='unknown_email')
+            raise NotFoundError('No account found for this email. Please sign up first.')
+        # BUG-AUTH-011: an unverified user is NOT rejected here. Sending an OTP to
+        # their own inbox and having them return it IS the verification — so this
+        # doubles as the recovery path for someone who abandoned /verify-otp. The
+        # OTP is verified (and is_verified flipped) in login_with_otp below.
 
         self._enforce_otp_request_throttle(user)
         self._ensure_bootstrap_super_admin(user)
@@ -395,11 +477,6 @@ class AuthService:
                       email_attempted=email, reason='invalid_credentials',
                       reason_detail='unknown_user', method='otp')
             raise UnauthorizedError('Invalid OTP or email')
-        if not user.is_verified:
-            audit.log('user_login_failed', status='failure', level=logging.WARNING,
-                      email_attempted=email, user_id=str(user.id),
-                      reason='invalid_credentials', reason_detail='not_verified', method='otp')
-            raise UnauthorizedError('Please verify OTP first')
 
         latest_otp = self.otp_repo.get_latest_active_for_user(user.id)
         if not latest_otp:
@@ -409,6 +486,11 @@ class AuthService:
 
         self._verify_otp_attempt(latest_otp, otp, user=user)
 
+        # BUG-AUTH-011: a correct OTP proves control of the inbox, so an
+        # unverified user who recovers via this path becomes verified here — this
+        # is what rescues an abandoned /verify-otp signup.
+        if not user.is_verified:
+            user.is_verified = True
         self.otp_repo.mark_used(latest_otp)
         self._ensure_bootstrap_super_admin(user)
         self.db.commit()

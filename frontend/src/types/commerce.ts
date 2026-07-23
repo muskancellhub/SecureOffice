@@ -75,6 +75,8 @@ export interface Cart {
   monthly_subtotal: number;
   estimated_12_month_total: number;
   currency: string;
+  warnings?: string[];
+  setup_included?: boolean;
 }
 
 export interface CatalogSyncResponse {
@@ -139,6 +141,12 @@ export interface QuoteSummary {
 
 export interface QuoteDetail extends QuoteSummary {
   lines: QuoteLine[];
+  // BUG-MS-TAX-002: server-computed, cadence-split tax (replaces hardcoded 8%).
+  one_time_tax: number;
+  one_time_total_with_tax: number;
+  monthly_tax: number;
+  monthly_total_with_tax: number;
+  tax_source: string;
 }
 
 export interface OrderLine {

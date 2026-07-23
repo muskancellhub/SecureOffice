@@ -7,6 +7,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTenant } from '../context/TenantContext';
 import * as productsApi from '../api/productsApi';
+import { VendorCombobox } from '../components/VendorCombobox';
 import { AdminFinancingPage } from './AdminFinancingPage';
 import { extractApiError } from '../utils/extractApiError';
 import { toast } from '../utils/toast';
@@ -122,6 +123,28 @@ const blankNewProduct = () => ({
   default_financial_model: 'BOTH', leasing_pct: '0.05', category: 'router',
 });
 
+// BUG-PRODUCT-VAL-003: field-level validation state for the create modal.
+interface CreateFieldErrors {
+  vendor?: string;
+  technology?: string;
+  sku?: string;
+  name?: string;
+  // keyed by component draft.key → per-field messages
+  components?: Record<string, { label?: string; vendor_cost?: string }>;
+}
+
+const CREATE_FIELD_IDS = {
+  vendor: 'apx7-new-vendor',
+  technology: 'apx7-new-technology',
+  sku: 'apx7-new-sku',
+  name: 'apx7-new-name',
+} as const;
+
+// A component row is "empty" (ignored, not flagged) only when it has no label,
+// cost, or vendor SKU. Any partially-filled row must be completed.
+const isBlankComponent = (c: NewComponentDraft): boolean =>
+  !c.label.trim() && c.vendor_cost.trim() === '' && !c.vendor_component_sku.trim();
+
 export const AdminProductsPage = () => {
   const { accessToken, user } = useAuth();
   const { activeTenantId, activeTenant } = useTenant();
@@ -164,6 +187,9 @@ export const AdminProductsPage = () => {
   const [newComponents, setNewComponents] = useState<NewComponentDraft[]>([blankNewComponent()]);
   const [creatingBusy, setCreatingBusy] = useState(false);
   const [createError, setCreateError] = useState('');
+  // BUG-PRODUCT-VAL-003: per-field validation so every invalid field is marked
+  // inline, not just a single message at the top of a scrolled-away modal.
+  const [fieldErrors, setFieldErrors] = useState<CreateFieldErrors>({});
 
   const load = useCallback(async () => {
     if (!accessToken || !isAdmin) return;
@@ -373,26 +399,84 @@ export const AdminProductsPage = () => {
     setNewProduct(blankNewProduct());
     setNewComponents([blankNewComponent()]);
     setCreateError('');
+    setFieldErrors({});
     setCreating(true);
+  };
+
+  // Clear a product field's error as the user fixes it (keeps the summary honest).
+  const clearProductFieldError = (field: keyof CreateFieldErrors) =>
+    setFieldErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
+  const clearComponentFieldError = (key: number, field: 'label' | 'vendor_cost') =>
+    setFieldErrors((prev) => {
+      if (!prev.components?.[key]?.[field]) return prev;
+      const row = { ...prev.components[key], [field]: undefined };
+      return { ...prev, components: { ...prev.components, [key]: row } };
+    });
+
+  // Validate every field, collect ALL errors (not first-fail), and return the id
+  // of the first invalid field so we can focus/scroll to it.
+  const validateCreate = (): { errors: CreateFieldErrors; firstInvalidId: string | null } => {
+    const errors: CreateFieldErrors = {};
+    let firstInvalidId: string | null = null;
+    const flag = (id: string) => { if (!firstInvalidId) firstInvalidId = id; };
+
+    for (const field of ['vendor', 'technology', 'sku', 'name'] as const) {
+      if (!newProduct[field].trim()) {
+        errors[field] = `${field === 'technology' ? 'Area / technology' : field[0].toUpperCase() + field.slice(1)} is required.`;
+        flag(CREATE_FIELD_IDS[field]);
+      }
+    }
+
+    const compErrors: Record<string, { label?: string; vendor_cost?: string }> = {};
+    const nonBlank = newComponents.filter((c) => !isBlankComponent(c));
+    for (const c of newComponents) {
+      if (isBlankComponent(c)) continue; // untouched extra row — ignore
+      const row: { label?: string; vendor_cost?: string } = {};
+      if (!c.label.trim()) { row.label = 'Label is required.'; flag(`apx7-comp-${c.key}-label`); }
+      const cost = Number(c.vendor_cost);
+      if (c.vendor_cost.trim() === '') { row.vendor_cost = 'Cost is required.'; flag(`apx7-comp-${c.key}-cost`); }
+      else if (!Number.isFinite(cost) || cost < 0) { row.vendor_cost = 'Enter a valid cost (≥ 0).'; flag(`apx7-comp-${c.key}-cost`); }
+      if (row.label || row.vendor_cost) compErrors[c.key] = row;
+    }
+    // Need at least one usable component. Flag the first row's fields if none exist.
+    if (nonBlank.length === 0) {
+      const first = newComponents[0];
+      if (first) {
+        compErrors[first.key] = { label: 'Add at least one component with a label and a cost.', vendor_cost: ' ' };
+        flag(`apx7-comp-${first.key}-label`);
+      }
+    }
+    if (Object.keys(compErrors).length) errors.components = compErrors;
+
+    return { errors, firstInvalidId };
   };
 
   const onCreateProduct = async () => {
     if (!accessToken) return;
     setCreateError('');
-    for (const field of ['vendor', 'technology', 'sku', 'name'] as const) {
-      if (!newProduct[field].trim()) {
-        setCreateError(`${field === 'technology' ? 'Area' : field[0].toUpperCase() + field.slice(1)} is required.`);
-        return;
-      }
-    }
-    const validComponents = newComponents.filter((c) => c.label.trim() && c.vendor_cost !== '');
-    if (validComponents.length === 0) {
-      setCreateError('Add at least one component with a label and a cost.');
+    const { errors, firstInvalidId } = validateCreate();
+    const invalidCount =
+      (['vendor', 'technology', 'sku', 'name'] as const).filter((f) => errors[f]).length +
+      Object.values(errors.components || {}).reduce((n, r) => n + (r.label ? 1 : 0) + (r.vendor_cost && r.vendor_cost.trim() ? 1 : 0), 0);
+    if (firstInvalidId) {
+      setFieldErrors(errors);
+      setCreateError(`Please fix ${invalidCount} field${invalidCount === 1 ? '' : 's'} highlighted below.`);
+      // Move focus + scroll to the first invalid field.
+      requestAnimationFrame(() => {
+        const el = document.getElementById(firstInvalidId);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        (el as HTMLElement | null)?.focus?.({ preventScroll: true });
+      });
       return;
     }
+    setFieldErrors({});
+
+    const usableComponents = newComponents.filter((c) => !isBlankComponent(c));
     setCreatingBusy(true);
     try {
-      const created = await productsApi.createProduct(accessToken, {
+      // BUG-PRODUCT-DATA-004: one atomic request — product + all components — so a
+      // component failure can't orphan the product (and burn its SKU).
+      const created = await productsApi.createProductWithComponents(accessToken, {
         vendor: newProduct.vendor.trim(),
         technology: newProduct.technology.trim(),
         sku: newProduct.sku.trim(),
@@ -409,9 +493,7 @@ export const AdminProductsPage = () => {
           source_type: 'manual',
           source_name: 'admin_portal',
         },
-      } as any);
-      for (const draft of validComponents) {
-        await productsApi.addComponent(accessToken, created.id, {
+        components: usableComponents.map((draft) => ({
           component_type: draft.component_type,
           label: draft.label.trim(),
           vendor_component_sku: draft.vendor_component_sku.trim() || draft.label.trim().toUpperCase().replace(/\s+/g, '-').slice(0, 32),
@@ -423,9 +505,9 @@ export const AdminProductsPage = () => {
           default_qty: Math.max(1, Number(draft.default_qty) || 1),
           is_required: draft.is_required,
           is_active: true,
-        } as any);
-      }
-      toast.success(`${created.sku} created with ${validComponents.length} component${validComponents.length === 1 ? '' : 's'}`);
+        })),
+      } as any);
+      toast.success(`${created.sku} created with ${usableComponents.length} component${usableComponents.length === 1 ? '' : 's'}`);
       setCreating(false);
       setPreviews({});
       await load();
@@ -579,6 +661,35 @@ export const AdminProductsPage = () => {
         .apx7-confirm-group.tenant h5 { color: var(--primary); }
         .apx7-confirm-group ul { margin: 0; padding-left: 18px; font-size: 14px; color: var(--text); }
         .apx7-confirm-group li { margin: 3px 0; }
+
+        /* BUG-PRODUCT-VAL-003: field-level validation styling */
+        .apx-field input.apx7-invalid, .apx7-mini input.apx7-invalid,
+        .apx7-comp-head input.apx7-label-input.apx7-invalid, .apx7-combo.apx7-invalid .apx7-combo-input-wrap {
+          border-color: #e5484d !important; background: #fff6f6; }
+        .apx7-field-err { display: block; margin-top: 4px; font-size: 12px; font-weight: 600; color: #cf3b3b; }
+        .apx7-comp-card.apx7-comp-invalid { border-color: #f0c4c4; background: #fffafa; }
+        .apx7-create-foot { flex-wrap: wrap; }
+        .apx7-foot-err { margin-right: auto; font-size: 13px; font-weight: 600; color: #cf3b3b; }
+
+        /* BUG-PRODUCT-UI-005: searchable vendor combobox */
+        .apx7-combo { position: relative; }
+        .apx7-combo-input-wrap { display: flex; align-items: center; border: 1px solid #e4e8ef;
+          border-radius: 9px; background: #fff; }
+        .apx7-combo-input-wrap:focus-within { outline: 2px solid var(--primary); outline-offset: 1px;
+          border-color: transparent; }
+        .apx7-combo-input-wrap input { flex: 1; height: 38px; padding: 0 10px; border: 0; background: transparent;
+          font-size: 14px; color: var(--text); outline: none; }
+        .apx7-combo-clear, .apx7-combo-toggle { display: inline-flex; align-items: center; justify-content: center;
+          width: 28px; height: 36px; border: 0; background: transparent; color: var(--subtle); cursor: pointer; }
+        .apx7-combo-clear:hover, .apx7-combo-toggle:hover { color: var(--text); }
+        .apx7-combo-menu { position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0;
+          max-height: 220px; overflow-y: auto; margin: 0; padding: 4px; list-style: none; background: #fff;
+          border: 1px solid #e4e8ef; border-radius: 10px; box-shadow: 0 12px 28px rgba(16, 24, 40, 0.12); }
+        .apx7-combo-option { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+          padding: 8px 10px; border-radius: 7px; font-size: 14px; color: var(--text); cursor: pointer; }
+        .apx7-combo-option.active { background: var(--surface-hover); }
+        .apx7-combo-option.selected { color: var(--primary); font-weight: 600; }
+        .apx7-combo-empty { padding: 9px 10px; font-size: 13px; color: var(--subtle); }
       `}</style>
 
       <header className="apx-header">
@@ -967,30 +1078,35 @@ export const AdminProductsPage = () => {
             </div>
 
             <div className="apx7-modal-body">
-              {createError && <div className="error-text" style={{ marginBottom: 10 }}>{createError}</div>}
-
               <div className="apx7-section">Identity</div>
               <div className="apx7-form-row">
                 <label className="apx-field">
                   <span>Vendor</span>
-                  <input list="apx7-vendors" placeholder="e.g. Meraki or a new vendor"
-                         value={newProduct.vendor}
-                         onChange={(e) => setNewProduct({ ...newProduct, vendor: e.target.value })} />
-                  <datalist id="apx7-vendors">
-                    {vendors.map((v) => <option key={v} value={v} />)}
-                  </datalist>
+                  <VendorCombobox
+                    id={CREATE_FIELD_IDS.vendor}
+                    value={newProduct.vendor}
+                    vendors={vendors}
+                    invalid={!!fieldErrors.vendor}
+                    placeholder="e.g. Meraki or a new vendor"
+                    onChange={(v) => { setNewProduct({ ...newProduct, vendor: v }); clearProductFieldError('vendor'); }}
+                  />
+                  {fieldErrors.vendor && <span className="apx7-field-err">{fieldErrors.vendor}</span>}
                 </label>
                 <label className="apx-field">
                   <span>Area / technology</span>
-                  <input placeholder="e.g. POTS / Cellular Router"
+                  <input id={CREATE_FIELD_IDS.technology} className={fieldErrors.technology ? 'apx7-invalid' : ''}
+                         placeholder="e.g. POTS / Cellular Router"
                          value={newProduct.technology}
-                         onChange={(e) => setNewProduct({ ...newProduct, technology: e.target.value })} />
+                         onChange={(e) => { setNewProduct({ ...newProduct, technology: e.target.value }); clearProductFieldError('technology'); }} />
+                  {fieldErrors.technology && <span className="apx7-field-err">{fieldErrors.technology}</span>}
                 </label>
                 <label className="apx-field">
                   <span>SKU</span>
-                  <input placeholder="unique, e.g. 90X3"
+                  <input id={CREATE_FIELD_IDS.sku} className={fieldErrors.sku ? 'apx7-invalid' : ''}
+                         placeholder="unique, e.g. 90X3"
                          value={newProduct.sku}
-                         onChange={(e) => setNewProduct({ ...newProduct, sku: e.target.value })} />
+                         onChange={(e) => { setNewProduct({ ...newProduct, sku: e.target.value }); clearProductFieldError('sku'); }} />
+                  {fieldErrors.sku && <span className="apx7-field-err">{fieldErrors.sku}</span>}
                 </label>
                 <label className="apx-field">
                   <span>Catalog category</span>
@@ -1002,9 +1118,11 @@ export const AdminProductsPage = () => {
               </div>
               <label className="apx-field">
                 <span>Product name</span>
-                <input placeholder="Full display name shown in the customer catalog"
+                <input id={CREATE_FIELD_IDS.name} className={fieldErrors.name ? 'apx7-invalid' : ''}
+                       placeholder="Full display name shown in the customer catalog"
                        value={newProduct.name}
-                       onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })} />
+                       onChange={(e) => { setNewProduct({ ...newProduct, name: e.target.value }); clearProductFieldError('name'); }} />
+                {fieldErrors.name && <span className="apx7-field-err">{fieldErrors.name}</span>}
               </label>
               <label className="apx-field">
                 <span>Description</span>
@@ -1040,17 +1158,21 @@ export const AdminProductsPage = () => {
               <p className="apx7-scope-hint">
                 At least one priced component. MSRP defaults to 1.5× cost when left empty.
               </p>
-              {newComponents.map((draft) => (
-                <div key={draft.key} className="apx7-comp-card">
+              {newComponents.map((draft) => {
+                const compErr = fieldErrors.components?.[draft.key];
+                return (
+                <div key={draft.key} className={`apx7-comp-card${compErr ? ' apx7-comp-invalid' : ''}`}>
                   <div className="apx7-comp-head">
                     <select className="apx7-type-select" value={draft.component_type}
                             aria-label="Component type"
                             onChange={(e) => setNewComp(draft.key, 'component_type', e.target.value)}>
                       {COMPONENT_TYPES.map((t) => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
                     </select>
-                    <input className="apx7-label-input" placeholder="Component label (e.g. Device, Voice Line…)"
+                    <input id={`apx7-comp-${draft.key}-label`}
+                           className={`apx7-label-input${compErr?.label ? ' apx7-invalid' : ''}`}
+                           placeholder="Component label (e.g. Device, Voice Line…)"
                            value={draft.label}
-                           onChange={(e) => setNewComp(draft.key, 'label', e.target.value)} />
+                           onChange={(e) => { setNewComp(draft.key, 'label', e.target.value); clearComponentFieldError(draft.key, 'label'); }} />
                     <input className="apx7-mini-sku" placeholder="vendor SKU"
                            aria-label="Vendor component SKU"
                            value={draft.vendor_component_sku}
@@ -1062,11 +1184,15 @@ export const AdminProductsPage = () => {
                       </button>
                     )}
                   </div>
+                  {compErr?.label && compErr.label.trim() && <span className="apx7-field-err">{compErr.label}</span>}
                   <div className="apx7-mini-grid">
                     <label className="apx7-mini">
                       <span>Cost</span>
-                      <input type="number" step="0.01" min="0" placeholder="0.00" value={draft.vendor_cost}
-                             onChange={(e) => setNewComp(draft.key, 'vendor_cost', e.target.value)} />
+                      <input id={`apx7-comp-${draft.key}-cost`} type="number" step="0.01" min="0" placeholder="0.00"
+                             className={compErr?.vendor_cost && compErr.vendor_cost.trim() ? 'apx7-invalid' : ''}
+                             value={draft.vendor_cost}
+                             onChange={(e) => { setNewComp(draft.key, 'vendor_cost', e.target.value); clearComponentFieldError(draft.key, 'vendor_cost'); }} />
+                      {compErr?.vendor_cost && compErr.vendor_cost.trim() && <span className="apx7-field-err">{compErr.vendor_cost}</span>}
                     </label>
                     <label className="apx7-mini">
                       <span>MSRP</span>
@@ -1110,15 +1236,19 @@ export const AdminProductsPage = () => {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
               <button className="apx-ghost-btn" style={{ margin: '4px 0 16px' }}
                       onClick={() => setNewComponents((prev) => [...prev, blankNewComponent({ component_type: 'MANAGED_SERVICE', billing: 'RECURRING', interval: 'MONTH', is_required: false })])}>
                 <Plus size={14} /> Add component
               </button>
             </div>
 
-            <div className="apx7-modal-foot">
-              <button className="apx-ghost-btn" style={{ marginLeft: 'auto' }} onClick={() => setCreating(false)}>Cancel</button>
+            <div className="apx7-modal-foot apx7-create-foot">
+              {/* BUG-PRODUCT-VAL-003: summary stays pinned next to the button so
+                  the user never has to scroll up to learn why Create is blocked. */}
+              {createError && <span className="apx7-foot-err" role="alert">{createError}</span>}
+              <button className="apx-ghost-btn" style={{ marginLeft: createError ? '0' : 'auto' }} onClick={() => setCreating(false)}>Cancel</button>
               <button className="apx-add-btn" onClick={onCreateProduct} disabled={creatingBusy}>
                 <Plus size={15} /> {creatingBusy ? 'Creating…' : 'Create product'}
               </button>

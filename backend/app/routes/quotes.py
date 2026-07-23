@@ -16,8 +16,11 @@ from app.schemas.quotes import (
     QuotePricingPreviewResponse,
     QuoteSummaryResponse,
 )
+from app.core.config import get_settings
+from app.models.onboarding import TenantOnboarding
 from app.services.pricing_service import PricingService
 from app.services.quote_service import QuoteService
+from app.services.tax_estimator import address_from_dict, estimate_split_tax
 
 router = APIRouter(prefix='/quotes', tags=['Quotes'])
 
@@ -50,6 +53,21 @@ def _serialize_quote(db: Session, quote) -> QuoteDetailResponse:
     default_discount_pct = float(customer_pricing.default_discount_pct)
     incremental_discount_pct = float(quote.deal_pricing.incremental_discount_pct) if quote.deal_pricing else 0.0
 
+    # BUG-MS-TAX-002: compute tax server-side, split one-time vs recurring, using
+    # the customer's jurisdiction (Avalara) when available and the configured
+    # fallback rate otherwise — replacing the frontend's hardcoded 8% on hardware.
+    onboarding = db.get(TenantOnboarding, quote.tenant_id)
+    ship_to = address_from_dict(
+        (getattr(onboarding, 'operations_address', None) or getattr(onboarding, 'billing_address', None))
+        if onboarding else None)
+    split = estimate_split_tax(
+        one_time_subtotal=float(quote.one_time_total),
+        recurring_subtotal=float(quote.monthly_total),
+        ship_to=ship_to,
+        customer_code=str(quote.tenant_id),
+        fallback_rate_pct=get_settings().default_tax_rate_pct,
+    )
+
     return QuoteDetailResponse(
         id=str(quote.id),
         public_id=quote.public_id,
@@ -66,6 +84,11 @@ def _serialize_quote(db: Session, quote) -> QuoteDetailResponse:
         created_at=quote.created_at,
         updated_at=quote.updated_at,
         lines=[_serialize_quote_line(line) for line in quote.lines],
+        one_time_tax=split.one_time.tax,
+        one_time_total_with_tax=split.one_time.total,
+        monthly_tax=split.recurring.tax,
+        monthly_total_with_tax=split.recurring.total,
+        tax_source=split.as_dict()['tax_source'],
     )
 
 

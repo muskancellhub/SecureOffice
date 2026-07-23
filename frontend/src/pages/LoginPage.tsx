@@ -9,7 +9,7 @@ import { extractApiError, isValidEmail } from '../utils/extractApiError';
 const RESEND_COOLDOWN_SECONDS = 60;
 
 export const LoginPage = () => {
-  const { user, loading: authLoading, login, requestLoginOtp, verifyLoginOtp, startGoogleSSO, startMicrosoftSSO } = useAuth();
+  const { user, loading: authLoading, login, requestLoginOtp, verifyLoginOtp, startMicrosoftSSO } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [mode, setMode] = useState<'otp' | 'password'>('otp');
@@ -101,7 +101,7 @@ export const LoginPage = () => {
     try {
       await requestLoginOtp(email);
       setOtpRequested(true);
-      setNotice('If an account exists, an OTP has been sent to your email.');
+      setNotice('An OTP has been sent to your email.');
       setResendIn(RESEND_COOLDOWN_SECONDS);
     } catch (err: any) {
       setError(extractApiError(err, 'Failed to send OTP'));
@@ -194,7 +194,18 @@ export const LoginPage = () => {
         </form>
       ) : (
         <form className="auth-form" onSubmit={onVerifyOtp}>
-          <input type="email" placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          {/* Email is locked once the code is sent — the OTP was issued for THIS
+              address, so silently editing it here would just guarantee a
+              mismatch. Use "Change Email" to go back and request a new code. */}
+          <input
+            type="email"
+            placeholder="Email Address"
+            value={email}
+            readOnly
+            aria-readonly="true"
+            style={{ opacity: 0.7, cursor: 'not-allowed' }}
+            required
+          />
           <input
             type="text"
             placeholder="6-digit OTP"
@@ -220,14 +231,6 @@ export const LoginPage = () => {
 
       <div className="divider"><span>Or Continue With</span></div>
       <div className="social-row">
-        <button className="social-btn" type="button" onClick={() => { localStorage.setItem('secureOfficePostAuthRedirect', nextRoute); startGoogleSSO(); }} aria-label="Continue with Google">
-          <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
-            <path fill="#EA4335" d="M24 9.5c3.54 0 6.72 1.22 9.23 3.61l6.9-6.9C35.95 2.32 30.39 0 24 0 14.62 0 6.51 5.38 2.56 13.22l8.04 6.24C12.54 13.56 17.79 9.5 24 9.5z" />
-            <path fill="#4285F4" d="M46.5 24.55c0-1.67-.15-3.27-.43-4.82H24v9.13h12.64c-.55 2.96-2.21 5.47-4.71 7.16l7.24 5.63C43.4 37.71 46.5 31.74 46.5 24.55z" />
-            <path fill="#FBBC05" d="M10.6 28.54a14.52 14.52 0 0 1-.77-4.54c0-1.58.28-3.11.77-4.54l-8.04-6.24A23.94 23.94 0 0 0 0 24c0 3.86.92 7.52 2.56 10.78l8.04-6.24z" />
-            <path fill="#34A853" d="M24 48c6.48 0 11.92-2.14 15.89-5.82l-7.24-5.63c-2.01 1.35-4.58 2.15-8.65 2.15-6.21 0-11.46-4.06-13.4-9.96l-8.04 6.24C6.51 42.62 14.62 48 24 48z" />
-          </svg>
-        </button>
         <button className="social-btn" type="button" onClick={() => { localStorage.setItem('secureOfficePostAuthRedirect', nextRoute); startMicrosoftSSO(); }} aria-label="Continue with Microsoft">
           <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
             <rect x="2" y="2" width="9" height="9" fill="#F25022" />

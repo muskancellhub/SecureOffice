@@ -121,9 +121,6 @@ class PricingService:
         if quote.status == QuoteStatus.CONVERTED:
             raise AppError('Cannot change pricing for converted quote', 400)
 
-        customer_pricing = self.get_or_create_customer_pricing(current_user['tenant_id'])
-        default_pct = self._to_decimal(customer_pricing.default_discount_pct)
-
         deal_row = self.get_or_create_deal_pricing(quote)
         old_pct = float(deal_row.incremental_discount_pct)
         deal_row.incremental_discount_pct = pct
@@ -131,9 +128,14 @@ class PricingService:
         one_time_total = Decimal('0')
         monthly_total = Decimal('0')
         for line in quote.lines:
+            # BUG-QUOTE-DISC-001: list_price_snapshot IS the cost-plus marked-up
+            # price, so only the explicit deal discount applies. Applying the
+            # customer default_discount_pct here (the retired discount-off-list
+            # model) would silently slash every price the moment a deal discount
+            # is set, even though creation never applied it.
             final_unit = self.calculate_final_unit_price(
                 list_price=line.list_price_snapshot,
-                default_discount_pct=default_pct,
+                default_discount_pct=Decimal('0'),
                 incremental_discount_pct=pct,
             )
             line.final_unit_price_snapshot = final_unit

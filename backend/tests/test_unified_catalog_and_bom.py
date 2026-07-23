@@ -245,6 +245,31 @@ class TestUnifiedCatalogAndBom(unittest.TestCase):
         self.assertEqual(switch_line['vendor'], 'Meraki')
         self.assertNotEqual(ap_line['vendor'], 'PAPI')
 
+    def test_managed_service_recurring_charge_is_taxed_separately(self):
+        # BUG-MS-TAX-001: the monthly managed-service charge must be subtotalled
+        # and taxed as recurring, not lumped into (or excluded from) one-time tax.
+        result = NetworkBomService(self.service).generate_bom_from_estimate(
+            calculator_result={
+                'summary': {'recommendedIndoorAPs': 3, 'recommendedSwitches': 2},
+                'counts': {'switchCount': 2, 'indoorAPsFinal': 3},
+                'inputsNormalized': {'switchPorts': 24, 'pricing': {'taxPct': 8}},
+            },
+            preferences={'includeManagedServices': True},
+        )
+        ms_lines = [l for l in result['line_items'] if l.get('billing') == 'recurring']
+        self.assertTrue(ms_lines, 'expected a recurring managed-service line')
+        # Managed Router - Bronze @ $29/mo × 2 switches = $58/mo.
+        self.assertEqual(result['monthly_subtotal'], 58.0)
+        self.assertEqual(result['monthly_tax'], 4.64)                 # 58 × 8%
+        self.assertEqual(result['monthly_total_with_tax'], 62.64)
+        # The recurring charge is NOT in the one-time subtotal.
+        one_time_lines = [l for l in result['line_items'] if l.get('billing') != 'recurring']
+        self.assertEqual(result['one_time_subtotal'],
+                         round(sum(float(l['line_total']) for l in one_time_lines), 2))
+        self.assertEqual(result['subtotal'],
+                         round(result['one_time_subtotal'] + result['monthly_subtotal'], 2))
+        self.assertEqual(result['tax_source'], 'configured')  # Avalara unconfigured in tests
+
     def test_large_deployment_emits_warning(self):
         # BUG-DES-002: numbers stay correct; a warning flags the large deployment.
         bom = NetworkBomService(self.service)

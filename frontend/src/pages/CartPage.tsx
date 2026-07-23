@@ -137,6 +137,11 @@ export const CartPage = () => {
       {loadingCart && <div className="dh-loading-bar"><div className="dh-loading-bar-inner" /></div>}
       {cartError && <div className="onboarding-alert error">{cartError}</div>}
       {actionError && <div className="onboarding-alert error">{actionError}</div>}
+      {/* BUG-BOM-CART-PRICE-001 (+ existing BUG-CART-003): surface cart advisories,
+          e.g. a design item that was repriced to current catalog rates. */}
+      {(cart?.warnings || []).map((w, i) => (
+        <div key={i} className="onboarding-alert info">{w}</div>
+      ))}
 
       {!loadingCart && totalLineCount === 0 && (
         <div className="cpx-empty">
@@ -285,7 +290,7 @@ export const CartPage = () => {
             <div className="cpx-totals">
               <div className="cpx-total-row"><span>One-time hardware</span><strong>{formatCurrency(cart?.one_time_subtotal || 0)}</strong></div>
               <div className="cpx-total-row"><span>Managed services</span><strong>{formatCurrency(cart?.monthly_subtotal || 0)}/mo</strong></div>
-              <div className="cpx-total-row"><span>Setup &amp; deployment</span><strong>Included</strong></div>
+              <div className="cpx-total-row"><span>Setup &amp; deployment</span><strong>{cart?.setup_included ? 'Included' : 'Not included'}</strong></div>
               <div className="cpx-total-row cpx-grand"><span>12-month total</span><strong>{formatCurrency(cart?.estimated_12_month_total || 0)}</strong></div>
             </div>
             <button className="cpx-checkout" onClick={onGenerateQuote} disabled={generatingQuote || totalLineCount === 0}>

@@ -28,6 +28,16 @@ export const createProduct = async (accessToken: string, payload: Partial<Produc
   return data as Product;
 };
 
+// BUG-PRODUCT-DATA-004: create a product and all its components in ONE atomic
+// request so a component failure can't leave an orphaned product behind.
+export const createProductWithComponents = async (
+  accessToken: string,
+  payload: Partial<Product> & { components: Partial<ProductComponent>[] },
+) => {
+  const { data } = await api.post('/products/with-components', payload, { headers: authHeaders(accessToken) });
+  return data as Product;
+};
+
 export const updateProduct = async (accessToken: string, productId: string, payload: Partial<Product>) => {
   const { data } = await api.patch(`/products/${productId}`, payload, { headers: authHeaders(accessToken) });
   return data as Product;

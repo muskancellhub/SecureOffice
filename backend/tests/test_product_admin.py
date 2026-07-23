@@ -112,6 +112,61 @@ def test_invalid_component_type_rejected(admin_db):
             svc.add_component(p.id, {'component_type': 'WIDGET', 'label': 'x', 'vendor_cost': 1})
 
 
+def test_create_product_with_components_atomic_happy(admin_db):
+    # BUG-PRODUCT-DATA-004: product + components persist together in one call.
+    SessionLocal, _ = admin_db
+    from app.services.product_admin_service import ProductAdminService
+    with SessionLocal() as db:
+        p = ProductAdminService(db).create_product_with_components(
+            {'vendor': 'ACME', 'technology': 'Test', 'sku': f'{PFX}ATOMIC', 'name': 'Atomic'},
+            [
+                {'component_type': 'DEVICE', 'label': 'box', 'vendor_cost': 100, 'billing': 'ONE_TIME'},
+                {'component_type': 'MANAGED_SERVICE', 'label': 'svc', 'vendor_cost': 20, 'billing': 'RECURRING', 'interval': 'MONTH'},
+            ],
+        )
+        assert p.sku == f'{PFX}ATOMIC'
+        assert len(p.components) == 2
+
+
+def test_create_product_with_components_rolls_back_on_bad_component(admin_db):
+    # The core guarantee: one invalid component ⇒ NO product and NO SKU consumed,
+    # so the same SKU can be retried cleanly (the whole point of the ticket).
+    SessionLocal, _ = admin_db
+    from app.services.product_admin_service import ProductAdminService
+    from sqlalchemy import select
+    from app.models.product import Product
+    sku = f'{PFX}ROLLBACK'
+    with SessionLocal() as db:
+        svc = ProductAdminService(db)
+        with pytest.raises(AppError) as exc:
+            svc.create_product_with_components(
+                {'vendor': 'ACME', 'technology': 'Test', 'sku': sku, 'name': 'Rollback'},
+                [
+                    {'component_type': 'DEVICE', 'label': 'ok', 'vendor_cost': 100},
+                    {'component_type': 'WIDGET', 'label': 'bad', 'vendor_cost': 1},  # invalid type
+                ],
+            )
+        assert 'Component 2' in str(exc.value)
+    # New session: the product must not exist, so the SKU is free to retry.
+    with SessionLocal() as db:
+        assert db.scalar(select(Product).where(Product.sku == sku)) is None
+        # retry with valid components now succeeds on the same SKU
+        p = ProductAdminService(db).create_product_with_components(
+            {'vendor': 'ACME', 'technology': 'Test', 'sku': sku, 'name': 'Rollback'},
+            [{'component_type': 'DEVICE', 'label': 'ok', 'vendor_cost': 100}],
+        )
+        assert p.sku == sku and len(p.components) == 1
+
+
+def test_create_product_with_components_requires_at_least_one(admin_db):
+    SessionLocal, _ = admin_db
+    from app.services.product_admin_service import ProductAdminService
+    with SessionLocal() as db:
+        with pytest.raises(AppError):
+            ProductAdminService(db).create_product_with_components(
+                {'vendor': 'ACME', 'technology': 'Test', 'sku': f'{PFX}NOCOMP', 'name': 'X'}, [])
+
+
 def test_list_products_filter(admin_db):
     SessionLocal, _ = admin_db
     from app.services.product_admin_service import ProductAdminService
