@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -450,6 +450,23 @@ async def unhandled_error_handler(request: Request, exc: Exception):
 @app.get('/health')
 def health_check():
     return {'status': 'ok'}
+
+@app.post('/csp-report', include_in_schema=False)
+async def csp_report(request: Request):
+    """Collect CSP violation reports during the Report-Only rollout.
+
+    The browser POSTs a report whenever the policy WOULD have blocked a
+    resource. We only log it (marker 'CSP-REPORT' for easy grep) so we can
+    widen the policy to cover real usage before switching CSP from Report-Only
+    to enforcing. Unauthenticated by necessity — the browser sends no creds.
+    Remove this once CSP is enforced and stable.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = (await request.body())[:2000].decode('utf-8', 'replace')
+    logger.warning('CSP-REPORT %s', payload)
+    return Response(status_code=204)
 
 
 app.include_router(auth_router)
