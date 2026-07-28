@@ -157,6 +157,7 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
     if refresh_token:
         AuthService(db).logout(refresh_token)
     clear_refresh_cookie(response)
+    response.headers['clear-site-data'] = '"cookies", "storage"'
     return MessageResponse(message='Logged out')
 
 
