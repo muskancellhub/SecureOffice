@@ -37,6 +37,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # No browser-level feature access. We're an API, not a page.
         response.headers.setdefault('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
 
+        response.headers.setdefault('Cache-Control', 'no-store')
+
+        response.headers.setdefault('Cross-Origin-Resource-Policy', 'same-origin')
+
         # Restrictive CSP — this backend never serves rendered HTML to users,
         # except the interactive API docs (Swagger UI / ReDoc), which load assets
         # from a CDN and run an inline bootstrap script. Those routes get a
